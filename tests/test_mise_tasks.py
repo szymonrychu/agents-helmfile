@@ -82,7 +82,7 @@ def _run_guard(tasks, tmp_path, context: str, env_extra: dict | None = None):
         '#!/bin/bash\nif [ "$1" = config ]; then echo "$FAKE_CTX"; exit 0; fi\nexit 0\n'
     )
     fake.chmod(0o755)
-    env = {k: v for k, v in os.environ.items() if k != "EXPECTED_KUBE_CONTEXT"}
+    env = {k: v for k, v in os.environ.items() if k not in ("EXPECTED_KUBE_CONTEXT", "BASH_ENV")}
     env.update({"PATH": f"{tmp_path}:{env['PATH']}", "FAKE_CTX": context, **(env_extra or {})})
     return subprocess.run(
         ["bash", "-c", _run(tasks["kube-context"])], capture_output=True, text=True, env=env
