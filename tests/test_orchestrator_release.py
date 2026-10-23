@@ -1,5 +1,10 @@
 """The agent-orchestrator release: chart pin, LAN-only ingress, ORCH env, secrets only encrypted."""
 
+import os
+import shutil
+import subprocess
+
+import pytest
 import yaml
 
 REL = "agent-orchestrator"
@@ -71,9 +76,34 @@ def test_orch_env_values(layered_values):
     assert v["image"]["tag"] not in ("", "latest")
 
 
+def _rendered_cnpg_app_secret(repo_root) -> str:
+    """Render the db release and derive CNPG's app Secret name: Cluster metadata.name + '-app'."""
+    if shutil.which("helmfile") is None:
+        pytest.fail("helmfile is not on PATH (run under `mise exec`/`mise run`)")
+    proc = subprocess.run(  # noqa: PLW1510
+        ["helmfile", "-f", "helmfile.yaml.gotmpl", "-l", "name=agent-orchestrator-db", "template"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "KUBECONFIG": "/dev/null"},
+    )
+    assert proc.returncode == 0, f"helmfile template failed:\n{proc.stderr}"
+    clusters = [
+        d
+        for d in yaml.safe_load_all(proc.stdout)
+        if isinstance(d, dict) and d.get("kind") == "Cluster"
+    ]
+    assert len(clusters) == 1, f"expected one CNPG Cluster, got {len(clusters)}"
+    return clusters[0]["metadata"]["name"] + "-app"
+
+
+def test_db_secret_matches_rendered_cnpg_cluster(layered_values, repo_root):
+    v = layered_values(REL)
+    assert v["postgres"]["existingSecret"] == _rendered_cnpg_app_secret(repo_root)
+
+
 def test_database_from_cnpg_secret(layered_values):
     v = layered_values(REL)
-    assert v["postgres"]["existingSecret"] == "agent-orchestrator-db-app"
     assert v["postgres"]["existingSecretKey"] == "uri"
     assert not v["postgres"].get("password") and not v["postgres"].get("url")
     assert not v.get("cnpg", {}).get("enabled")

@@ -25,7 +25,7 @@ cluster:
   monitoring:
     enabled: false
 
-  # CNPG generates the agent-orchestrator-db-app Secret (uri, host, port,
+  # CNPG generates the agent-orchestrator-db-cluster-app Secret (uri, host, port,
   # dbname, user, password); the agent-orchestrator release reads it.
   initdb:
     database: agent_orchestrator
