@@ -56,9 +56,7 @@ def test_script_never_prints_values():
             continue
         if re.search(r"\b(echo|printf)\b", stripped):
             assert not re.search(r"\$\{?(\w+)", stripped) or not any(
-                v in m.lower()
-                for m in re.findall(r"\$\{?(\w+)", stripped)
-                for v in SECRET_VARS
+                v in m.lower() for m in re.findall(r"\$\{?(\w+)", stripped) for v in SECRET_VARS
             ), f"prints a secret-bearing variable: {stripped}"
     r = subprocess.run(
         ["shellcheck", "--severity=error", str(SCRIPT)], capture_output=True, text=True, check=False
