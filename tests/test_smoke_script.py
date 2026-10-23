@@ -97,7 +97,7 @@ def _run(api, fakebin, mcp_list):
         "FAKE_MCP_LIST": mcp_list,
     }
     return subprocess.run(
-        ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+        ["bash", str(SCRIPT)], check=False, env=env, capture_output=True, text=True, timeout=60
     )
 
 
@@ -122,7 +122,7 @@ def test_missing_any_mcp_fails_and_cleans_up(api, fakebin):
 def test_script_is_strict_bounded_and_traps():
     src = SCRIPT.read_text()
     assert "set -euo pipefail" in src
-    assert re.search(r"^\s*trap\b.*EXIT", src, re.M)
+    assert re.search(r"^\s*trap\b.*EXIT", src, re.MULTILINE)
     assert "-X DELETE" in src
     assert "claude mcp list" in src and "any-mcp" in src
     curls = [
