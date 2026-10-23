@@ -85,7 +85,11 @@ def _run_guard(tasks, tmp_path, context: str, env_extra: dict | None = None):
     env = {k: v for k, v in os.environ.items() if k not in ("EXPECTED_KUBE_CONTEXT", "BASH_ENV")}
     env.update({"PATH": f"{tmp_path}:{env['PATH']}", "FAKE_CTX": context, **(env_extra or {})})
     return subprocess.run(
-        ["bash", "-c", _run(tasks["kube-context"])], capture_output=True, text=True, env=env
+        ["bash", "-c", _run(tasks["kube-context"])],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
     )
 
 
