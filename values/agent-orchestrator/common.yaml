@@ -19,7 +19,8 @@ env:
   # node's pod-network gateway (10.244.N.0 via flannel.1 from another node, 10.244.N.1 via cni0 on the same
   # node), not a 192.168.1.x node IP. Allow each node's podCIDR .0/31 (kubectl get nodes -o
   # jsonpath='{.items[*].spec.podCIDR}', one 10.244.N.0/24 per node); agent pods (.2 and up) stay refused.
-  # Update this list whenever nodes are added or removed. The ingress whitelist keeps access LAN-only.
+  # The list tracks the node set: one /31 per node, so adding or removing a node changes it. The ingress
+  # whitelist keeps access LAN-only.
   ORCH_ALLOWED_CIDRS: 10.244.0.0/31,10.244.1.0/31,10.244.2.0/31,10.244.3.0/31,10.244.4.0/31
   ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:ca2ddf3
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
