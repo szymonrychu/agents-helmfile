@@ -118,5 +118,5 @@ def test_hook_scripts_not_traced(repo_root):
     lines = (repo_root / ".hook.sh").read_text().splitlines()
     src = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
     assert not re.search(r"\bbash\s+-\w*x", src)
-    assert not re.search(r"^\s*set\s+-\w*x", src, re.M)
+    assert not re.search(r"^\s*set\s+-\w*x", src, re.MULTILINE)
     assert not re.search(r"set\s+-o\s+xtrace", src)

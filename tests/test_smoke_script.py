@@ -80,7 +80,7 @@ def fakebin(tmp_path):
         '  *" wait "*) exit 0 ;;\n'
         '  *"get pod"*) echo "pod/smoke-agent-0"; exit 0 ;;\n'
         '  *" exec "*) echo "$*" >> "$FAKE_KUBECTL_LOG" ;;\n'
-        '  *) ;;\n'
+        "  *) ;;\n"
         "esac\n"
         'case "$*" in\n'
         '  *"ls -d /sessions"*) printf "%s\\n" "$FAKE_SESSION_CFG"; exit 0 ;;\n'
