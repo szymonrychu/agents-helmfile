@@ -1,0 +1,5 @@
+global:
+  imagePullSecrets:
+    - name: regcred
+imagePullSecrets:
+  - name: regcred

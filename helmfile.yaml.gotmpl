@@ -1,0 +1,36 @@
+# All releases live in namespace `agents`, which helm creates on first install
+# (the hook also pre-creates it so raw/regcred.pre.secrets.yaml can land first).
+repositories:
+  - name: cnpg
+    url: https://cloudnative-pg.github.io/charts
+
+helmDefaults:
+  wait: true
+  syncArgs:
+    - --rollback-on-failure
+
+templates:
+  default: &default
+    missingFileHandler: Warn
+    hooks:
+    - events:
+      - prepare
+      - presync
+      - postsync
+      showlogs: true
+      command: ./.hook.sh
+      args:
+      - '{{`{{ exec "pwd" (list) }}`}}'
+      - '{{`{{ .Event.Name }}`}}'
+      - '{{`{{ .Release.Name }}`}}'
+      - '{{`{{ .Release.Namespace }}`}}'
+      - '{{`{{ .Release.Version }}`}}'
+      - '{{`{{ .Release.Timeout | default 600 }}`}}'
+    values:
+    - values/common.yaml
+    - values/{{`{{ .Release.Name }}`}}/common.yaml
+    - values/{{`{{ .Release.Name }}`}}/default.yaml
+    secrets:
+    - values/{{`{{ .Release.Name }}`}}/default.secrets.yaml
+
+releases: []
