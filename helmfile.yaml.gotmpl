@@ -33,4 +33,16 @@ templates:
     secrets:
     - values/{{`{{ .Release.Name }}`}}/default.secrets.yaml
 
-releases: []
+releases:
+  - name: agent-orchestrator-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    # helm --force would delete and recreate the Cluster CR and is incompatible
+    # with Helm 4 server-side apply.
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agent-orchestrator
+    <<: *default

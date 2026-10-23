@@ -1,6 +1,7 @@
 """Shared fixtures: real helmfile render and layered plain values."""
 
 import copy
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -39,6 +40,8 @@ def helmfile_build(repo_root):
             cwd=repo_root,
             capture_output=True,
             text=True,
+            # Hermetic: no reachable cluster, so the prepare hook skips its kubectl diff.
+            env={**os.environ, "KUBECONFIG": "/dev/null"},
         )
         # An empty `releases: []` skeleton exits 3 ("no releases found") but still renders.
         empty = proc.returncode == 3 and "no releases found" in proc.stderr

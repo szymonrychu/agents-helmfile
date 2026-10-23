@@ -21,7 +21,7 @@ def test_default_template_layers_values(repo_root, helmfile_build, layered_value
     ]
     assert doc["helmDefaults"]["wait"] is True
     assert doc["helmDefaults"]["syncArgs"] == ["--rollback-on-failure"]
-    assert doc["releases"] == []
+    assert "agent-orchestrator-db" in [r["name"] for r in doc["releases"]]
     default = doc["templates"]["default"]
     assert default["missingFileHandler"] == "Warn"
     assert default["values"] == [
