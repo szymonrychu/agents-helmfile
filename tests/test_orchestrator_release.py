@@ -145,3 +145,10 @@ def test_any_mcp_configured_for_new_sessions(layered_values):
     env = layered_values(REL)["env"]
     assert env["ORCH_ANY_MCP_REPO"] == "https://github.com/szymonrychu/any-mcp"
     assert env["ORCH_ANY_MCP_REF"] == "v0.1.0"
+
+
+def test_orchestrator_pin_is_d5a7738(helmfile_build, layered_values):
+    rel = _release(helmfile_build)
+    tag = layered_values(REL)["image"]["tag"]
+    assert rel["version"] == f"0.1.0-main.{tag}"
+    assert tag == "d5a7738"
