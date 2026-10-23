@@ -46,3 +46,22 @@ run = "uv run pytest"
 [tasks.fmt]
 description = "Format code"
 run = "uv run ruff format ."
+
+[tasks.kube-context]
+description = "Guard: a kube context is set and the API answers (prints only the context name)"
+run = """
+ctx=$(kubectl config current-context 2> /dev/null) || ctx=""
+if [ -z "$ctx" ]; then echo "no current kube context" >&2; exit 1; fi
+if ! kubectl version > /dev/null 2>&1; then echo "kube API unreachable via context $ctx" >&2; exit 1; fi
+echo "kube context: $ctx"
+"""
+
+[tasks.diff]
+description = "helmfile diff of namespace agents; exit 2 means changes (passed through). Extra args: -- --selector name=<release>"
+depends = ["kube-context"]
+run = 'helmfile -f helmfile.yaml.gotmpl diff --detailed-exitcode --suppress-secrets "$@"'
+
+[tasks.apply]
+description = "helmfile apply of namespace agents (guarded by lint and test). Extra args: -- --selector name=<release>"
+depends = ["lint", "test", "kube-context"]
+run = 'helmfile -f helmfile.yaml.gotmpl apply --suppress-secrets "$@"'
