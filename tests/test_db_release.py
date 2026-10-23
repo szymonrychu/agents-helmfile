@@ -53,3 +53,32 @@ def test_backups_enabled_with_own_path(layered_values):
 def test_no_credentials_in_plain_values(layered_values):
     s3 = layered_values(REL)["backups"]["s3"]
     assert "accessKey" not in s3 and "secretKey" not in s3
+
+
+def test_prepare_hook_skips_diff_when_namespace_missing(tmp_path):
+    """On a cluster without namespace agents, `prepare` has nothing to diff."""
+    import os
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    for name, body in {
+        "kubectl": (
+            'case "$1" in\n'
+            "  cluster-info) exit 0 ;;\n"
+            "  get) exit 1 ;;\n"
+            "  diff) echo 'namespaces not found' >&2; exit 2 ;;\n"
+            "esac\nexit 0\n"
+        ),
+        "sops": "echo 'kind: Secret'\n",
+    }.items():
+        (bindir / name).write_text("#!/bin/bash\n" + body)
+        (bindir / name).chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+    res = subprocess.run(
+        [str(root / ".hook.sh"), str(root), "prepare", "x", "agents", "1", "600"],
+        env=env, capture_output=True, text=True, cwd=root,
+    )
+    assert res.returncode == 0, res.stderr

@@ -107,6 +107,12 @@ apply_dir() {
     if [[ "${EVENT_NAME}" == "prepare" ]] && [[ "${CLUSTER_REACHABLE}" -eq 0 ]]; then
         return 0
     fi
+    # A namespace that does not exist yet (first install) has nothing live to diff.
+    if [[ "${EVENT_NAME}" == "prepare" ]] && [[ -n "${RELEASE_NAMESPACE}" ]] \
+        && ! kubectl get namespace "${RELEASE_NAMESPACE}" > /dev/null 2>&1; then
+        printf "Namespace '%s' does not exist yet; nothing to diff\n" "${RELEASE_NAMESPACE}"
+        return 0
+    fi
     while IFS= read -r -d '' f; do
         case "${mode}" in
             secrets) run_kubectl_secrets "${f}" ;;
