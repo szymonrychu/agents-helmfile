@@ -69,11 +69,16 @@ def test_ingress_denies_node_ips_allows_lan(layered_values):
 
 def test_orch_env_values(layered_values):
     v = layered_values(REL)
-    assert v["env"]["ORCH_ALLOWED_CIDRS"] == "192.168.1.0/24"
     assert v["env"]["ORCH_AGENT_IMAGES"] == IMAGE
     assert v["agentImage"] == IMAGE
     assert v["image"]["repository"] == "harbor.szymonrichert.pl/containers/agent-orchestrator"
     assert v["image"]["tag"] not in ("", "latest")
+
+
+def test_allowed_cidrs_are_node_pod_gateways(layered_values):
+    cidrs = layered_values(REL)["env"]["ORCH_ALLOWED_CIDRS"].split(",")
+    assert cidrs == [f"10.244.{n}.0/31" for n in range(5)]
+    assert "192.168.1.0/24" not in cidrs
 
 
 def _rendered_cnpg_app_secret(repo_root) -> str:
