@@ -79,6 +79,10 @@ def test_prepare_hook_skips_diff_when_namespace_missing(tmp_path):
     env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
     res = subprocess.run(
         [str(root / ".hook.sh"), str(root), "prepare", "x", "agents", "1", "600"],
-        env=env, capture_output=True, text=True, cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        cwd=root,
+        check=False,
     )
     assert res.returncode == 0, res.stderr
