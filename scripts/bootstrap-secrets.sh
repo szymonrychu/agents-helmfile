@@ -11,7 +11,7 @@ cd "$ROOT"
 ORCH_FILE="values/agent-orchestrator/default.secrets.yaml"
 DB_FILE="values/agent-orchestrator-db/default.secrets.yaml"
 TOKEN_KEY="CLAUDE_CODE_OAUTH_TOKEN"
-# tatara first, then magic-trainer, then mtg-engine (where the key lives today).
+# Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
 INFRA_HELMFILE="${INFRA_HELMFILE:-$HOME/Documents/infrastructure/code/helmfile}"
 DB_SOURCE="${DB_SOURCE:-$INFRA_HELMFILE/helmfiles/media/values/jellystat-database/default.secrets.yaml}"
