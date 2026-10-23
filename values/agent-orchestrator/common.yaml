@@ -9,7 +9,7 @@ agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:ca2ddf3
 # Connection URI from the CNPG app Secret made by the agent-orchestrator-db release.
 # No password in plain values.
 postgres:
-  existingSecret: agent-orchestrator-db-app
+  existingSecret: agent-orchestrator-db-cluster-app
   existingSecretKey: uri
 
 # masterKey.value and claude.token come from default.secrets.yaml (SOPS).
