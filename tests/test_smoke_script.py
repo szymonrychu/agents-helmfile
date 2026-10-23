@@ -135,6 +135,6 @@ def test_script_is_strict_bounded_and_traps():
         assert "--max-time" in line, line
 
 
-@pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck missing")
 def test_script_is_shellcheck_clean():
-    subprocess.run(["shellcheck", "--severity=error", str(SCRIPT)], check=True)
+    assert shutil.which("shellcheck"), "shellcheck must be installed"
+    subprocess.run(["shellcheck", str(SCRIPT)], check=True)
