@@ -88,7 +88,7 @@ def _run_prepare(repo_root, tmp_path, diff_stderr, diff_rc):
     raw = tmp_path / "raw"
     raw.mkdir()
     (raw / "regcred.pre.secrets.yaml").write_text("x: y\n")
-    # BASH_ENV startup files may re-prepend real tool shims ahead of the stubs.
+    # Drop BASH_ENV so shell startup files cannot put real tools ahead of the stubs.
     env = {k: v for k, v in os.environ.items() if k != "BASH_ENV"}
     env["PATH"] = f"{bindir}:{os.environ['PATH']}"
     return subprocess.run(  # noqa: PLW1510
