@@ -11,7 +11,7 @@ cd "$ROOT"
 
 ORCH_FILE="values/agent-orchestrator/default.secrets.yaml"
 DB_FILE="values/agent-orchestrator-db/default.secrets.yaml"
-TOKEN_KEY="CLAUDE_CODE_OAUTH_TOKEN"
+TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
 INFRA_HELMFILE="${INFRA_HELMFILE:-$HOME/Documents/infrastructure/code/helmfile}"
@@ -57,7 +57,7 @@ bootstrap_orchestrator() {
   local FOUND_NS FOUND_SECRET oauth_value key_value
   find_token_secret || die "no secret with key $TOKEN_KEY in namespaces: ${NAMESPACES[*]}"
   oauth_value="$(kubectl -n "$FOUND_NS" get secret "$FOUND_SECRET" \
-    -o jsonpath="{.data.$TOKEN_KEY}" | base64 -d)"
+    -o jsonpath="{.data['$TOKEN_KEY']}" | base64 -d)"
   [[ -n "$oauth_value" ]] || die "secret $FOUND_NS/$FOUND_SECRET holds an empty $TOKEN_KEY"
   key_value="$(openssl rand -hex 32)"
   OAUTH_VALUE="$oauth_value" KEY_VALUE="$key_value" \
