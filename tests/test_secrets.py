@@ -47,7 +47,7 @@ def test_secrets_files_encrypted_with_expected_keys(rel, keys):
 
 def test_script_never_prints_values():
     src = SCRIPT.read_text()
-    assert not re.search(r"^\s*set\s+-\w*x", src, re.M), "xtrace enabled"
+    assert not re.search(r"^\s*set\s+-\w*x", src, re.MULTILINE), "xtrace enabled"
     assert "set -euo pipefail" in src
     assert "bash -x" not in src
     for line in src.splitlines():

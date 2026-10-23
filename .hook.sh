@@ -46,11 +46,13 @@ DRIFT_DETECTED=0
 run_kubectl() {
     local file="${1}"
     if [[ "${EVENT_NAME}" == "prepare" ]]; then
+        local errf rc
+        errf="$(mktemp)"
         set +e
-        ${KUBECTL} -n "${RELEASE_NAMESPACE}" -f "${file}"
-        local rc=$?
+        ${KUBECTL} -n "${RELEASE_NAMESPACE}" -f "${file}" 2> "${errf}"
+        rc=$?
         set -e
-        handle_diff_rc "${rc}" "${file}"
+        handle_diff_rc "${rc}" "${file}" "${errf}"
     else
         ${KUBECTL} -n "${RELEASE_NAMESPACE}" -f "${file}"
     fi
@@ -59,18 +61,29 @@ run_kubectl() {
 run_kubectl_secrets() {
     local file="${1}"
     if [[ "${EVENT_NAME}" == "prepare" ]]; then
+        local errf rc
+        errf="$(mktemp)"
         set +e
-        sops -d "${file}" | ${KUBECTL} -n "${RELEASE_NAMESPACE}" -f -
-        local rc=$?
+        sops -d "${file}" | ${KUBECTL} -n "${RELEASE_NAMESPACE}" -f - 2> "${errf}"
+        rc=$?
         set -e
-        handle_diff_rc "${rc}" "${file}"
+        handle_diff_rc "${rc}" "${file}" "${errf}"
     else
         sops -d "${file}" | ${KUBECTL} -n "${RELEASE_NAMESPACE}" -f -
     fi
 }
 
+# A fresh cluster has no namespace yet, so `kubectl diff` of namespaced raw/
+# files exits rc=2 with `namespaces "X" not found`. That is not a failure:
+# presync creates the namespace and applies the file. Every other rc>1 aborts.
 handle_diff_rc() {
-    local rc="${1}" file="${2}"
+    local rc="${1}" file="${2}" errf="${3}"
+    cat "${errf}" >&2
+    if [[ "${rc}" -gt 1 ]] && grep -q "namespaces \"${RELEASE_NAMESPACE}\" not found" "${errf}"; then
+        printf "Namespace '%s' does not exist yet; '%s' will be created by presync\n" "${RELEASE_NAMESPACE}" "${file}"
+        rc=0
+    fi
+    rm -f "${errf}"
     if [[ "${rc}" -eq 1 ]]; then
         printf "Drift detected in '%s'\n" "${file}"
         DRIFT_DETECTED=1
