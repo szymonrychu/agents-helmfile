@@ -1,0 +1,112 @@
+"""The agent-orchestrator release: chart pin, LAN-only ingress, ORCH env, secrets only encrypted."""
+
+import yaml
+
+REL = "agent-orchestrator"
+IMAGE = "harbor.szymonrichert.pl/containers/claude-code-wrapper:ca2ddf3"
+NODE_IPS = [
+    "192.168.1.26/32",
+    "192.168.1.27/32",
+    "192.168.1.28/32",
+    "192.168.1.29/32",
+    "192.168.1.65/32",
+]
+
+
+def _release(helmfile_build):
+    for doc in helmfile_build():
+        for rel in doc.get("releases", []):
+            if rel["name"] == REL:
+                return rel
+    raise AssertionError(f"release {REL} not rendered")
+
+
+def _ann(layered_values):
+    return layered_values(REL)["ingress"]["annotations"]
+
+
+def test_release_chart_version_and_needs(helmfile_build):
+    rel = _release(helmfile_build)
+    assert rel["chart"] == "oci://harbor.szymonrichert.pl/charts/agent-orchestrator"
+    assert rel["version"]
+    assert rel["version"] != "latest"
+    assert rel["namespace"] == "agents"
+    assert rel["timeout"] == 600
+    assert "agents/agent-orchestrator-db" in " ".join(rel["needs"])
+    assert rel["labels"]["purpose"] == "agents"
+    assert rel["labels"]["application"] == "agent-orchestrator"
+
+
+def test_ingress_lan_only_no_auth(layered_values):
+    ing = layered_values(REL)["ingress"]
+    ann = ing["annotations"]
+    assert ing["enabled"] is True
+    assert ing["className"] == "nginx"
+    assert ann["cert-manager.io/cluster-issuer"] == "letsencrypt-prod"
+    assert ann["kubernetes.io/tls-acme"] == "true"
+    assert ann["nginx.ingress.kubernetes.io/proxy-read-timeout"] == "3600"
+    assert ann["nginx.ingress.kubernetes.io/proxy-send-timeout"] == "3600"
+    assert ing["hosts"][0]["host"] == "agents.szymonrichert.pl"
+    assert ing["tls"] == [
+        {"secretName": "agent-orchestrator-tls", "hosts": ["agents.szymonrichert.pl"]}
+    ]
+    for key in ann:
+        assert not any(bad in key for bad in ("auth-url", "auth-signin", "oauth2")), key
+
+
+def test_ingress_denies_node_ips_allows_lan(layered_values):
+    ing = layered_values(REL)["ingress"]
+    assert ing["denySourceRanges"] == NODE_IPS
+    assert ing["allowSourceRanges"] == ["192.168.1.0/24"]
+    # the chart renders the whitelist from allowSourceRanges; no hand-set duplicate
+    assert "nginx.ingress.kubernetes.io/whitelist-source-range" not in ing["annotations"]
+
+
+def test_orch_env_values(layered_values):
+    v = layered_values(REL)
+    assert v["env"]["ORCH_ALLOWED_CIDRS"] == "192.168.1.0/24"
+    assert v["env"]["ORCH_AGENT_IMAGES"] == IMAGE
+    assert v["agentImage"] == IMAGE
+    assert v["image"]["repository"] == "harbor.szymonrichert.pl/containers/agent-orchestrator"
+    assert v["image"]["tag"] not in ("", "latest")
+
+
+def test_database_from_cnpg_secret(layered_values):
+    v = layered_values(REL)
+    assert v["postgres"]["existingSecret"] == "agent-orchestrator-db-app"
+    assert v["postgres"]["existingSecretKey"] == "uri"
+    assert not v["postgres"].get("password") and not v["postgres"].get("url")
+    assert not v.get("cnpg", {}).get("enabled")
+
+
+def test_secrets_only_via_encrypted_files(layered_values, repo_root):
+    v = layered_values(REL)
+    assert not v.get("masterKey", {}).get("value")
+    assert not v.get("claude", {}).get("token")
+    for path in (repo_root / "values").rglob("*.yaml"):
+        if ".secrets." in path.name:
+            continue
+        doc = yaml.safe_load(path.read_text()) or {}
+        assert not _has_secret_key(doc), f"plain file {path} carries a token or master key"
+    enc = yaml.safe_load((repo_root / "values" / REL / "default.secrets.yaml").read_text())
+    assert enc["sops"]["pgp"]
+    assert str(enc["masterKey"]["value"]).startswith("ENC[")
+    assert str(enc["claude"]["token"]).startswith("ENC[")
+
+
+def _has_secret_key(node) -> bool:
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in ("token", "claudeOauthToken") and v:
+                return True
+            if k == "masterKey" and isinstance(v, dict) and v.get("value"):
+                return True
+            if _has_secret_key(v):
+                return True
+    return False
+
+
+def test_any_mcp_configured_for_new_sessions(layered_values):
+    env = layered_values(REL)["env"]
+    assert env["ORCH_ANY_MCP_REPO"] == "https://github.com/szymonrychu/any-mcp"
+    assert env["ORCH_ANY_MCP_REF"] == "v0.1.0"

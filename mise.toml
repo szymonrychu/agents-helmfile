@@ -1,0 +1,73 @@
+[tools]
+python = '3.12'
+uv = '0.13.1'
+jq = '1.8.1'
+gitleaks = '8.30.1'
+helm = '4.3.1'
+sops = '3.13.3'
+helmfile = '1.8.2'
+pre-commit = '4.7.0'
+kubectl = '1.33.13'
+kubectx = '0.11.0'
+stern = '1.34.0'
+shellcheck = '0.11.0'
+
+[tool_alias]
+kubectl = "aqua:kubernetes/kubernetes/kubectl"
+kubectx = "aqua:ahmetb/kubectx"
+stern = "aqua:stern/stern"
+
+[env]
+# Optional local overrides; an absent file is tolerated. Never committed.
+_.file = { path = ".env", redact = true }
+
+[hooks]
+postinstall = [
+    "helm plugin install https://github.com/jkroepke/helm-secrets/releases/download/v4.7.4/secrets-4.7.4.tgz --verify=false 2> /dev/null || true",
+    "helm plugin install https://github.com/jkroepke/helm-secrets/releases/download/v4.7.4/secrets-getter-4.7.4.tgz --verify=false 2> /dev/null || true",
+    "helm plugin install https://github.com/jkroepke/helm-secrets/releases/download/v4.7.4/secrets-post-renderer-4.7.4.tgz --verify=false 2> /dev/null || true",
+    "helm plugin install https://github.com/databus23/helm-diff --version v3.15.15 --verify=false 2> /dev/null || true",
+    "pre-commit install || true",
+]
+
+[tasks.lint]
+description = "Run ruff, shellcheck and gitleaks"
+run = """
+uv run ruff check . && uv run ruff format --check .
+files=$(git ls-files '*.sh' '.hook.sh')
+if [ -n "$files" ]; then echo "$files" | xargs shellcheck --severity=error; fi
+gitleaks detect --no-git --source . --redact
+"""
+
+[tasks.test]
+description = "Run tests"
+run = "uv run pytest"
+
+[tasks.fmt]
+description = "Format code"
+run = "uv run ruff format ."
+
+[tasks.kube-context]
+description = "Guard: current kube context is EXPECTED_KUBE_CONTEXT (default kubernetes-admin@kubernetes) and the API answers (prints only the context name)"
+run = """
+expected="${EXPECTED_KUBE_CONTEXT:-kubernetes-admin@kubernetes}"
+ctx=$(kubectl config current-context 2> /dev/null) || ctx=""
+if [ -z "$ctx" ]; then echo "no current kube context" >&2; exit 1; fi
+if [ "$ctx" != "$expected" ]; then echo "refusing: kube context $ctx is not the expected $expected (set EXPECTED_KUBE_CONTEXT to override)" >&2; exit 1; fi
+if ! kubectl version > /dev/null 2>&1; then echo "kube API unreachable via context $ctx" >&2; exit 1; fi
+echo "kube context: $ctx"
+"""
+
+[tasks.diff]
+description = "helmfile diff of namespace agents; exit 2 means changes (passed through). Extra args: -- --selector name=<release>"
+depends = ["kube-context"]
+run = 'helmfile -f helmfile.yaml.gotmpl diff --detailed-exitcode --suppress-secrets "$@"'
+
+[tasks.apply]
+description = "helmfile apply of namespace agents (guarded by lint and test). Extra args: -- --selector name=<release>"
+depends = ["lint", "test", "kube-context"]
+run = 'helmfile -f helmfile.yaml.gotmpl apply --suppress-secrets "$@"'
+
+[tasks.smoke]
+description = "Prove the deployed orchestrator: UI answers, a 1-replica cluster gets a Ready pod listing any-mcp (env HOST, NAMESPACE, SMOKE_TIMEOUT_S)"
+run = "bash scripts/smoke.sh"
