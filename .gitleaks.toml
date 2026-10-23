@@ -1,0 +1,12 @@
+# Default ruleset extended; allowlist only SOPS-encrypted paths.
+title = "agents-helmfile gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+  description = "SOPS-encrypted secret files"
+  paths = [
+    '''.*\.secrets\.yaml''',
+    '''.*\.secret\..*\.yaml''',
+  ]

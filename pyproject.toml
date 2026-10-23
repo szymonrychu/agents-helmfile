@@ -1,0 +1,19 @@
+[project]
+name = "agents-helmfile"
+version = "0.1.0"
+description = "Helmfile repo for the agents namespace"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest", "pyyaml", "ruff"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
