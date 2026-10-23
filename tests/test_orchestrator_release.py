@@ -4,7 +4,13 @@ import yaml
 
 REL = "agent-orchestrator"
 IMAGE = "harbor.szymonrichert.pl/containers/claude-code-wrapper:ca2ddf3"
-NODE_IPS = ["192.168.1.26/32", "192.168.1.27/32", "192.168.1.28/32", "192.168.1.29/32", "192.168.1.65/32"]
+NODE_IPS = [
+    "192.168.1.26/32",
+    "192.168.1.27/32",
+    "192.168.1.28/32",
+    "192.168.1.29/32",
+    "192.168.1.65/32",
+]
 
 
 def _release(helmfile_build):
@@ -41,7 +47,9 @@ def test_ingress_lan_only_no_auth(layered_values):
     assert ann["nginx.ingress.kubernetes.io/proxy-read-timeout"] == "3600"
     assert ann["nginx.ingress.kubernetes.io/proxy-send-timeout"] == "3600"
     assert ing["hosts"][0]["host"] == "agents.szymonrichert.pl"
-    assert ing["tls"] == [{"secretName": "agent-orchestrator-tls", "hosts": ["agents.szymonrichert.pl"]}]
+    assert ing["tls"] == [
+        {"secretName": "agent-orchestrator-tls", "hosts": ["agents.szymonrichert.pl"]}
+    ]
     for key in ann:
         assert not any(bad in key for bad in ("auth-url", "auth-signin", "oauth2")), key
 
