@@ -77,3 +77,17 @@ def test_gitleaks_clean():
         check=False,
     )
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_gitignore_covers_kube_and_decrypted_files():
+    for name in (
+        "kubeconfig",
+        "kubeconfig-homelab",
+        "admin.kubeconfig",
+        ".kube/config",
+        "ca.pem",
+        "tls.key",
+        "secrets.dec.yaml",
+        "x.decrypted.yaml",
+    ):
+        assert _git("check-ignore", "--no-index", name, check=False).returncode == 0, name

@@ -94,7 +94,7 @@ handle_diff_rc() {
 
 run_hook_script() {
     local script="${1}"
-    bash -xe "${script}" "${RELEASE_NAME}" "${RELEASE_NAMESPACE}" "${RELEASE_VERSION}"
+    bash -e "${script}" "${RELEASE_NAME}" "${RELEASE_NAMESPACE}" "${RELEASE_VERSION}"
 }
 
 # $1 dir, $2 find -name pattern, $3 mode: plain|secrets|hook

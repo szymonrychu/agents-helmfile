@@ -3,3 +3,10 @@
 __pycache__
 .pytest_cache
 .ruff_cache
+kubeconfig*
+*.kubeconfig
+.kube/
+*.pem
+*.key
+*.dec*
+*.decrypted*
