@@ -1,0 +1,52 @@
+image:
+  repository: harbor.szymonrichert.pl/containers/agent-orchestrator
+  # CI-published sha7 tag, equal to the chart appVersion.
+  tag: ccb7c04
+
+# claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE).
+agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:ca2ddf3
+
+# Connection URI from the CNPG app Secret made by the agent-orchestrator-db release.
+# No password in plain values.
+postgres:
+  existingSecret: agent-orchestrator-db-app
+  existingSecretKey: uri
+
+# masterKey.value and claude.token come from default.secrets.yaml (SOPS).
+
+env:
+  # The ingress controller runs on a node, so the whole LAN (nodes included) is allowed here;
+  # the ingress itself denies the node IPs (see ingress.denySourceRanges).
+  ORCH_ALLOWED_CIDRS: 192.168.1.0/24
+  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:ca2ddf3
+  # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
+  ORCH_ANY_MCP_REPO: https://github.com/szymonrychu/any-mcp
+  ORCH_ANY_MCP_REF: v0.1.0
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/tls-acme: "true"
+    # SSE streams stay open.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  # Cluster node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
+  denySourceRanges:
+    - 192.168.1.26/32
+    - 192.168.1.27/32
+    - 192.168.1.28/32
+    - 192.168.1.29/32
+    - 192.168.1.65/32
+  allowSourceRanges:
+    - 192.168.1.0/24
+  hosts:
+    - host: agents.szymonrichert.pl
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: agent-orchestrator-tls
+      hosts:
+        - agents.szymonrichert.pl

@@ -31,7 +31,7 @@ def _load(rel: str) -> dict:
 @pytest.mark.parametrize(
     ("rel", "keys"),
     [
-        (ORCH, {"claudeOauthToken", "masterKey"}),
+        (ORCH, {"claude.token", "masterKey.value"}),
         (DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
     ],
 )

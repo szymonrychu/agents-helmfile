@@ -46,3 +46,15 @@ releases:
       purpose: agents
       application: agent-orchestrator
     <<: *default
+
+  - name: agent-orchestrator
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agent-orchestrator
+    version: 0.1.0-main.ccb7c04
+    timeout: 600
+    needs:
+      - agents/agent-orchestrator-db
+    labels:
+      purpose: agents
+      application: agent-orchestrator
+    <<: *default

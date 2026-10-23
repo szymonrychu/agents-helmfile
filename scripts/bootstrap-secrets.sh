@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Creates the two SOPS-encrypted secrets files the releases need.
+# The orchestrator file has the chart values shape (claude.token, masterKey.value).
 # Values only ever travel between processes (pipes, env of a single command);
 # nothing is echoed, traced or written to disk unencrypted.
 # A target that already exists is never touched, so re-running never rotates.
@@ -60,7 +61,7 @@ bootstrap_orchestrator() {
   [[ -n "$oauth_value" ]] || die "secret $FOUND_NS/$FOUND_SECRET holds an empty $TOKEN_KEY"
   key_value="$(openssl rand -hex 32)"
   OAUTH_VALUE="$oauth_value" KEY_VALUE="$key_value" \
-    jq -n '{claudeOauthToken: $ENV.OAUTH_VALUE, masterKey: $ENV.KEY_VALUE}' |
+    jq -n '{claude: {token: $ENV.OAUTH_VALUE}, masterKey: {value: $ENV.KEY_VALUE}}' |
     encrypt_to "$ORCH_FILE"
 }
 
