@@ -79,6 +79,12 @@ def fakebin(tmp_path):
         'case "$*" in\n'
         '  *" wait "*) exit 0 ;;\n'
         '  *"get pod"*) echo "pod/smoke-agent-0"; exit 0 ;;\n'
+        '  *" exec "*) echo "$*" >> "$FAKE_KUBECTL_LOG" ;;\n'
+        '  *) ;;\n'
+        "esac\n"
+        'case "$*" in\n'
+        '  *"ls -d /sessions"*) printf "%s\\n" "$FAKE_SESSION_CFG"; exit 0 ;;\n'
+        '  *"any-mcp --version"*) printf "%s\\n" "$FAKE_VERSION"; exit 0 ;;\n'
         '  *" exec "*) printf "%s\\n" "$FAKE_MCP_LIST"; exit 0 ;;\n'
         "  *) exit 0 ;;\n"
         "esac\n"
@@ -87,7 +93,7 @@ def fakebin(tmp_path):
     return b
 
 
-def _run(api, fakebin, mcp_list):
+def _run(api, fakebin, mcp_list, version="any-mcp 0.1.0", session_cfg="/sessions/abc/config"):
     env = {
         **{k: v for k, v in os.environ.items() if k not in ("BASH_ENV", "ENV")},
         "PATH": f"{fakebin}:{os.environ['PATH']}",
@@ -95,6 +101,9 @@ def _run(api, fakebin, mcp_list):
         "SCHEME": "http",
         "SMOKE_TIMEOUT_S": "20",
         "FAKE_MCP_LIST": mcp_list,
+        "FAKE_VERSION": version,
+        "FAKE_SESSION_CFG": session_cfg,
+        "FAKE_KUBECTL_LOG": str(fakebin / "kubectl.log"),
     }
     return subprocess.run(
         ["bash", str(SCRIPT)], check=False, env=env, capture_output=True, text=True, timeout=60
@@ -116,6 +125,32 @@ def test_missing_any_mcp_fails_and_cleans_up(api, fakebin):
     r = _run(api, fakebin, "other-mcp: http://x - Connected")
     assert r.returncode != 0
     assert "other-mcp" in r.stdout + r.stderr
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_smoke_checks_session_config_dir(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: /opt/any-mcp/bin/any-mcp - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = (fakebin / "kubectl.log").read_text()
+    assert "CLAUDE_CONFIG_DIR=/sessions/abc/config" in log
+    assert "any-mcp --version" in log
+
+
+def test_any_mcp_not_connected_fails(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: /opt/any-mcp/bin/any-mcp - Failed to connect")
+    assert r.returncode != 0
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_wrong_any_mcp_version_fails(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", version="any-mcp 0.2.0")
+    assert r.returncode != 0
+    assert "0.1.0" in r.stdout + r.stderr
+
+
+def test_no_session_config_dir_fails(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", session_cfg="")
+    assert r.returncode != 0
     assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
 
 

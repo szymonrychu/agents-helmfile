@@ -70,12 +70,29 @@ if ! kubectl -n "$NAMESPACE" wait --for=condition=Ready "$pod" --timeout="${rema
 fi
 log "pod ${pod} is Ready"
 
-# 4. any-mcp must be preinstalled.
-mcp=$(kubectl -n "$NAMESPACE" exec "$pod" -- claude mcp list 2>&1) || true
-if ! echo "$mcp" | grep -q 'any-mcp'; then
-  echo "smoke: claude mcp list:" >&2
+# 4. any-mcp must be preinstalled. claude-code-wrapper writes MCP servers into
+# each session's own config dir (/sessions/<id>/config), so a bare
+# `claude mcp list` reads the wrong config; point CLAUDE_CONFIG_DIR at it.
+cfg=""
+while [ -z "$cfg" ]; do
+  cfg=$(kubectl -n "$NAMESPACE" exec "$pod" -- sh -c 'ls -d /sessions/*/config 2> /dev/null | head -n1' 2> /dev/null || true)
+  [ -n "$cfg" ] && break
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    fail "no /sessions/*/config dir in ${pod} within ${SMOKE_TIMEOUT_S}s"
+  fi
+  sleep 5
+done
+log "session config dir ${cfg}"
+mcp=$(kubectl -n "$NAMESPACE" exec "$pod" -- env "CLAUDE_CONFIG_DIR=${cfg}" claude mcp list 2>&1) || true
+if ! echo "$mcp" | grep 'any-mcp' | grep -q 'Connected'; then
+  echo "smoke: claude mcp list (CLAUDE_CONFIG_DIR=${cfg}):" >&2
   echo "$mcp" >&2
-  fail "any-mcp missing from claude mcp list"
+  fail "any-mcp not Connected in claude mcp list"
 fi
-log "claude mcp list shows any-mcp"
+log "claude mcp list shows any-mcp Connected"
+ver=$(kubectl -n "$NAMESPACE" exec "$pod" -- /opt/any-mcp/bin/any-mcp --version 2>&1) || true
+case "$ver" in
+  *0.1.0*) log "any-mcp version 0.1.0" ;;
+  *) fail "any-mcp --version is not 0.1.0: ${ver}" ;;
+esac
 log "OK"
