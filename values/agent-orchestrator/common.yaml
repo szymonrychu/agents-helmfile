@@ -1,10 +1,10 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agent-orchestrator
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: d5a7738
+  tag: f1baa5b
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE).
-agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:ca2ddf3
+agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:1ced775
 
 # Connection URI from the CNPG app Secret made by the agent-orchestrator-db release.
 # No password in plain values.
@@ -22,7 +22,9 @@ env:
   # The list tracks the node set: one /31 per node, so adding or removing a node changes it. The ingress
   # whitelist keeps access LAN-only.
   ORCH_ALLOWED_CIDRS: 10.244.0.0/31,10.244.1.0/31,10.244.2.0/31,10.244.3.0/31,10.244.4.0/31
-  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:ca2ddf3
+  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:1ced775
+  # WebSocket upgrades must carry an Origin in this list: the UI origin (the ingress host over https).
+  ORCH_ALLOWED_ORIGINS: https://agents.szymonrichert.pl
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
   ORCH_ANY_MCP_REPO: https://github.com/szymonrychu/any-mcp
   ORCH_ANY_MCP_REF: v0.1.0
