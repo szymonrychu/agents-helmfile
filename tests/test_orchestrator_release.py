@@ -1,6 +1,7 @@
 """The agent-orchestrator release: chart pin, LAN-only ingress, ORCH env, secrets only encrypted."""
 
 import os
+import re
 import shutil
 import subprocess
 
@@ -8,7 +9,6 @@ import pytest
 import yaml
 
 REL = "agent-orchestrator"
-IMAGE = "harbor.szymonrichert.pl/containers/claude-code-wrapper:ca2ddf3"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -69,8 +69,6 @@ def test_ingress_denies_node_ips_allows_lan(layered_values):
 
 def test_orch_env_values(layered_values):
     v = layered_values(REL)
-    assert v["env"]["ORCH_AGENT_IMAGES"] == IMAGE
-    assert v["agentImage"] == IMAGE
     assert v["image"]["repository"] == "harbor.szymonrichert.pl/containers/agent-orchestrator"
     assert v["image"]["tag"] not in ("", "latest")
 
@@ -147,8 +145,33 @@ def test_any_mcp_configured_for_new_sessions(layered_values):
     assert env["ORCH_ANY_MCP_REF"] == "v0.1.0"
 
 
-def test_orchestrator_pin_is_d5a7738(helmfile_build, layered_values):
-    rel = _release(helmfile_build)
+def _chart_version(repo_root) -> str:
+    """Read the release's chart version from the helmfile text, so no chart pull is needed."""
+    text = (repo_root / "helmfile.yaml.gotmpl").read_text()
+    match = re.search(
+        rf"- name: {REL}\n(?:(?!\n  - name:).)*?\n    version: (\S+)", text, re.DOTALL
+    )
+    assert match, f"no version found for release {REL}"
+    return match.group(1)
+
+
+def test_orchestrator_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
-    assert rel["version"] == f"0.1.0-main.{tag}"
-    assert tag == "d5a7738"
+    assert re.fullmatch(r"[0-9a-f]{7}", tag)
+    assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
+    assert tag == "be90ac8"
+
+
+def test_agent_image_pins_agree(layered_values):
+    v = layered_values(REL)
+    assert v["agentImage"] == v["env"]["ORCH_AGENT_IMAGES"]
+    repo, _, sha = v["agentImage"].rpartition(":")
+    assert repo == "harbor.szymonrichert.pl/containers/claude-code-wrapper"
+    assert re.fullmatch(r"[0-9a-f]{7}", sha)
+    assert sha == "e9ffa62"
+
+
+def test_allowed_origins_is_ingress_host(layered_values):
+    v = layered_values(REL)
+    host = v["ingress"]["hosts"][0]["host"]
+    assert v["env"]["ORCH_ALLOWED_ORIGINS"].split(",") == [f"https://{host}"]
