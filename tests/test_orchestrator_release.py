@@ -42,7 +42,10 @@ def test_release_chart_version_and_needs(helmfile_build):
     assert rel["labels"]["application"] == "agent-orchestrator"
 
 
-def test_ingress_lan_only_no_auth(layered_values):
+HOST = "lab.szymonrichert.pl"
+
+
+def test_ingress_lan_only_no_ingress_auth(layered_values):
     ing = layered_values(REL)["ingress"]
     ann = ing["annotations"]
     assert ing["enabled"] is True
@@ -51,10 +54,8 @@ def test_ingress_lan_only_no_auth(layered_values):
     assert ann["kubernetes.io/tls-acme"] == "true"
     assert ann["nginx.ingress.kubernetes.io/proxy-read-timeout"] == "3600"
     assert ann["nginx.ingress.kubernetes.io/proxy-send-timeout"] == "3600"
-    assert ing["hosts"][0]["host"] == "agents.szymonrichert.pl"
-    assert ing["tls"] == [
-        {"secretName": "agent-orchestrator-tls", "hosts": ["agents.szymonrichert.pl"]}
-    ]
+    assert ing["hosts"][0]["host"] == HOST
+    assert ing["tls"] == [{"secretName": "agent-orchestrator-tls", "hosts": [HOST]}]
     for key in ann:
         assert not any(bad in key for bad in ("auth-url", "auth-signin", "oauth2")), key
 
@@ -73,10 +74,30 @@ def test_orch_env_values(layered_values):
     assert v["image"]["tag"] not in ("", "latest")
 
 
-def test_allowed_cidrs_are_node_pod_gateways(layered_values):
-    cidrs = layered_values(REL)["env"]["ORCH_ALLOWED_CIDRS"].split(",")
-    assert cidrs == [f"10.244.{n}.0/31" for n in range(5)]
-    assert "192.168.1.0/24" not in cidrs
+def test_api_pod_behind_oauth2_proxy_webhook(layered_values):
+    assert layered_values(REL)["podAnnotations"] == {
+        "oauth2-proxy-admission/enable": "true",
+        "oauth2-proxy-admission/redeem-url": (
+            "http://keycloak.authentication.svc.cluster.local"
+            "/realms/master/protocol/openid-connect/token"
+        ),
+        "oauth2-proxy-admission/secret-name": "agent-orchestrator-proxy",
+        "oauth2-proxy-admission/secret-namespace": "agents",
+        # podAnnotations reach every component; only the api container gets the sidecar.
+        "oauth2-proxy-admission/patch-container-name": "api",
+    }
+
+
+def test_api_probes_target_port_number(layered_values):
+    api = layered_values(REL)["components"]["api"]
+    assert api["livenessProbe"] == {"httpGet": {"path": "/healthz", "port": 8000}}
+    assert api["readinessProbe"] == {"httpGet": {"path": "/readyz", "port": 8000}}
+
+
+def test_allowed_cidrs_only_the_sidecar(layered_values):
+    env = layered_values(REL)["env"]
+    assert env["ORCH_ALLOWED_CIDRS"] == "127.0.0.1/32"
+    assert env["ORCH_ALLOWED_ORIGINS"] == f"https://{HOST}"
 
 
 def _rendered_cnpg_app_secret(repo_root) -> str:
