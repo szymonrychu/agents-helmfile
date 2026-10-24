@@ -75,7 +75,8 @@ def test_orch_env_values(layered_values):
 
 
 def test_api_pod_behind_oauth2_proxy_webhook(layered_values):
-    assert layered_values(REL)["podAnnotations"] == {
+    v = layered_values(REL)
+    assert v["components"]["api"]["podAnnotations"] == {
         "oauth2-proxy-admission/enable": "true",
         "oauth2-proxy-admission/redeem-url": (
             "http://keycloak.authentication.svc.cluster.local"
@@ -83,9 +84,12 @@ def test_api_pod_behind_oauth2_proxy_webhook(layered_values):
         ),
         "oauth2-proxy-admission/secret-name": "agent-orchestrator-proxy",
         "oauth2-proxy-admission/secret-namespace": "agents",
-        # podAnnotations reach every component; only the api container gets the sidecar.
-        "oauth2-proxy-admission/patch-container-name": "api",
     }
+    # The webhook rejects annotated pods whose first container has no ports, so the
+    # port-less dispatcher/ingester/reconciler must not carry the annotations.
+    assert not any(k.startswith("oauth2-proxy-admission/") for k in v.get("podAnnotations", {}))
+    for comp in ("dispatcher", "ingester", "reconciler"):
+        assert not v["components"].get(comp, {}).get("podAnnotations")
 
 
 def test_api_probes_target_port_number(layered_values):
@@ -180,7 +184,7 @@ def test_orchestrator_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"[0-9a-f]{7}", tag)
     assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
-    assert tag == "be90ac8"
+    assert tag == "e67ed8f"
 
 
 def test_agent_image_pins_agree(layered_values):

@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agent-orchestrator
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: be90ac8
+  tag: e67ed8f
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE).
 agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:e9ffa62
@@ -28,18 +28,16 @@ env:
 
 # Keycloak SSO via the oauth2-proxy admission webhook (same shape as the infrastructure
 # helmfile's searxng/comfyui). The agent-orchestrator-proxy Secret is created by the
-# infrastructure repo's terraform/keycloak. podAnnotations land on every component;
-# patch-container-name limits the sidecar to the api container.
-podAnnotations:
-  oauth2-proxy-admission/enable: "true"
-  oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
-  oauth2-proxy-admission/secret-name: agent-orchestrator-proxy
-  oauth2-proxy-admission/secret-namespace: agents
-  oauth2-proxy-admission/patch-container-name: api
-
+# infrastructure repo's terraform/keycloak. Annotations go on the api pod only: the
+# webhook rejects annotated pods whose first container has no ports (the other three).
 # The webhook gives the port name `http` to its sidecar: probe the api port by number.
 components:
   api:
+    podAnnotations:
+      oauth2-proxy-admission/enable: "true"
+      oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
+      oauth2-proxy-admission/secret-name: agent-orchestrator-proxy
+      oauth2-proxy-admission/secret-namespace: agents
     livenessProbe:
       httpGet:
         path: /healthz
