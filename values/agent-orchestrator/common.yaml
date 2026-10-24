@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agent-orchestrator
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: e67ed8f
+  tag: 964db9a
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE).
 agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:e9ffa62
