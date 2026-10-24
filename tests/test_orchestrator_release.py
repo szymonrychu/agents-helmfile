@@ -159,7 +159,7 @@ def test_orchestrator_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"[0-9a-f]{7}", tag)
     assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
-    assert tag == "f1baa5b"
+    assert tag == "9ab0d60"
 
 
 def test_agent_image_pins_agree(layered_values):
