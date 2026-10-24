@@ -7,8 +7,11 @@ Postgres (`agent-orchestrator-db`) and the `agent-orchestrator` Helm chart.
 
 - Namespace: `agents` (created by helm on first install).
 - Releases: `agent-orchestrator-db` (CNPG database) and `agent-orchestrator`.
-- Host: `https://agents.szymonrichert.pl`. The ingress is LAN-only (allow-listed to
-  192.168.1.0/24) and has no authentication. Do not expose it elsewhere.
+- Host: `https://lab.szymonrichert.pl`. The ingress is LAN-only (allow-listed to
+  192.168.1.0/24) and the api pod sits behind Keycloak SSO: the cluster's oauth2-proxy
+  admission webhook injects a sidecar from pod annotations, reading the
+  `agent-orchestrator-proxy` Secret that the infrastructure repo's `terraform/keycloak`
+  creates. The api admits only 127.0.0.1 (that sidecar, or a `kubectl port-forward`).
 - Every new agent session starts with `any-mcp` preinstalled.
 
 ## Tooling
@@ -39,6 +42,7 @@ Applies are manual and local, run from this directory.
   `test` and `kube-context`, so a broken tree cannot be applied. Failed upgrades
   roll back (`helmDefaults`); the hook creates the regcred and raw manifests.
 - `mise run smoke` - proves the UI answers and that a fresh session lists `any-mcp`.
+  Without `HOST` it port-forwards to the api (the public host needs SSO).
 - `mise run kube-context` - guard used by diff and apply: fails unless a kube
   context is set and the API answers; prints only the context name.
 - `mise run fmt` - format code.

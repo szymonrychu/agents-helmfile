@@ -79,13 +79,14 @@ def fakebin(tmp_path):
         'case "$*" in\n'
         '  *" wait "*) exit 0 ;;\n'
         '  *"get pod"*) echo "pod/smoke-agent-0"; exit 0 ;;\n'
-        '  *" exec "*) echo "$*" >> "$FAKE_KUBECTL_LOG" ;;\n'
+        '  *" exec "*|*port-forward*) echo "$*" >> "$FAKE_KUBECTL_LOG" ;;\n'
         "  *) ;;\n"
         "esac\n"
         'case "$*" in\n'
         '  *"ls -d /sessions"*) printf "%s\\n" "$FAKE_SESSION_CFG"; exit 0 ;;\n'
         '  *"any-mcp --version"*) printf "%s\\n" "$FAKE_VERSION"; exit 0 ;;\n'
         '  *" exec "*) printf "%s\\n" "$FAKE_MCP_LIST"; exit 0 ;;\n'
+        "  *port-forward*) exec sleep 60 ;;\n"
         "  *) exit 0 ;;\n"
         "esac\n"
     )
@@ -93,12 +94,23 @@ def fakebin(tmp_path):
     return b
 
 
-def _run(api, fakebin, mcp_list, version="any-mcp 0.1.0", session_cfg="/sessions/abc/config"):
+def _run(
+    api,
+    fakebin,
+    mcp_list,
+    version="any-mcp 0.1.0",
+    session_cfg="/sessions/abc/config",
+    port_forward=False,
+):
+    target = (
+        {"SMOKE_LOCAL_PORT": str(api.port)}
+        if port_forward
+        else {"HOST": f"127.0.0.1:{api.port}", "SCHEME": "http"}
+    )
     env = {
-        **{k: v for k, v in os.environ.items() if k not in ("BASH_ENV", "ENV")},
+        **{k: v for k, v in os.environ.items() if k not in ("BASH_ENV", "ENV", "HOST", "SCHEME")},
         "PATH": f"{fakebin}:{os.environ['PATH']}",
-        "HOST": f"127.0.0.1:{api.port}",
-        "SCHEME": "http",
+        **target,
         "SMOKE_TIMEOUT_S": "20",
         "FAKE_MCP_LIST": mcp_list,
         "FAKE_VERSION": version,
@@ -173,3 +185,13 @@ def test_script_is_strict_bounded_and_traps():
 def test_script_is_shellcheck_clean():
     assert shutil.which("shellcheck"), "shellcheck must be installed"
     subprocess.run(["shellcheck", str(SCRIPT)], check=True)
+
+
+def test_default_target_is_a_port_forward_to_the_api(api, fakebin):
+    # The public host is behind SSO; the smoke reaches the api through a port-forward,
+    # which the api's source allowlist (127.0.0.1/32) admits.
+    r = _run(api, fakebin, "any-mcp: http://x - Connected", port_forward=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = (fakebin / "kubectl.log").read_text()
+    assert f"port-forward deploy/agent-orchestrator-api {api.port}:8000" in log
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()

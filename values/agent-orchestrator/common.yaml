@@ -15,19 +15,39 @@ postgres:
 # masterKey.value and claude.token come from default.secrets.yaml (SOPS).
 
 env:
-  # ingress-nginx is hostNetwork; on this flannel cluster its connection to the api pod arrives from the
-  # node's pod-network gateway (10.244.N.0 via flannel.1 from another node, 10.244.N.1 via cni0 on the same
-  # node), not a 192.168.1.x node IP. Allow each node's podCIDR .0/31 (kubectl get nodes -o
-  # jsonpath='{.items[*].spec.podCIDR}', one 10.244.N.0/24 per node); agent pods (.2 and up) stay refused.
-  # The list tracks the node set: one /31 per node, so adding or removing a node changes it. The ingress
-  # whitelist keeps access LAN-only.
-  ORCH_ALLOWED_CIDRS: 10.244.0.0/31,10.244.1.0/31,10.244.2.0/31,10.244.3.0/31,10.244.4.0/31
+  # The oauth2-proxy sidecar (podAnnotations below) is the only way in: it reaches the api over
+  # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods
+  # reach the api port only through the sidecar's SSO.
+  ORCH_ALLOWED_CIDRS: 127.0.0.1/32
   ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:e9ffa62
   # WebSocket upgrades must carry an Origin in this list: the UI origin (the ingress host over https).
-  ORCH_ALLOWED_ORIGINS: https://agents.szymonrichert.pl
+  ORCH_ALLOWED_ORIGINS: https://lab.szymonrichert.pl
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
   ORCH_ANY_MCP_REPO: https://github.com/szymonrychu/any-mcp
   ORCH_ANY_MCP_REF: v0.1.0
+
+# Keycloak SSO via the oauth2-proxy admission webhook (same shape as the infrastructure
+# helmfile's searxng/comfyui). The agent-orchestrator-proxy Secret is created by the
+# infrastructure repo's terraform/keycloak. podAnnotations land on every component;
+# patch-container-name limits the sidecar to the api container.
+podAnnotations:
+  oauth2-proxy-admission/enable: "true"
+  oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
+  oauth2-proxy-admission/secret-name: agent-orchestrator-proxy
+  oauth2-proxy-admission/secret-namespace: agents
+  oauth2-proxy-admission/patch-container-name: api
+
+# The webhook gives the port name `http` to its sidecar: probe the api port by number.
+components:
+  api:
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8000
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 8000
 
 ingress:
   enabled: true
@@ -48,11 +68,11 @@ ingress:
   allowSourceRanges:
     - 192.168.1.0/24
   hosts:
-    - host: agents.szymonrichert.pl
+    - host: lab.szymonrichert.pl
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: agent-orchestrator-tls
       hosts:
-        - agents.szymonrichert.pl
+        - lab.szymonrichert.pl

@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 # End-to-end smoke of a deployed agent-orchestrator: UI answers, a 1-replica
 # cluster yields a Ready pod, and that pod's `claude mcp list` shows any-mcp.
-# Parameters by env: HOST, NAMESPACE, SMOKE_TIMEOUT_S (SCHEME for tests only).
+# Parameters by env: HOST, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT (SCHEME for tests only).
+# Without HOST it port-forwards to the api: the public host is behind SSO, and the api's
+# source allowlist admits only 127.0.0.1 (the oauth2-proxy sidecar, or a port-forward).
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
-HOST="${HOST:-agents.szymonrichert.pl}"
 NAMESPACE="${NAMESPACE:-agents}"
 SMOKE_TIMEOUT_S="${SMOKE_TIMEOUT_S:-600}"
+PF_PID=""
+if [ -z "${HOST:-}" ]; then
+  HOST="127.0.0.1:${SMOKE_LOCAL_PORT:-18000}"
+  SCHEME=http
+  kubectl -n "$NAMESPACE" port-forward deploy/agent-orchestrator-api "${HOST#*:}:8000" > /dev/null 2>&1 &
+  PF_PID=$!
+fi
 BASE="${SCHEME:-https}://${HOST}"
 SLUG="smoke-$(date +%s)"
 CLUSTER_ID=""
@@ -28,9 +36,18 @@ cleanup() {
       echo "smoke: cleanup failed, API unreachable; delete cluster '${SLUG}' (id ${CLUSTER_ID}) manually" >&2
     fi
   fi
+  [ -n "$PF_PID" ] && kill "$PF_PID" 2> /dev/null
   exit "$rc"
 }
 trap cleanup EXIT
+
+# 0. The port-forward, when used, is up.
+if [ -n "$PF_PID" ]; then
+  for _ in $(seq 1 20); do
+    curl -s --max-time 2 -o /dev/null "${BASE}/healthz" && break
+    sleep 1
+  done
+fi
 
 # 1. UI and API contract document answer.
 page=$(curl -fsS --max-time 20 "${BASE}/") || fail "UI ${BASE}/ not reachable"
