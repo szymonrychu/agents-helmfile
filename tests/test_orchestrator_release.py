@@ -190,10 +190,10 @@ def test_orchestrator_pin_matches_image(repo_root, layered_values):
 def test_agent_image_pins_agree(layered_values):
     v = layered_values(REL)
     assert v["agentImage"] == v["env"]["ORCH_AGENT_IMAGES"]
-    repo, _, sha = v["agentImage"].rpartition(":")
+    repo, _, tag = v["agentImage"].rpartition(":")
     assert repo == "harbor.szymonrichert.pl/containers/claude-code-wrapper"
-    assert re.fullmatch(r"[0-9a-f]{7}", sha)
-    assert sha == "1f64e9f"
+    # Release tag, not a sha7: Harbor prunes the sha7 tags.
+    assert tag == "0.2.0"
 
 
 def test_allowed_origins_is_ingress_host(layered_values):
