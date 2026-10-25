@@ -311,7 +311,7 @@ def test_init_scripts_failed_fails_and_cleans_up(api, fakebin):
     assert r.returncode != 0
     out = r.stdout + r.stderr
     assert "BackoffLimitExceeded" in out
-    assert "7" in out
+    assert "exit_code=7" in out
     assert "boom" in out
     assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
 
