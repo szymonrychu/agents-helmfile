@@ -1,24 +1,32 @@
 #!/usr/bin/env bash
-# End-to-end smoke of a deployed agent-orchestrator: UI answers, a 1-replica hive cluster (cap 2)
+# End-to-end smoke of a deployed agent-orchestrator and its UI: the UI (agents-web release) answers with the agents-web index and a
+# config.json listing the orchestrator backend, the host routes / to agents-web and /api to the orchestrator, a 1-replica hive cluster (cap 2)
 # with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
 # it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives),
 # and the public scale route grows the cluster to 2 pods and back to 1 without restarting pod-0.
-# Parameters by env: HOST, RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT (SCHEME for tests only).
-# Without HOST it port-forwards to the api: the public host is behind SSO, and the api's
+# Parameters by env: HOST, RELEASE, WEB_RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT,
+# SMOKE_WEB_LOCAL_PORT (SCHEME for tests only).
+# Without HOST it port-forwards the UI to deploy/agents-web (the nginx container, bypassing the SSO sidecar) and the API to the orchestrator: the public host is behind SSO, and the api's
 # source allowlist admits only 127.0.0.1 (the oauth2-proxy sidecar, or a port-forward).
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-agents}"
 SMOKE_TIMEOUT_S="${SMOKE_TIMEOUT_S:-600}"
+WEB_RELEASE="${WEB_RELEASE:-agents-web}"
 PF_PID=""
+WEB_PF_PID=""
 if [ -z "${HOST:-}" ]; then
   HOST="127.0.0.1:${SMOKE_LOCAL_PORT:-18000}"
+  WEB_HOST="127.0.0.1:${SMOKE_WEB_LOCAL_PORT:-18080}"
   SCHEME=http
+  kubectl -n "$NAMESPACE" port-forward "deploy/${WEB_RELEASE}" "${WEB_HOST#*:}:8080" > /dev/null 2>&1 &
+  WEB_PF_PID=$!
   kubectl -n "$NAMESPACE" port-forward deploy/agent-orchestrator-api "${HOST#*:}:8000" > /dev/null 2>&1 &
   PF_PID=$!
 fi
 BASE="${SCHEME:-https}://${HOST}"
+WEB_BASE="${SCHEME:-https}://${WEB_HOST:-$HOST}"
 SLUG="smoke-$(date +%s)"
 CLUSTER_ID=""
 
@@ -39,6 +47,7 @@ cleanup() {
     fi
   fi
   [ -n "$PF_PID" ] && kill "$PF_PID" 2> /dev/null
+  [ -n "$WEB_PF_PID" ] && kill "$WEB_PF_PID" 2> /dev/null
   exit "$rc"
 }
 trap cleanup EXIT
@@ -50,13 +59,25 @@ if [ -n "$PF_PID" ]; then
     sleep 1
   done
 fi
+if [ -n "$WEB_PF_PID" ]; then
+  for _ in $(seq 1 20); do
+    curl -s --max-time 2 -o /dev/null "${WEB_BASE}/" && break
+    sleep 1
+  done
+fi
 
-# 1. UI and API contract document answer.
-page=$(curl -fsS --max-time 20 "${BASE}/") || fail "UI ${BASE}/ not reachable"
+# 1. UI (agents-web) and its runtime config answer.
+page=$(curl -fsS --max-time 20 "${WEB_BASE}/") || fail "UI ${WEB_BASE}/ not reachable"
 case "$page" in
-  *"<"*">"*) log "UI answers with HTML" ;;
-  *) fail "UI body is not HTML" ;;
+  *'<div id="root">'*) log "UI answers with the agents-web index" ;;
+  *) fail "UI body is not the agents-web index (no <div id=\"root\">; an SSO page?)" ;;
 esac
+web_cfg=$(curl -fsS --max-time 20 "${WEB_BASE}/config.json") || fail "UI ${WEB_BASE}/config.json not reachable"
+echo "$web_cfg" | jq -e '[.backends[]? | select(.id == "orchestrator" and .basePath == "/api/v1")] | length > 0' > /dev/null ||
+  fail "config.json lists no backend orchestrator with basePath /api/v1: ${web_cfg}"
+log "config.json lists backend orchestrator at /api/v1"
+
+# 1a. API contract document answers.
 curl -fsS --max-time 20 -o /dev/null "${BASE}/api/v1/openapi.json" || fail "openapi.json not reachable"
 log "openapi.json answers"
 
@@ -65,12 +86,22 @@ AGENTS_SVC="${RELEASE:-agent-orchestrator}-agents"
 agents_port=$(kubectl -n "$NAMESPACE" get service "$AGENTS_SVC" -o 'jsonpath={.spec.ports[0].port}' 2> /dev/null) ||
   fail "Service ${AGENTS_SVC} not found in ${NAMESPACE}"
 [ "$agents_port" = "8001" ] || fail "Service ${AGENTS_SVC} port is ${agents_port}, expected 8001"
-backends=$(kubectl -n "$NAMESPACE" get ingress -o 'jsonpath={.items[*].spec.rules[*].http.paths[*].backend.service.name}') ||
+# shellcheck disable=SC2016  # go-template, not shell expansion
+routes=$(kubectl -n "$NAMESPACE" get ingress -o 'go-template={{range .items}}{{range .spec.rules}}{{$h := .host}}{{range .http.paths}}{{$h}} {{.path}} {{.backend.service.name}}{{"\n"}}{{end}}{{end}}{{end}}') ||
   fail "cannot list ingresses in ${NAMESPACE}"
-case " ${backends} " in
+case " $(echo "$routes" | awk '{print $3}' | tr '\n' ' ') " in
   *" ${AGENTS_SVC} "*) fail "Service ${AGENTS_SVC} is an ingress backend" ;;
 esac
 log "Service ${AGENTS_SVC} on 8001, not an ingress backend"
+# Path routing of the public host (when any Ingress exists): / to the UI, /api to the orchestrator.
+if [ -n "$(echo "$routes" | tr -d '[:space:]')" ]; then
+  route_host=lab.szymonrichert.pl
+  echo "$routes" | grep -Fxq "${route_host} / ${WEB_RELEASE}" ||
+    fail "Ingress host ${route_host} does not route / to Service ${WEB_RELEASE}"
+  echo "$routes" | grep -Fxq "${route_host} /api ${RELEASE:-agent-orchestrator}" ||
+    fail "Ingress host ${route_host} does not route /api to Service ${RELEASE:-agent-orchestrator}"
+  log "Ingress ${route_host}: / to ${WEB_RELEASE}, /api to ${RELEASE:-agent-orchestrator}"
+fi
 
 # 2. Create a 1-replica cluster with cap 2 (a hive) and an init script (the smoke makes its own, never touches existing ones) through the public API.
 body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 1, max_replicas: 2, init_scripts: ["echo smoke-init"]}}')

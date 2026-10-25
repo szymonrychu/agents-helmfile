@@ -50,11 +50,21 @@ releases:
   - name: agent-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agent-orchestrator
-    version: 0.1.0-main.3b9926d
+    version: 0.1.0-main.a4be86b
     timeout: 600
     needs:
       - agents/agent-orchestrator-db
     labels:
       purpose: agents
       application: agent-orchestrator
+    <<: *default
+
+  - name: agents-web
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-web
+    version: 0.1.0-main.db1f482
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-web
     <<: *default
