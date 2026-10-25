@@ -1,4 +1,5 @@
-"""The agent-orchestrator release: chart pin, LAN-only ingress, ORCH env, secrets only encrypted."""
+"""The agents-orchestrator release (and the retired agent-orchestrator): chart pin, ingress, ORCH env,
+secrets only encrypted."""
 
 import os
 import re
@@ -8,7 +9,9 @@ import subprocess
 import pytest
 import yaml
 
-REL = "agent-orchestrator"
+REL = "agents-orchestrator"
+OLD_REL = "agent-orchestrator"
+PIN = "bba074f"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -32,14 +35,14 @@ def _ann(layered_values):
 
 def test_release_chart_version_and_needs(helmfile_build):
     rel = _release(helmfile_build)
-    assert rel["chart"] == "oci://harbor.szymonrichert.pl/charts/agent-orchestrator"
+    assert rel["chart"] == "oci://harbor.szymonrichert.pl/charts/agents-orchestrator"
     assert rel["version"]
     assert rel["version"] != "latest"
     assert rel["namespace"] == "agents"
     assert rel["timeout"] == 600
-    assert "agents/agent-orchestrator-db" in " ".join(rel["needs"])
+    assert rel["needs"] == ["agents/agents-orchestrator-db"]
     assert rel["labels"]["purpose"] == "agents"
-    assert rel["labels"]["application"] == "agent-orchestrator"
+    assert rel["labels"]["application"] == "agents-orchestrator"
 
 
 HOST = "lab.szymonrichert.pl"
@@ -55,7 +58,7 @@ def test_ingress_lan_only_no_ingress_auth(layered_values):
     assert ann["nginx.ingress.kubernetes.io/proxy-read-timeout"] == "3600"
     assert ann["nginx.ingress.kubernetes.io/proxy-send-timeout"] == "3600"
     assert ing["hosts"][0]["host"] == HOST
-    assert ing["tls"] == [{"secretName": "agent-orchestrator-tls", "hosts": [HOST]}]
+    assert ing["tls"] == [{"secretName": "agents-orchestrator-tls", "hosts": [HOST]}]
     for key in ann:
         assert not any(bad in key for bad in ("auth-url", "auth-signin", "oauth2")), key
 
@@ -70,8 +73,10 @@ def test_ingress_denies_node_ips_not_lan_only(layered_values):
 
 def test_orch_env_values(layered_values):
     v = layered_values(REL)
-    assert v["image"]["repository"] == "harbor.szymonrichert.pl/containers/agent-orchestrator"
+    assert v["image"]["repository"] == "harbor.szymonrichert.pl/containers/agents-orchestrator"
     assert v["image"]["tag"] not in ("", "latest")
+    # D2 renamed the unit settings (ORCH_MAX_SESSIONS); only the Kubernetes ORCH_CLUSTER_DOMAIN keeps it.
+    assert not [k for k in v["env"] if "CLUSTER" in k and k != "ORCH_CLUSTER_DOMAIN"]
 
 
 def test_api_pod_behind_oauth2_proxy_webhook(layered_values):
@@ -82,7 +87,7 @@ def test_api_pod_behind_oauth2_proxy_webhook(layered_values):
             "http://keycloak.authentication.svc.cluster.local"
             "/realms/master/protocol/openid-connect/token"
         ),
-        "oauth2-proxy-admission/secret-name": "agent-orchestrator-proxy",
+        "oauth2-proxy-admission/secret-name": "agents-orchestrator-proxy",
         "oauth2-proxy-admission/secret-namespace": "agents",
     }
     # The webhook rejects annotated pods whose first container has no ports, so the
@@ -109,7 +114,7 @@ def _rendered_cnpg_app_secret(repo_root) -> str:
     if shutil.which("helmfile") is None:
         pytest.fail("helmfile is not on PATH (run under `mise exec`/`mise run`)")
     proc = subprocess.run(  # noqa: PLW1510
-        ["helmfile", "-f", "helmfile.yaml.gotmpl", "-l", "name=agent-orchestrator-db", "template"],
+        ["helmfile", "-f", "helmfile.yaml.gotmpl", "-l", "name=agents-orchestrator-db", "template"],
         cwd=repo_root,
         capture_output=True,
         text=True,
@@ -128,6 +133,7 @@ def _rendered_cnpg_app_secret(repo_root) -> str:
 def test_db_secret_matches_rendered_cnpg_cluster(layered_values, repo_root):
     v = layered_values(REL)
     assert v["postgres"]["existingSecret"] == _rendered_cnpg_app_secret(repo_root)
+    assert v["postgres"]["existingSecret"] == "agents-orchestrator-db-cluster-app"
 
 
 def test_database_from_cnpg_secret(layered_values):
@@ -167,15 +173,21 @@ def _has_secret_key(node) -> bool:
 def test_any_mcp_configured_for_new_sessions(layered_values):
     env = layered_values(REL)["env"]
     assert env["ORCH_ANY_MCP_REPO"] == "https://github.com/szymonrychu/any-mcp"
-    assert env["ORCH_ANY_MCP_REF"] == "v0.2.0"
+    assert env["ORCH_ANY_MCP_REF"] == "v0.3.0"
+
+
+def _release_block(repo_root, name: str) -> str:
+    """The literal release block from the helmfile text, so no chart pull is needed."""
+    text = (repo_root / "helmfile.yaml.gotmpl").read_text()
+    match = re.search(
+        rf"^  - name: {name}\n(?:(?!\n  - name:|\n\n).)*", text, re.DOTALL | re.MULTILINE
+    )
+    assert match, f"release {name} not declared"
+    return match.group(0)
 
 
 def _chart_version(repo_root) -> str:
-    """Read the release's chart version from the helmfile text, so no chart pull is needed."""
-    text = (repo_root / "helmfile.yaml.gotmpl").read_text()
-    match = re.search(
-        rf"- name: {REL}\n(?:(?!\n  - name:).)*?\n    version: (\S+)", text, re.DOTALL
-    )
+    match = re.search(r"^    version: (\S+)$", _release_block(repo_root, REL), re.MULTILINE)
     assert match, f"no version found for release {REL}"
     return match.group(1)
 
@@ -184,15 +196,15 @@ def test_orchestrator_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"[0-9a-f]{7}", tag)
     assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
-    assert tag == "a3c1b9d"
+    assert tag == PIN
 
 
 def test_service_token_file_listed(helmfile_build, layered_values):
     secrets = _release(helmfile_build).get("secrets", [])
     names = [s if isinstance(s, str) else s.get("path", "") for s in secrets]
-    token = "values/agent-orchestrator/service-token-agents-webhook.secrets.yaml"
+    token = f"values/{REL}/service-token-agents-webhook.secrets.yaml"
     assert token in names
-    default = "values/agent-orchestrator/default.secrets.yaml"
+    default = f"values/{REL}/default.secrets.yaml"
     assert default in names and names.index(token) > names.index(default)
     assert layered_values(REL)["serviceApi"]["port"] == 8002
 
@@ -215,3 +227,35 @@ def test_allowed_origins_is_ingress_host(layered_values):
 def test_orchestrator_ingress_path_is_api(layered_values):
     hosts = layered_values(REL)["ingress"]["hosts"]
     assert hosts == [{"host": HOST, "paths": [{"path": "/api", "pathType": "Prefix"}]}]
+
+
+def test_old_release_uninstalled(repo_root):
+    # Declared with nothing but its identity and installed: false, so apply uninstalls it
+    # (design D7) without rendering values or decrypting secrets.
+    text = _release_block(repo_root, OLD_REL)
+    assert "*default" not in text, "the old release still merges the default template"
+    block = yaml.safe_load(text)
+    assert block == [
+        {
+            "name": OLD_REL,
+            "namespace": "agents",
+            "chart": f"oci://harbor.szymonrichert.pl/charts/{OLD_REL}",
+            "installed": False,
+        }
+    ]
+
+
+def test_values_dir_moved(repo_root):
+    def tracked(path: str) -> list[str]:
+        out = subprocess.run(
+            ["git", "ls-files", path], cwd=repo_root, capture_output=True, text=True, check=True
+        )
+        return out.stdout.split()
+
+    assert tracked(f"values/{OLD_REL}") == []
+    assert not (repo_root / "values" / OLD_REL).exists()
+    assert sorted(tracked(f"values/{REL}")) == [
+        f"values/{REL}/common.yaml",
+        f"values/{REL}/default.secrets.yaml",
+        f"values/{REL}/service-token-agents-webhook.secrets.yaml",
+    ]

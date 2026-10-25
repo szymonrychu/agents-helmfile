@@ -11,7 +11,7 @@ import yaml
 
 REL = "agents-webhook"
 DB_REL = "agents-webhook-db"
-SHA = "206cf8e"
+SHA = "838ba1f"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
     "192.168.1.26/32",
@@ -48,7 +48,7 @@ def test_webhook_pin_and_needs(repo_root, layered_values):
     assert layered_values(REL)["image"]["tag"] == SHA
     assert _field(block, "namespace") == "agents"
     assert "- agents/agents-webhook-db" in block
-    assert "- agents/agent-orchestrator\n" in block + "\n"
+    assert "- agents/agents-orchestrator\n" in block + "\n"
     assert "application: agents-webhook" in block
     db = _block(repo_root, DB_REL)
     assert _field(db, "chart") == "cnpg/cluster"
@@ -60,10 +60,10 @@ def test_webhook_pin_and_needs(repo_root, layered_values):
 
 def test_sso_on_api_only(layered_values):
     comps = layered_values(REL)["components"]
-    orch = layered_values("agent-orchestrator")["components"]["api"]["podAnnotations"]
+    orch = layered_values("agents-orchestrator")["components"]["api"]["podAnnotations"]
     assert comps["api"]["podAnnotations"] == orch
     assert comps["api"]["podAnnotations"]["oauth2-proxy-admission/secret-name"] == (
-        "agent-orchestrator-proxy"
+        "agents-orchestrator-proxy"
     )
     assert comps["ingest"]["podAnnotations"] == {}
     assert not comps.get("worker", {}).get("podAnnotations")
@@ -75,7 +75,7 @@ def test_database_and_orchestrator_wiring(layered_values):
     assert v["postgres"]["existingSecret"] == "agents-webhook-db-cluster-app"
     assert v["postgres"]["existingSecretKey"] == "uri"
     assert not v["postgres"].get("url")
-    assert v["orchestrator"]["url"] == "http://agent-orchestrator-services:8002"
+    assert v["orchestrator"]["url"] == "http://agents-orchestrator-services:8002"
     assert v["publicBaseUrl"] == f"https://{HOST}"
     assert v["trustedProxies"] == TRUSTED
     for cidr in v["trustedProxies"]:
@@ -88,7 +88,7 @@ def test_ingress_host_and_tls(layered_values):
     assert ing["enabled"] is True
     assert ing["className"] == "nginx"
     assert ing["host"] == HOST
-    assert ing["tls"] == {"secretName": "agent-orchestrator-tls"}
+    assert ing["tls"] == {"secretName": "agents-orchestrator-tls"}
     assert ing["denySourceRanges"] == NODE_IPS
     for key in ("annotations", "ingestAnnotations"):
         assert not any("cert-manager" in k or "tls-acme" in k for k in ing.get(key, {}))
@@ -104,7 +104,7 @@ def test_db_values_match_orchestrator_db_shape(layered_values):
     v = layered_values(DB_REL)
     assert v["cluster"]["initdb"] == {"database": "agents_webhook", "owner": "agents_webhook"}
     assert v["backups"]["s3"]["path"] == "/agents-webhook-db/"
-    orch = layered_values("agent-orchestrator-db")
+    orch = layered_values("agents-orchestrator-db")
     for key in ("storage", "walStorage"):
         assert v["cluster"][key] == orch["cluster"][key]
     assert v["backups"]["s3"]["bucket"] == orch["backups"]["s3"]["bucket"]

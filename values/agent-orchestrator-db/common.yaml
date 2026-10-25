@@ -3,6 +3,10 @@ version:
   postgresql: "16"
 
 cluster:
+  # Kept hibernated as the pre-rename copy (PVCs and S3 backups retained). Delete
+  # only on a user decision; remove this annotation to wake it.
+  annotations:
+    cnpg.io/hibernation: "on"
   enablePDB: false
   instances: 1
   storage:
@@ -40,8 +44,4 @@ backups:
     path: /agent-orchestrator-db/
     # accessKey / secretKey come from default.secrets.yaml (SOPS)
   retentionPolicy: "30d"
-  scheduledBackups:
-    - name: daily-backup
-      schedule: "0 0 3 * * *"
-      backupOwnerReference: self
-      method: barmanObjectStore
+  scheduledBackups: []

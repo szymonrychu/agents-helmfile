@@ -47,21 +47,39 @@ releases:
       application: agent-orchestrator
     <<: *default
 
+  - name: agents-orchestrator-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    # Imports the data of agent-orchestrator-db (design D1); the old release stays.
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-orchestrator
+    <<: *default
+
+  # Retired by the rename to agents-orchestrator (design D7): apply uninstalls it.
   - name: agent-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agent-orchestrator
-    version: 0.1.0-main.a3c1b9d
+    installed: false
+
+  - name: agents-orchestrator
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-orchestrator
+    version: 0.1.0-main.bba074f
     timeout: 600
     needs:
-      - agents/agent-orchestrator-db
+      - agents/agents-orchestrator-db
     labels:
       purpose: agents
-      application: agent-orchestrator
+      application: agents-orchestrator
     <<: *default
     # Overrides the default anchor's list: the service token hash file comes after default.
     secrets:
-    - values/agent-orchestrator/default.secrets.yaml
-    - values/agent-orchestrator/service-token-agents-webhook.secrets.yaml
+    - values/agents-orchestrator/default.secrets.yaml
+    - values/agents-orchestrator/service-token-agents-webhook.secrets.yaml
 
   - name: agents-webhook-db
     namespace: agents
@@ -77,11 +95,11 @@ releases:
   - name: agents-webhook
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
-    version: 0.1.0-main.206cf8e
+    version: 0.1.0-main.838ba1f
     timeout: 600
     needs:
       - agents/agents-webhook-db
-      - agents/agent-orchestrator
+      - agents/agents-orchestrator
     labels:
       purpose: agents
       application: agents-webhook
@@ -90,7 +108,7 @@ releases:
   - name: agents-web
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-web
-    version: 0.1.0-main.bc47dee
+    version: 0.1.0-main.5a8d6c8
     timeout: 600
     needs:
       - agents/agents-webhook
