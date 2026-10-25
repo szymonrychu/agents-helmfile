@@ -3,6 +3,7 @@
 # config.json listing the orchestrator backend, the host routes / to agents-web and /api to the orchestrator, a 1-replica hive cluster (cap 2)
 # with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
 # it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives),
+# the view echoes the wrapper, lease and autoclose settings with closes_at = created_at + 3600s and a leader_since,
 # and the public scale route grows the cluster to 2 pods and back to 1 without restarting pod-0.
 # Parameters by env: HOST, RELEASE, WEB_RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT,
 # SMOKE_WEB_LOCAL_PORT (SCHEME for tests only).
@@ -103,12 +104,25 @@ if [ -n "$(echo "$routes" | tr -d '[:space:]')" ]; then
   log "Ingress ${route_host}: / to ${WEB_RELEASE}, /api to ${RELEASE:-agent-orchestrator}"
 fi
 
-# 2. Create a 1-replica cluster with cap 2 (a hive) and an init script (the smoke makes its own, never touches existing ones) through the public API.
-body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 1, max_replicas: 2, init_scripts: ["echo smoke-init"]}}')
+# 2. Create a 1-replica cluster with cap 2 (a hive), an init script (the smoke makes its own, never touches existing ones), wrapper settings,
+# a leader lease and an autoclose (an hour: the cleanup trap discards the cluster long before it fires) through the public API.
+body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 1, max_replicas: 2, init_scripts: ["echo smoke-init"],
+  wrapper: {auto_compact: {idle_seconds: 1800}, hooks: {onTurnComplete: [{type: "command", run: "true"}]}},
+  leader_lease_seconds: 3600, autoclose_after_seconds: 3600}}')
 resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/clusters") ||
   fail "cluster create failed"
 CLUSTER_ID=$(echo "$resp" | jq -er '.id') || fail "create response carries no id"
 log "created cluster ${SLUG} (${CLUSTER_ID})"
+
+# 2a. The cluster view echoes the configuration and closes_at is created_at plus the autoclose.
+view=$(curl -fsS --max-time 20 "${BASE}/api/v1/clusters/${CLUSTER_ID}") || fail "config check: cluster view not reachable"
+echo "$view" | jq -e '.spec.wrapper.auto_compact.idle_seconds == 1800 and .spec.wrapper.hooks.onTurnComplete[0].run == "true"
+  and .spec.leader_lease_seconds == 3600 and .spec.autoclose_after_seconds == 3600' > /dev/null ||
+  fail "config check: view spec does not echo wrapper, leader_lease_seconds and autoclose_after_seconds: $(echo "$view" | jq -c '.spec')"
+echo "$view" | jq -e '.closes_at != null' > /dev/null || fail "config check: view has no closes_at"
+echo "$view" | jq -e 'def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601; (.closes_at | ts) - (.created_at | ts) == 3600' > /dev/null ||
+  fail "config check: closes_at is not created_at + 3600s (created_at $(echo "$view" | jq -r '.created_at'), closes_at $(echo "$view" | jq -r '.closes_at'))"
+log "config fields echoed in the view; closes_at is created_at + 3600s"
 
 # 3. Wait for the agent pod to exist and be Ready.
 label="agents.szymonrichert.pl/cluster=${SLUG}"
@@ -194,6 +208,9 @@ while [ -z "$leader" ]; do
   sleep 3
 done
 log "cluster ${SLUG} leader ${leader}"
+curl -fsS --max-time 20 "${BASE}/api/v1/clusters/${CLUSTER_ID}" | jq -e '.leader_since != null' > /dev/null ||
+  fail "config check: cluster ${SLUG} has a leader but no leader_since"
+log "leader_since is set"
 
 # 6. From the agent pod, with its own env, GET /agent/v1/me on the agents Service: 200 only if
 # the token, the cluster and the pod-IP binding all hold (the CNI kept the source IP).
