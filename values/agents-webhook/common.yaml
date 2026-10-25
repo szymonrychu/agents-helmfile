@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-webhook
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: cc0f706
+  tag: f63a19f
 
 # Connection URI from the CNPG app Secret made by the agents-webhook-db release.
 postgres:
@@ -35,10 +35,9 @@ trustedProxies:
   - 10.244.4.0/32
   - 10.244.4.1/32
 
-# Optional author filters: off.
+# Author allowlists are per-endpoint filters now; only the bot logins stay global.
 env:
   WEBHOOK_BOT_LOGINS: ""
-  WEBHOOK_ALLOWED_AUTHORS: ""
 
 # SSO (oauth2-proxy admission webhook) on the api pod only, as for agent-orchestrator; the
 # public ingest and the worker stay outside it.
