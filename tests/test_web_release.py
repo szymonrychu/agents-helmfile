@@ -1,6 +1,12 @@
 """The agents-web release: pin, oauth2-proxy sidecar, root ingress, backends config."""
 
+import os
 import re
+import shutil
+import subprocess
+
+import pytest
+import yaml
 
 REL = "agents-web"
 HOST = "lab.szymonrichert.pl"
@@ -65,3 +71,29 @@ def test_web_release_chart(helmfile_build):
     assert rel["timeout"] == 600
     assert rel["labels"]["purpose"] == "agents"
     assert rel["labels"]["application"] == "agents-web"
+
+
+def test_web_release_chart_renders_unique_pull_secrets(repo_root):
+    """Server-side apply rejects duplicate imagePullSecrets names in a pod spec."""
+    if shutil.which("helmfile") is None:
+        pytest.fail("helmfile is not on PATH (run under `mise exec`/`mise run`)")
+    proc = subprocess.run(  # noqa: PLW1510
+        ["helmfile", "-f", "helmfile.yaml.gotmpl", "-l", f"application={REL}", "template"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "KUBECONFIG": "/dev/null"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    pods = 0
+    for doc in yaml.safe_load_all(proc.stdout):
+        spec = ((doc or {}).get("spec") or {}).get("template", {}).get("spec") or (doc or {}).get(
+            "spec"
+        )
+        names = [s["name"] for s in (spec or {}).get("imagePullSecrets", [])]
+        if names:
+            pods += 1
+            assert len(names) == len(set(names)), (
+                f"{doc['kind']}/{doc['metadata']['name']}: {names}"
+            )
+    assert pods
