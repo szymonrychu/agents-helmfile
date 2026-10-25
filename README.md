@@ -51,7 +51,7 @@ Applies are manual and local, run from this directory.
   backend, that the host routes `/` to agents-web and `/api` to the orchestrator, that a fresh session lists `any-mcp`, that the
   cluster's init scripts ran once and succeeded (`GET .../init-scripts`), then scales a 1-replica cluster (cap 2) to 2 and back to 1
   through `POST /api/v1/clusters/{id}/scale`, failing on a non-202 answer, a timeout or a restarted pod-0.
-  Without `HOST` it port-forwards to the api and to `svc/agents-web` (the public host needs SSO).
+  Without `HOST` it port-forwards to the api and to `deploy/agents-web` (bypassing its SSO sidecar) (the public host needs SSO).
 - `mise run kube-context` - guard used by diff and apply: fails unless a kube
   context is set and the API answers; prints only the context name.
 - `mise run fmt` - format code.

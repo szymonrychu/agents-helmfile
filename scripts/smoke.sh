@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# End-to-end smoke of a deployed agent-orchestrator and its UI: the UI (agents-web release) answers with HTML and a
+# End-to-end smoke of a deployed agent-orchestrator and its UI: the UI (agents-web release) answers with the agents-web index and a
 # config.json listing the orchestrator backend, the host routes / to agents-web and /api to the orchestrator, a 1-replica hive cluster (cap 2)
 # with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
 # it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives),
 # and the public scale route grows the cluster to 2 pods and back to 1 without restarting pod-0.
 # Parameters by env: HOST, RELEASE, WEB_RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT,
 # SMOKE_WEB_LOCAL_PORT (SCHEME for tests only).
-# Without HOST it port-forwards the UI to svc/agents-web and the API to the orchestrator: the public host is behind SSO, and the api's
+# Without HOST it port-forwards the UI to deploy/agents-web (the nginx container, bypassing the SSO sidecar) and the API to the orchestrator: the public host is behind SSO, and the api's
 # source allowlist admits only 127.0.0.1 (the oauth2-proxy sidecar, or a port-forward).
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
@@ -20,7 +20,7 @@ if [ -z "${HOST:-}" ]; then
   HOST="127.0.0.1:${SMOKE_LOCAL_PORT:-18000}"
   WEB_HOST="127.0.0.1:${SMOKE_WEB_LOCAL_PORT:-18080}"
   SCHEME=http
-  kubectl -n "$NAMESPACE" port-forward "svc/${WEB_RELEASE}" "${WEB_HOST#*:}:8080" > /dev/null 2>&1 &
+  kubectl -n "$NAMESPACE" port-forward "deploy/${WEB_RELEASE}" "${WEB_HOST#*:}:8080" > /dev/null 2>&1 &
   WEB_PF_PID=$!
   kubectl -n "$NAMESPACE" port-forward deploy/agent-orchestrator-api "${HOST#*:}:8000" > /dev/null 2>&1 &
   PF_PID=$!
@@ -69,8 +69,8 @@ fi
 # 1. UI (agents-web) and its runtime config answer.
 page=$(curl -fsS --max-time 20 "${WEB_BASE}/") || fail "UI ${WEB_BASE}/ not reachable"
 case "$page" in
-  *"<"*">"*) log "UI answers with HTML" ;;
-  *) fail "UI body is not HTML" ;;
+  *'<div id="root">'*) log "UI answers with the agents-web index" ;;
+  *) fail "UI body is not the agents-web index (no <div id=\"root\">; an SSO page?)" ;;
 esac
 web_cfg=$(curl -fsS --max-time 20 "${WEB_BASE}/config.json") || fail "UI ${WEB_BASE}/config.json not reachable"
 echo "$web_cfg" | jq -e '[.backends[]? | select(.name == "orchestrator" and .basePath == "/api/v1")] | length > 0' > /dev/null ||

@@ -30,7 +30,7 @@ class _Api:
         self.spec: dict = {}
         self.scale_status = 202
         self.restart_pod0 = False
-        self.web_root = "<!doctype html><html></html>"
+        self.web_root = '<!doctype html><html><body><div id="root"></div></body></html>'
         self.web_config: dict = {
             "backends": [{"name": "orchestrator", "basePath": "/api/v1"}],
         }
@@ -320,7 +320,7 @@ def test_default_target_is_a_port_forward_to_the_api(api, fakebin):
     assert r.returncode == 0, r.stdout + r.stderr
     log = (fakebin / "kubectl.log").read_text()
     assert f"port-forward deploy/agent-orchestrator-api {api.port}:8000" in log
-    assert f"port-forward svc/agents-web {api.port}:8080" in log
+    assert f"port-forward deploy/agents-web {api.port}:8080" in log
     assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
 
 
@@ -406,7 +406,7 @@ def test_ui_checked_on_web_service(api, fakebin):
     assert r.returncode == 0, r.stdout + r.stderr
     assert ("GET", "/") in api.methods()
     assert ("GET", "/config.json") in api.methods()
-    assert "svc/agents-web" in (fakebin / "kubectl.log").read_text()
+    assert "deploy/agents-web" in (fakebin / "kubectl.log").read_text()
     assert "config.json lists backend orchestrator" in r.stdout
 
 
@@ -414,7 +414,7 @@ def test_web_root_not_html_fails(api, fakebin):
     api.web_root = "plain text"
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode != 0
-    assert "HTML" in r.stdout + r.stderr
+    assert "agents-web index" in r.stdout + r.stderr
 
 
 def test_web_config_without_orchestrator_fails(api, fakebin):
@@ -442,3 +442,10 @@ def test_api_path_missing_fails(api, fakebin):
     )
     assert r.returncode != 0
     assert "/api" in r.stdout + r.stderr
+
+
+def test_sso_page_instead_of_web_index_fails(api, fakebin):
+    api.web_root = "<html><body>Sign in to Keycloak</body></html>"
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    assert "agents-web index" in r.stdout + r.stderr
