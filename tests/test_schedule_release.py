@@ -39,6 +39,13 @@ def test_release_declared(repo_root, layered_values):
     assert "values/agents-orchestrator/service-token-agents-schedule.secrets.yaml" in orch
 
 
+def test_schedule_pin_matches_release(repo_root, layered_values):
+    tag = layered_values(REL)["image"]["tag"]
+    assert re.fullmatch(r"[0-9a-f]{7}", tag)
+    assert _field(_block(repo_root, REL), "version") == "0.1.0"
+    assert tag == "6cfa955"
+
+
 def test_secrets_wired(layered_values):
     v = layered_values(REL)
     assert v["postgres"]["existingSecret"] == "agents-schedule-db-cluster-app"

@@ -41,6 +41,8 @@ def _load(rel: str) -> dict:
         (DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (WH, {"orchestrator.token"}),
         (WH_TOKEN, {"serviceApi.tokenHashes.agents-webhook"}),
+        (SCH, {"orchestrator.token"}),
+        (SCH_TOKEN, {"serviceApi.tokenHashes.agents-schedule"}),
     ],
 )
 def test_secrets_files_encrypted_with_expected_keys(rel, keys):
