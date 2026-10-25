@@ -18,6 +18,9 @@ backends:
   - id: webhooks
     label: Webhooks
     basePath: /webhooks/api/v1
+  - id: schedules
+    label: Schedules
+    basePath: /schedules/api/v1
 
 # The UI owns "/" of the host. The orchestrator ingress owns /api and the only
 # cert-manager annotations, so there is one Certificate for agents-orchestrator-tls.

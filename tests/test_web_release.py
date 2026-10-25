@@ -70,6 +70,16 @@ def test_webhooks_backend_configured(layered_values):
     assert backends[1] == {"id": "webhooks", "label": "Webhooks", "basePath": "/webhooks/api/v1"}
 
 
+def test_schedules_backend_configured(layered_values):
+    backends = layered_values(REL)["backends"]
+    assert backends[0]["id"] == "orchestrator"
+    assert backends[2] == {
+        "id": "schedules",
+        "label": "Schedules",
+        "basePath": "/schedules/api/v1",
+    }
+
+
 def test_web_release_needs_webhook(repo_root):
     text = (repo_root / "helmfile.yaml.gotmpl").read_text()
     block = re.search(rf"- name: {REL}\n(?:(?!\n  - name:).)*", text, re.DOTALL).group(0)
