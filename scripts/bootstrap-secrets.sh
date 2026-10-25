@@ -75,8 +75,8 @@ bootstrap_database() {
     encrypt_to "$DB_FILE"
 }
 
-# Both files or neither: one service token (its sha256 goes to the orchestrator) plus the three
-# source secrets the user pastes into GitHub, GitLab and Grafana. Never rotates, never half-writes.
+# Both files or neither: one service token (its sha256 goes to the orchestrator).
+# Never rotates, never half-writes.
 bootstrap_webhook() {
   if [[ -e "$WH_FILE" && -e "$WH_TOKEN_FILE" ]]; then return 0; fi
   if [[ -e "$WH_FILE" || -e "$WH_TOKEN_FILE" ]]; then
@@ -85,8 +85,7 @@ bootstrap_webhook() {
   local svc digest
   svc="$(openssl rand -hex 32)"
   digest="$(printf '%s' "$svc" | openssl dgst -sha256 -r | cut -d' ' -f1)"
-  SVC="$svc" GH="$(openssl rand -hex 32)" GL="$(openssl rand -hex 32)" GF="$(openssl rand -hex 32)" \
-    jq -n '{orchestrator: {token: $ENV.SVC}, sources: {github: $ENV.GH, gitlab: $ENV.GL, grafana: $ENV.GF}}' |
+  SVC="$svc" jq -n '{orchestrator: {token: $ENV.SVC}}' |
     encrypt_to "$WH_FILE"
   if ! DIGEST="$digest" jq -n '{serviceApi: {tokenHashes: {"agents-webhook": $ENV.DIGEST}}}' |
     encrypt_to "$WH_TOKEN_FILE"; then

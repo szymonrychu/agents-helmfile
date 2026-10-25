@@ -1,6 +1,7 @@
 """Encrypted secrets and the bootstrap script that creates them."""
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -36,7 +37,7 @@ def _load(rel: str) -> dict:
     [
         (ORCH, {"claude.token", "masterKey.value"}),
         (DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
-        (WH, {"orchestrator.token", "sources.github", "sources.gitlab", "sources.grafana"}),
+        (WH, {"orchestrator.token"}),
         (WH_TOKEN, {"serviceApi.tokenHashes.agents-webhook"}),
     ],
 )
@@ -164,3 +165,40 @@ def test_webhook_secrets_never_rotate(tmp_path):
         assert (tmp_path / present).read_text() == "sentinel: keep\n"
         assert not (tmp_path / "calls").exists()
         (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+def test_webhook_bootstrap_writes_no_sources(tmp_path):
+    bindir = _sandbox(tmp_path)
+    for tool in ("jq", "openssl"):
+        (bindir / tool).unlink()
+        real = shutil.which(tool)
+        if tool == "jq" and shutil.which("mise"):
+            out = subprocess.run(
+                ["mise", "which", "jq"], capture_output=True, text=True, check=False
+            )
+            real = out.stdout.strip() or real
+        (bindir / tool).symlink_to(real)
+    # Fake sops: records the plaintext it is asked to encrypt (stays in the sandbox) and emits a stub.
+    (bindir / "sops").write_text(
+        '#!/bin/sh\ncat > "$(mktemp "' + str(tmp_path) + "/plain.XXXXXX\")\"\necho 'sops: stub'\n"
+    )
+    for rel in (ORCH, DB):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    docs = [json.loads(f.read_text()) for f in tmp_path.glob("plain.*")]
+    assert len(docs) == 2
+    wh = next(d for d in docs if "orchestrator" in d)
+    assert set(wh) == {"orchestrator"}
+    assert set(wh["orchestrator"]) == {"token"}
+    assert "sources" not in wh
+
+
+def test_webhook_secrets_have_no_sources():
+    doc = _decrypt(WH)
+    assert set(doc) == {"orchestrator"}
+    assert doc["orchestrator"]["token"]
+    digest = _decrypt(WH_TOKEN)["serviceApi"]["tokenHashes"]["agents-webhook"]
+    assert digest == hashlib.sha256(doc["orchestrator"]["token"].encode()).hexdigest()
