@@ -13,6 +13,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "smoke.sh"
+DEFAULT_ROUTES = "lab.szymonrichert.pl / agents-web\nlab.szymonrichert.pl /api agent-orchestrator\n"
 
 
 class _Api:
@@ -29,6 +30,10 @@ class _Api:
         self.spec: dict = {}
         self.scale_status = 202
         self.restart_pod0 = False
+        self.web_root = "<!doctype html><html></html>"
+        self.web_config: dict = {
+            "backends": [{"name": "orchestrator", "basePath": "/api/v1"}],
+        }
         self.state_dir: Path | None = None
         api = self
 
@@ -51,7 +56,9 @@ class _Api:
             def do_GET(self):
                 self._record()
                 if self.path == "/":
-                    self._send(200, "<!doctype html><html></html>", "text/html")
+                    self._send(200, api.web_root, "text/html")
+                elif self.path == "/config.json":
+                    self._send(200, json.dumps(api.web_config))
                 elif self.path == "/api/v1/openapi.json":
                     self._send(200, "{}")
                 elif self.path == "/api/v1/clusters/cid-1":
@@ -123,7 +130,7 @@ def fakebin(tmp_path):
         '  *"get service"*) [ -n "${FAKE_AGENTS_PORT-8001}" ] || exit 1;'
         ' echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_AGENTS_PORT-8001}"; exit 0 ;;\n'
         '  *"get ingress"*) [ -z "${FAKE_INGRESS_FAIL-}" ] || exit 1;'
-        ' printf "%s" "$FAKE_INGRESS_BACKENDS"; exit 0 ;;\n'
+        ' printf "%s" "$FAKE_INGRESS_ROUTES"; exit 0 ;;\n'
         '  *"get pod/agent-"*) cat "$FAKE_STATE_DIR/uid0"; exit 0 ;;\n'
         '  *"get pod"*) slug=$(echo "$*" | sed -n "s|.*cluster=\\([^ ]*\\).*|\\1|p");'
         ' echo "pod/agent-${slug}-init-abcde"; echo "pod/agent-${slug}-0";'
@@ -150,7 +157,7 @@ def _run(
     mcp_list,
     version="any-mcp 0.2.0",
     agents_port="8001",
-    ingress_backends="agent-orchestrator",
+    ingress_routes=DEFAULT_ROUTES,
     ingress_fail="",
     session_cfg="/sessions/abc/config",
     port_forward=False,
@@ -158,7 +165,7 @@ def _run(
     smoke_timeout="20",
 ):
     target = (
-        {"SMOKE_LOCAL_PORT": str(api.port)}
+        {"SMOKE_LOCAL_PORT": str(api.port), "SMOKE_WEB_LOCAL_PORT": str(api.port)}
         if port_forward
         else {"HOST": f"127.0.0.1:{api.port}", "SCHEME": "http"}
     )
@@ -172,7 +179,7 @@ def _run(
         "FAKE_VERSION": version,
         "FAKE_SESSION_CFG": session_cfg,
         "FAKE_AGENTS_PORT": agents_port,
-        "FAKE_INGRESS_BACKENDS": ingress_backends,
+        "FAKE_INGRESS_ROUTES": ingress_routes,
         "FAKE_INGRESS_FAIL": ingress_fail,
         "FAKE_STATE_DIR": str(api.state_dir),
         "FAKE_KUBECTL_LOG": str(fakebin / "kubectl.log"),
@@ -262,7 +269,7 @@ def test_agents_service_as_ingress_backend_fails(api, fakebin):
         api,
         fakebin,
         "any-mcp: x - Connected",
-        ingress_backends="agent-orchestrator agent-orchestrator-agents",
+        ingress_routes=DEFAULT_ROUTES + "lab.szymonrichert.pl /x agent-orchestrator-agents\n",
     )
     assert r.returncode != 0
     assert "ingress" in r.stdout + r.stderr
@@ -275,7 +282,7 @@ def test_ingress_query_error_fails(api, fakebin):
 
 
 def test_no_ingresses_still_passes(api, fakebin):
-    r = _run(api, fakebin, "any-mcp: x - Connected", ingress_backends="")
+    r = _run(api, fakebin, "any-mcp: x - Connected", ingress_routes="")
     assert r.returncode == 0, r.stdout + r.stderr
 
 
@@ -313,6 +320,7 @@ def test_default_target_is_a_port_forward_to_the_api(api, fakebin):
     assert r.returncode == 0, r.stdout + r.stderr
     log = (fakebin / "kubectl.log").read_text()
     assert f"port-forward deploy/agent-orchestrator-api {api.port}:8000" in log
+    assert f"port-forward svc/agents-web {api.port}:8080" in log
     assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
 
 
@@ -391,3 +399,46 @@ def test_init_scripts_wrong_log_or_scripts_fails(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode != 0
     assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_ui_checked_on_web_service(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", port_forward=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert ("GET", "/") in api.methods()
+    assert ("GET", "/config.json") in api.methods()
+    assert "svc/agents-web" in (fakebin / "kubectl.log").read_text()
+    assert "config.json lists backend orchestrator" in r.stdout
+
+
+def test_web_root_not_html_fails(api, fakebin):
+    api.web_root = "plain text"
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    assert "HTML" in r.stdout + r.stderr
+
+
+def test_web_config_without_orchestrator_fails(api, fakebin):
+    api.web_config = {"backends": [{"name": "other", "basePath": "/api/v1"}]}
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    assert "orchestrator" in r.stdout + r.stderr
+
+
+def test_root_path_routed_to_api_fails(api, fakebin):
+    routes = (
+        "lab.szymonrichert.pl / agent-orchestrator\nlab.szymonrichert.pl /api agent-orchestrator\n"
+    )
+    r = _run(api, fakebin, "any-mcp: x - Connected", ingress_routes=routes)
+    assert r.returncode != 0
+    assert "agents-web" in r.stdout + r.stderr
+
+
+def test_api_path_missing_fails(api, fakebin):
+    r = _run(
+        api,
+        fakebin,
+        "any-mcp: x - Connected",
+        ingress_routes="lab.szymonrichert.pl / agents-web\n",
+    )
+    assert r.returncode != 0
+    assert "/api" in r.stdout + r.stderr

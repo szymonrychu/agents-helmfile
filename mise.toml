@@ -69,5 +69,5 @@ depends = ["lint", "test", "kube-context"]
 run = 'helmfile -f helmfile.yaml.gotmpl apply --suppress-secrets "$@"'
 
 [tasks.smoke]
-description = "Prove the deployed orchestrator: UI answers, a 1-replica cluster gets a Ready pod listing any-mcp (env HOST, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT; port-forwards to the api without HOST)"
+description = "Prove the deployed orchestrator: the UI is checked on agents-web (HTML and config.json) and the host routes / to it and /api to the orchestrator, a 1-replica cluster gets a Ready pod listing any-mcp (env HOST, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT, WEB_RELEASE, SMOKE_WEB_LOCAL_PORT; port-forwards to the api and agents-web without HOST)"
 run = "bash scripts/smoke.sh"
