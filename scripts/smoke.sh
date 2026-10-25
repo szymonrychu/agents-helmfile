@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# End-to-end smoke of a deployed agent-orchestrator and its UI: the UI (agents-web release) answers with the agents-web index and a
-# config.json listing the orchestrator backend, the host routes / to agents-web and /api to the orchestrator, a 1-replica hive cluster (cap 2)
+# End-to-end smoke of a deployed agents-orchestrator and its UI: the UI (agents-web release) answers with the agents-web index and a
+# config.json listing the orchestrator backend, the host routes / to agents-web and /api to the orchestrator, a 1-replica hive session (cap 2)
 # with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
 # it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives),
 # the view echoes the wrapper, lease and autoclose settings with closes_at = created_at + 3600s and a leader_since,
-# and the public scale route grows the cluster to 2 pods and back to 1 without restarting pod-0.
+# and the public scale route grows the session to 2 pods and back to 1 without restarting pod-0.
 # Parameters by env: HOST, RELEASE, WEB_RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT,
 # SMOKE_WEB_LOCAL_PORT (SCHEME for tests only).
 # Without HOST it port-forwards the UI to deploy/agents-web (the nginx container, bypassing the SSO sidecar) and the API to the orchestrator: the public host is behind SSO, and the api's
@@ -20,6 +20,7 @@ set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-agents}"
 SMOKE_TIMEOUT_S="${SMOKE_TIMEOUT_S:-600}"
+RELEASE="${RELEASE:-agents-orchestrator}"
 WEB_RELEASE="${WEB_RELEASE:-agents-web}"
 PF_PID=""
 WEB_PF_PID=""
@@ -31,13 +32,13 @@ if [ -z "${HOST:-}" ]; then
   SCHEME=http
   kubectl -n "$NAMESPACE" port-forward "deploy/${WEB_RELEASE}" "${WEB_HOST#*:}:8080" > /dev/null 2>&1 &
   WEB_PF_PID=$!
-  kubectl -n "$NAMESPACE" port-forward deploy/agent-orchestrator-api "${HOST#*:}:8000" > /dev/null 2>&1 &
+  kubectl -n "$NAMESPACE" port-forward "deploy/${RELEASE}-api" "${HOST#*:}:8000" > /dev/null 2>&1 &
   PF_PID=$!
 fi
 BASE="${SCHEME:-https}://${HOST}"
 WEB_BASE="${SCHEME:-https}://${WEB_HOST:-$HOST}"
 SLUG="smoke-$(date +%s)"
-CLUSTER_ID=""
+SESSION_ID=""
 ENDPOINT_ID=""
 WH_API_BASE="$BASE"
 WH_INGEST_BASE="$BASE"
@@ -52,11 +53,11 @@ fail() {
 cleanup() {
   local rc=$?
   trap - EXIT
-  if [ -n "$CLUSTER_ID" ]; then
-    if curl -fsS --max-time 20 -X DELETE -o /dev/null "${BASE}/api/v1/clusters/${CLUSTER_ID}"; then
-      log "discarded cluster ${SLUG} (${CLUSTER_ID})"
+  if [ -n "$SESSION_ID" ]; then
+    if curl -fsS --max-time 20 -X DELETE -o /dev/null "${BASE}/api/v1/sessions/${SESSION_ID}"; then
+      log "discarded session ${SLUG} (${SESSION_ID})"
     else
-      echo "smoke: cleanup failed, API unreachable; delete cluster '${SLUG}' (id ${CLUSTER_ID}) manually" >&2
+      echo "smoke: cleanup failed, API unreachable; delete session '${SLUG}' (id ${SESSION_ID}) manually" >&2
     fi
   fi
   if [ -n "$ENDPOINT_ID" ]; then
@@ -103,7 +104,7 @@ curl -fsS --max-time 20 -o /dev/null "${BASE}/api/v1/openapi.json" || fail "open
 log "openapi.json answers"
 
 # 1b. The agents Service (leader-to-agent traffic) exists on 8001 and is not an ingress backend.
-AGENTS_SVC="${RELEASE:-agent-orchestrator}-agents"
+AGENTS_SVC="${RELEASE}-agents"
 agents_port=$(kubectl -n "$NAMESPACE" get service "$AGENTS_SVC" -o 'jsonpath={.spec.ports[0].port}' 2> /dev/null) ||
   fail "Service ${AGENTS_SVC} not found in ${NAMESPACE}"
 [ "$agents_port" = "8001" ] || fail "Service ${AGENTS_SVC} port is ${agents_port}, expected 8001"
@@ -119,23 +120,23 @@ if [ -n "$(echo "$routes" | tr -d '[:space:]')" ]; then
   route_host=lab.szymonrichert.pl
   echo "$routes" | grep -Fxq "${route_host} / ${WEB_RELEASE}" ||
     fail "Ingress host ${route_host} does not route / to Service ${WEB_RELEASE}"
-  echo "$routes" | grep -Fxq "${route_host} /api ${RELEASE:-agent-orchestrator}" ||
-    fail "Ingress host ${route_host} does not route /api to Service ${RELEASE:-agent-orchestrator}"
-  log "Ingress ${route_host}: / to ${WEB_RELEASE}, /api to ${RELEASE:-agent-orchestrator}"
+  echo "$routes" | grep -Fxq "${route_host} /api ${RELEASE}" ||
+    fail "Ingress host ${route_host} does not route /api to Service ${RELEASE}"
+  log "Ingress ${route_host}: / to ${WEB_RELEASE}, /api to ${RELEASE}"
 fi
 
-# 2. Create a 1-replica cluster with cap 2 (a hive), an init script (the smoke makes its own, never touches existing ones), wrapper settings,
-# a leader lease and an autoclose (an hour: the cleanup trap discards the cluster long before it fires) through the public API.
+# 2. Create a 1-replica session with cap 2 (a hive), an init script (the smoke makes its own, never touches existing ones), wrapper settings,
+# a leader lease and an autoclose (an hour: the cleanup trap discards the session long before it fires) through the public API.
 body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 1, max_replicas: 2, init_scripts: ["echo smoke-init"],
   wrapper: {auto_compact: {idle_seconds: 1800}, hooks: {onTurnComplete: [{type: "command", run: "true"}]}},
   leader_lease_seconds: 3600, autoclose_after_seconds: 3600}}')
-resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/clusters") ||
-  fail "cluster create failed"
-CLUSTER_ID=$(echo "$resp" | jq -er '.id') || fail "create response carries no id"
-log "created cluster ${SLUG} (${CLUSTER_ID})"
+resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/sessions") ||
+  fail "session create failed"
+SESSION_ID=$(echo "$resp" | jq -er '.id') || fail "create response carries no id"
+log "created session ${SLUG} (${SESSION_ID})"
 
-# 2a. The cluster view echoes the configuration and closes_at is created_at plus the autoclose.
-view=$(curl -fsS --max-time 20 "${BASE}/api/v1/clusters/${CLUSTER_ID}") || fail "config check: cluster view not reachable"
+# 2a. The session view echoes the configuration and closes_at is created_at plus the autoclose.
+view=$(curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${SESSION_ID}") || fail "config check: session view not reachable"
 echo "$view" | jq -e '.spec.wrapper.auto_compact.idle_seconds == 1800 and .spec.wrapper.hooks.onTurnComplete[0].run == "true"
   and .spec.leader_lease_seconds == 3600 and .spec.autoclose_after_seconds == 3600' > /dev/null ||
   fail "config check: view spec does not echo wrapper, leader_lease_seconds and autoclose_after_seconds: $(echo "$view" | jq -c '.spec')"
@@ -145,11 +146,11 @@ echo "$view" | jq -e 'def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fro
 log "config fields echoed in the view; closes_at is created_at + 3600s"
 
 # 3. Wait for the agent pod to exist and be Ready.
-label="agents.szymonrichert.pl/cluster=${SLUG}"
+label="agents.szymonrichert.pl/session=${SLUG}"
 deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
 pod=""
 while [ -z "$pod" ]; do
-  # By name: the init Job pod carries the same cluster label and is never the agent.
+  # By name: the init Job pod carries the same session label and is never the agent.
   pod=$(kubectl -n "$NAMESPACE" get pods -l "$label" -o name 2> /dev/null | grep -Fx "pod/agent-${SLUG}-0" || true)
   [ -n "$pod" ] && break
   if [ "$(date +%s)" -ge "$deadline" ]; then
@@ -196,7 +197,7 @@ esac
 # 4b. The init scripts ran once and succeeded, and are visible through the public API.
 init_json=""
 while :; do
-  init_json=$(curl -fsS --max-time 20 "${BASE}/api/v1/clusters/${CLUSTER_ID}/init-scripts") || init_json=""
+  init_json=$(curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${SESSION_ID}/init-scripts") || init_json=""
   state=$(echo "$init_json" | jq -r '.status.state // empty' 2> /dev/null || true)
   case "$state" in
     succeeded) break ;;
@@ -220,31 +221,31 @@ log "init scripts succeeded and visible: [\"echo smoke-init\"]"
 # 5. The hive has a leader (the dispatcher elects the lowest-ordinal ready agent).
 leader=""
 while [ -z "$leader" ]; do
-  leader=$(curl -fsS --max-time 20 "${BASE}/api/v1/clusters/${CLUSTER_ID}" | jq -r '.leader_agent_id // empty') || leader=""
+  leader=$(curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${SESSION_ID}" | jq -r '.leader_agent_id // empty') || leader=""
   [ -n "$leader" ] && break
   if [ "$(date +%s)" -ge "$deadline" ]; then
-    fail "cluster ${SLUG} has no leader within ${SMOKE_TIMEOUT_S}s"
+    fail "session ${SLUG} has no leader within ${SMOKE_TIMEOUT_S}s"
   fi
   sleep 3
 done
-log "cluster ${SLUG} leader ${leader}"
-curl -fsS --max-time 20 "${BASE}/api/v1/clusters/${CLUSTER_ID}" | jq -e '.leader_since != null' > /dev/null ||
-  fail "config check: cluster ${SLUG} has a leader but no leader_since"
+log "session ${SLUG} leader ${leader}"
+curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${SESSION_ID}" | jq -e '.leader_since != null' > /dev/null ||
+  fail "config check: session ${SLUG} has a leader but no leader_since"
 log "leader_since is set"
 
 # 6. From the agent pod, with its own env, GET /agent/v1/me on the agents Service: 200 only if
-# the token, the cluster and the pod-IP binding all hold (the CNI kept the source IP).
+# the token, the session and the pod-IP binding all hold (the CNI kept the source IP).
 me_py='import os, urllib.request, urllib.error
-req = urllib.request.Request(os.environ["ORCH_AGENT_URL"].rstrip("/") + "/agent/v1/me", headers={"Authorization": "Bearer " + os.environ["ORCH_AGENT_TOKEN"], "X-Orch-Cluster": os.environ["ORCH_CLUSTER_ID"]})
+req = urllib.request.Request(os.environ["ORCH_AGENT_URL"].rstrip("/") + "/agent/v1/me", headers={"Authorization": "Bearer " + os.environ["ORCH_AGENT_TOKEN"], "X-Orch-Session": os.environ["ORCH_SESSION_ID"]})
 try:
     print(urllib.request.urlopen(req, timeout=15).status)
 except urllib.error.HTTPError as e:
     print(e.code)'
 me_status=$(kubectl -n "$NAMESPACE" exec "$pod" -- python3 -c "$me_py" 2>&1 | tail -n1) || true
-[ "$me_status" = "200" ] || fail "GET /agent/v1/me from ${pod} (via ORCH_AGENT_URL, ORCH_AGENT_TOKEN, ORCH_CLUSTER_ID) answered '${me_status}', expected 200"
+[ "$me_status" = "200" ] || fail "GET /agent/v1/me from ${pod} (via ORCH_AGENT_URL, ORCH_AGENT_TOKEN, ORCH_SESSION_ID) answered '${me_status}', expected 200"
 log "GET /agent/v1/me from ${pod} through the agents Service: 200"
 
-# 8. The webhook service (agents-webhook release). No cluster is started: the only side effects are one temporary endpoint
+# 8. The webhook service (agents-webhook release). No session is started: the only side effects are one temporary endpoint
 # (deleted by the trap) and one ignored event row.
 # 8a. The three deployments are Available.
 for part in ingest api worker; do
@@ -322,7 +323,7 @@ echo "$events" | jq -e --argjson id "$EVENT_ID" 'any(.[]; .id == $id and .status
   fail "webhook: events API does not list event ${EVENT_ID} as ignored for endpoint ${ENDPOINT_ID}: $(echo "$events" | jq -c '[.[] | {id, status, reason}]' 2> /dev/null)"
 log "events API lists event ${EVENT_ID} as ignored"
 
-# 8e2. Filters: a preview (nothing is ingested, so no cluster can start) is denied by the stored rule, then the PUT clears the rules.
+# 8e2. Filters: a preview (nothing is ingested, so no session can start) is denied by the stored rule, then the PUT clears the rules.
 pv_body=$(jq -n --argjson filters "$deny_filters" \
   '{type: "github-issue", example: {action: "opened", issue: {number: 2, title: "smoke-deny check", body: "", user: {login: "smoke"}, labels: []}, repository: {full_name: "smoke/smoke"}, sender: {login: "smoke"}}, filters: $filters}')
 pv_resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$pv_body" "${WH_API_BASE}/webhooks/api/v1/templates/preview") ||
@@ -338,21 +339,22 @@ log "filters replaced: PUT cleared the deny rules"
 
 # 8f. The orchestrator service port (8002) from an agent pod: 200 with the webhook token, 401 without. The token is read from the
 # agents-webhook Secret and handed to the pod on stdin.
+SVC_URL="http://${RELEASE}-services:8002"
 svc_py='import sys, urllib.request, urllib.error
 token = sys.stdin.read().strip()
 def status(headers):
     try:
-        return urllib.request.urlopen(urllib.request.Request("http://agent-orchestrator-services:8002/api/v1/presets", headers=headers), timeout=15).status
+        return urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/api/v1/presets", headers=headers), timeout=15).status
     except urllib.error.HTTPError as e:
         return e.code
 print(status({"Authorization": "Bearer " + token}), status({}))'
 wh_token=$(kubectl -n "$NAMESPACE" get secret "${WEBHOOK_RELEASE}-orchestrator" -o 'jsonpath={.data.token}' | base64 -d) ||
   fail "webhook: cannot read the ${WEBHOOK_RELEASE}-orchestrator token Secret"
-svc_status=$(kubectl -n "$NAMESPACE" exec -i "$pod" -- python3 -c "$svc_py" <<< "$wh_token" 2>&1 | tail -n1) || true
+svc_status=$(kubectl -n "$NAMESPACE" exec -i "$pod" -- python3 -c "$svc_py" "$SVC_URL" <<< "$wh_token" 2>&1 | tail -n1) || true
 unset wh_token
 [ "$svc_status" = "200 401" ] ||
-  fail "webhook: GET http://agent-orchestrator-services:8002/api/v1/presets answered '${svc_status}' (with token, without token), expected '200 401'"
-log "http://agent-orchestrator-services:8002/api/v1/presets: 200 with the webhook token, 401 without"
+  fail "webhook: GET ${SVC_URL}/api/v1/presets answered '${svc_status}' (with token, without token), expected '200 401'"
+log "${SVC_URL}/api/v1/presets: 200 with the webhook token, 401 without"
 
 # 8g. The public ingress routes /webhook to the ingest pod (not SSO): 401 with the Basic realm.
 hdrs=$(curl -sS --max-time 20 -D - -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "${PUBLIC_URL}/webhook/smoke-unknown") ||
@@ -369,7 +371,7 @@ uid0=$(kubectl -n "$NAMESPACE" get "$pod" -o 'jsonpath={.metadata.uid}') || fail
 scale() {
   local code
   code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
-    -d "{\"replicas\": $1}" "${BASE}/api/v1/clusters/${CLUSTER_ID}/scale") || fail "scale to $1 request failed"
+    -d "{\"replicas\": $1}" "${BASE}/api/v1/sessions/${SESSION_ID}/scale") || fail "scale to $1 request failed"
   [ "$code" = "202" ] || fail "scale to $1 answered ${code}, expected 202"
   log "scale to $1 accepted (202)"
 }

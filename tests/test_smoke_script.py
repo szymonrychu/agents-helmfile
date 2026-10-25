@@ -18,7 +18,9 @@ WH_USER = "wh-user-smoke"
 WH_PASSWORD = "wh-pass-SECRET-value-123"
 WH_TOKEN = "orch-token-SECRET-value-456"
 WH_ENDPOINT = "/webhooks/api/v1/endpoints/7"
-DEFAULT_ROUTES = "lab.szymonrichert.pl / agents-web\nlab.szymonrichert.pl /api agent-orchestrator\n"
+DEFAULT_ROUTES = (
+    "lab.szymonrichert.pl / agents-web\nlab.szymonrichert.pl /api agents-orchestrator\n"
+)
 
 
 class _Api:
@@ -119,12 +121,12 @@ class _Api:
                     self._send(200, json.dumps(api.web_config))
                 elif self.path == "/api/v1/openapi.json":
                     self._send(200, "{}")
-                elif self.path == "/api/v1/clusters/cid-1":
-                    # Hive rule (agent-orchestrator db/leadership.py): only coalesce(max_replicas, replicas) > 1 elects a leader.
+                elif self.path == "/api/v1/sessions/sid-1":
+                    # Hive rule (agents-orchestrator db/leadership.py): only coalesce(max_replicas, replicas) > 1 elects a leader.
                     size = api.spec.get("max_replicas") or api.spec.get("replicas") or 0
                     leader = api.leader if size > 1 else None
                     view = {
-                        "id": "cid-1",
+                        "id": "sid-1",
                         "spec": api.spec,
                         "created_at": "2026-10-25T10:00:00.123456Z",
                         "leader_agent_id": leader,
@@ -136,7 +138,7 @@ class _Api:
                             f"2026-10-25T{10 + api.closes_at_offset // 3600}:00:00.123456Z"
                         )
                     self._send(200, json.dumps(view))
-                elif self.path == "/api/v1/clusters/cid-1/init-scripts":
+                elif self.path == "/api/v1/sessions/sid-1/init-scripts":
                     body = {"scripts": api.init_scripts, "status": api.init_status}
                     self._send(200, json.dumps(body))
                 else:
@@ -154,7 +156,7 @@ class _Api:
                     pod1.unlink(missing_ok=True)
                 if api.restart_pod0:
                     (api.state_dir / "uid0").write_text("uid-pod-0-restarted")
-                self._send(202, json.dumps({"id": "cid-1", "replicas": n}))
+                self._send(202, json.dumps({"id": "sid-1", "replicas": n}))
 
             def _webhook_post(self):
                 if self.path == "/webhooks/api/v1/endpoints":
@@ -207,13 +209,16 @@ class _Api:
                 if self.path.startswith(("/webhook", "/webhooks")):
                     self._webhook_post()
                     return
-                if self.path == "/api/v1/clusters/cid-1/scale":
+                if self.path == "/api/v1/sessions/sid-1/scale":
                     self._scale()
+                    return
+                if self.path != "/api/v1/sessions":
+                    self._send(404, "{}")
                     return
                 created = json.loads(api.requests[-1][2])
                 api.spec = created.get("spec") or {}
                 slug = created["slug"]
-                self._send(201, json.dumps({"id": "cid-1", "slug": slug}))
+                self._send(201, json.dumps({"id": "sid-1", "slug": slug}))
 
             def do_PUT(self):
                 self._record()
@@ -235,7 +240,10 @@ class _Api:
                     self.send_response(204)
                     self.end_headers()
                     return
-                self._send(202, json.dumps({"id": "cid-1", "desired": "deleting"}))
+                if self.path != "/api/v1/sessions/sid-1":
+                    self._send(404, "{}")
+                    return
+                self._send(202, json.dumps({"id": "sid-1", "desired": "deleting"}))
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
         self.port = self.server.server_address[1]
@@ -270,7 +278,9 @@ def fakebin(tmp_path):
         '  *"get ingress"*) [ -z "${FAKE_INGRESS_FAIL-}" ] || exit 1;'
         ' printf "%s" "$FAKE_INGRESS_ROUTES"; exit 0 ;;\n'
         '  *"get pod/agent-"*) cat "$FAKE_STATE_DIR/uid0"; exit 0 ;;\n'
-        '  *"get pod"*) slug=$(echo "$*" | sed -n "s|.*cluster=\\([^ ]*\\).*|\\1|p");'
+        '  *"get pod"*) echo "$*" >> "$FAKE_KUBECTL_LOG";'
+        ' slug=$(echo "$*" | sed -n "s|.*agents.szymonrichert.pl/session=\\([^ ]*\\).*|\\1|p");'
+        ' [ -n "$slug" ] || exit 0;'
         ' echo "pod/agent-${slug}-init-abcde"; echo "pod/agent-${slug}-0";'
         ' [ ! -e "$FAKE_STATE_DIR/pod1" ] || echo "pod/agent-${slug}-1"; exit 0 ;;\n'
         '  *" exec "*|*port-forward*) echo "$*" >> "$FAKE_KUBECTL_LOG" ;;\n'
@@ -342,8 +352,8 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
     r = _run(api, fakebin, "any-mcp: http://x - Connected")
     assert r.returncode == 0, r.stdout + r.stderr
     methods = api.methods()
-    assert ("POST", "/api/v1/clusters") in methods
-    assert ("DELETE", "/api/v1/clusters/cid-1") in methods
+    assert ("POST", "/api/v1/sessions") in methods
+    assert ("DELETE", "/api/v1/sessions/sid-1") in methods
     body = json.loads(next(b for m, _, b in api.requests if m == "POST"))
     assert re.fullmatch(r"smoke-\d+", body["slug"])
     assert body["spec"] == {
@@ -357,8 +367,18 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
         "leader_lease_seconds": 3600,
         "autoclose_after_seconds": 3600,
     }
-    scales = [json.loads(b) for m, p, b in api.requests if p.endswith("/scale")]
+    scales = [json.loads(b) for m, p, b in api.requests if p == "/api/v1/sessions/sid-1/scale"]
     assert scales == [{"replicas": 2}, {"replicas": 1}]
+    assert ("GET", "/api/v1/sessions/sid-1/init-scripts") in methods
+    assert not [p for _, p in methods if p.startswith("/api/v1/clusters")]
+    log = (fakebin / "kubectl.log").read_text()
+    assert "get service agents-orchestrator-agents " in log
+    assert re.search(r"get pods -l agents\.szymonrichert\.pl/session=smoke-\d+ ", log), log
+    assert re.search(r"created session smoke-\d+ \(sid-1\)", r.stdout), r.stdout
+    assert re.search(r"discarded session smoke-\d+ \(sid-1\)", r.stdout), r.stdout
+    assert re.search(r"session smoke-\d+ leader agent-uuid-0", r.stdout), r.stdout
+    assert "/api to agents-orchestrator" in r.stdout
+    assert "cluster" not in (r.stdout + r.stderr).lower()
     assert not (api.state_dir / "pod1").exists()
     assert (api.state_dir / "uid0").read_text() == "uid-pod-0"
 
@@ -369,8 +389,8 @@ def test_config_fields_checked(api, fakebin):
     assert "config fields echoed" in r.stdout
     assert "closes_at" in r.stdout
     assert "leader_since" in r.stdout
-    assert ("GET", "/api/v1/clusters/cid-1") in api.methods()
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("GET", "/api/v1/sessions/sid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_config_view_mismatch_fails(api, fakebin):
@@ -378,7 +398,7 @@ def test_config_view_mismatch_fails(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode != 0
     assert "closes_at" in r.stderr
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_scale_refused_fails(api, fakebin):
@@ -387,7 +407,7 @@ def test_scale_refused_fails(api, fakebin):
     assert r.returncode != 0
     assert "scale" in r.stdout + r.stderr
     assert "409" in r.stdout + r.stderr
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_pod0_restart_fails(api, fakebin):
@@ -395,14 +415,14 @@ def test_pod0_restart_fails(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode != 0
     assert "uid" in r.stdout + r.stderr
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_missing_any_mcp_fails_and_cleans_up(api, fakebin):
     r = _run(api, fakebin, "other-mcp: http://x - Connected")
     assert r.returncode != 0
     assert "other-mcp" in r.stdout + r.stderr
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_smoke_checks_session_config_dir(api, fakebin):
@@ -416,7 +436,7 @@ def test_smoke_checks_session_config_dir(api, fakebin):
 def test_any_mcp_not_connected_fails(api, fakebin):
     r = _run(api, fakebin, "any-mcp: /opt/any-mcp/bin/any-mcp - Failed to connect")
     assert r.returncode != 0
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_wrong_any_mcp_version_fails(api, fakebin):
@@ -428,7 +448,7 @@ def test_wrong_any_mcp_version_fails(api, fakebin):
 def test_missing_agents_service_fails(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected", agents_port="")
     assert r.returncode != 0
-    assert "agent-orchestrator-agents" in r.stdout + r.stderr
+    assert "agents-orchestrator-agents" in r.stdout + r.stderr
 
 
 def test_wrong_agents_service_port_fails(api, fakebin):
@@ -442,7 +462,7 @@ def test_agents_service_as_ingress_backend_fails(api, fakebin):
         api,
         fakebin,
         "any-mcp: x - Connected",
-        ingress_routes=DEFAULT_ROUTES + "lab.szymonrichert.pl /x agent-orchestrator-agents\n",
+        ingress_routes=DEFAULT_ROUTES + "lab.szymonrichert.pl /x agents-orchestrator-agents\n",
     )
     assert r.returncode != 0
     assert "ingress" in r.stdout + r.stderr
@@ -462,7 +482,7 @@ def test_no_ingresses_still_passes(api, fakebin):
 def test_no_session_config_dir_fails(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected", session_cfg="")
     assert r.returncode != 0
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_script_is_strict_bounded_and_traps():
@@ -492,16 +512,16 @@ def test_default_target_is_a_port_forward_to_the_api(api, fakebin):
     r = _run(api, fakebin, "any-mcp: http://x - Connected", port_forward=True)
     assert r.returncode == 0, r.stdout + r.stderr
     log = (fakebin / "kubectl.log").read_text()
-    assert f"port-forward deploy/agent-orchestrator-api {api.port}:8000" in log
+    assert f"port-forward deploy/agents-orchestrator-api {api.port}:8000" in log
     assert f"port-forward deploy/agents-web {api.port}:8080" in log
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_agent_me_check_fails_without_200(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected", me_status="403")
     assert r.returncode != 0
     assert "/agent/v1/me" in r.stdout + r.stderr
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_agent_me_check_runs_in_pod_with_its_own_env(api, fakebin):
@@ -512,7 +532,7 @@ def test_agent_me_check_runs_in_pod_with_its_own_env(api, fakebin):
     assert start, log
     entry = log[start.start() :]
     assert "/agent/v1/me" in entry
-    for name in ("ORCH_AGENT_URL", "ORCH_AGENT_TOKEN", "ORCH_CLUSTER_ID"):
+    for name in ("ORCH_AGENT_URL", "ORCH_AGENT_TOKEN", "ORCH_SESSION_ID", "X-Orch-Session"):
         assert name in entry
 
 
@@ -520,8 +540,8 @@ def test_no_leader_fails(api, fakebin):
     api.leader = None
     r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
     assert r.returncode != 0
-    assert "leader" in r.stdout + r.stderr
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert re.search(r"session smoke-\d+ has no leader", r.stderr), r.stderr
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_init_scripts_succeed(api, fakebin):
@@ -529,7 +549,7 @@ def test_init_scripts_succeed(api, fakebin):
     assert r.returncode == 0, r.stdout + r.stderr
     body = json.loads(next(b for m, _, b in api.requests if m == "POST"))
     assert body["spec"]["init_scripts"] == ["echo smoke-init"]
-    assert ("GET", "/api/v1/clusters/cid-1/init-scripts") in api.methods()
+    assert ("GET", "/api/v1/sessions/sid-1/init-scripts") in api.methods()
     # the init Job pod is listed first but the agent pod is chosen by name
     log = (fakebin / "kubectl.log").read_text()
     assert re.search(r"exec pod/agent-smoke-\d+-0 ", log)
@@ -550,7 +570,7 @@ def test_init_scripts_failed_fails_and_cleans_up(api, fakebin):
     assert "BackoffLimitExceeded" in out
     assert "exit_code=7" in out
     assert "boom" in out
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_init_scripts_timeout_fails_and_cleans_up(api, fakebin):
@@ -558,7 +578,7 @@ def test_init_scripts_timeout_fails_and_cleans_up(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="8")
     assert r.returncode != 0
     assert "init" in r.stdout + r.stderr
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_init_scripts_wrong_log_or_scripts_fails(api, fakebin):
@@ -571,7 +591,7 @@ def test_init_scripts_wrong_log_or_scripts_fails(api, fakebin):
     api.init_scripts = ["echo other"]
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode != 0
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_ui_checked_on_web_service(api, fakebin):
@@ -598,9 +618,7 @@ def test_web_config_without_orchestrator_fails(api, fakebin):
 
 
 def test_root_path_routed_to_api_fails(api, fakebin):
-    routes = (
-        "lab.szymonrichert.pl / agent-orchestrator\nlab.szymonrichert.pl /api agent-orchestrator\n"
-    )
+    routes = "lab.szymonrichert.pl / agents-orchestrator\nlab.szymonrichert.pl /api agents-orchestrator\n"
     r = _run(api, fakebin, "any-mcp: x - Connected", ingress_routes=routes)
     assert r.returncode != 0
     assert "agents-web" in r.stdout + r.stderr
@@ -665,13 +683,13 @@ def test_webhook_checks_happy_path(api, fakebin):
     assert ("GET", "/healthz") in api.methods()
     assert ("GET", "/webhooks/api/v1/events?endpoint_id=7&limit=5") in api.methods()
     assert _wh_delete(api)
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
     assert re.search(
-        r"exec -i pod/agent-smoke-\d+-0 -- python3 .*agent-orchestrator-services:8002",
+        r"exec -i pod/agent-smoke-\d+-0 -- python3 .*agents-orchestrator-services:8002",
         log,
         re.DOTALL,
     )
-    assert "agent-orchestrator-services:8002" in r.stdout
+    assert "agents-orchestrator-services:8002" in r.stdout
     assert "WWW-Authenticate" in r.stdout
 
 
@@ -719,7 +737,7 @@ def test_webhook_check_failures(api, fakebin, name, setup, extra_env, needle, en
     out = r.stdout + r.stderr
     assert r.returncode != 0, f"{name}: smoke passed\n{out}"
     assert needle in out, f"{name}: {out}"
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
     assert _wh_delete(api) is endpoint_created
 
 
@@ -743,7 +761,7 @@ def test_webhook_filter_check_failures(api, fakebin, name, setup, needle):
     assert r.returncode != 0, f"{name}: smoke passed\n{out}"
     assert needle in out, f"{name}: {out}"
     assert _wh_delete(api)
-    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
 def test_webhook_smoke_ingests_only_the_closed_issue(api, fakebin):

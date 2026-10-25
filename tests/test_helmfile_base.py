@@ -92,7 +92,14 @@ def _run_prepare(repo_root, tmp_path, diff_stderr, diff_rc):
     env = {k: v for k, v in os.environ.items() if k != "BASH_ENV"}
     env["PATH"] = f"{bindir}:{os.environ['PATH']}"
     return subprocess.run(  # noqa: PLW1510
-        [str(tmp_path / ".hook.sh"), str(tmp_path), "prepare", "agent-orchestrator", "agents", "1"],
+        [
+            str(tmp_path / ".hook.sh"),
+            str(tmp_path),
+            "prepare",
+            "agents-orchestrator",
+            "agents",
+            "1",
+        ],
         capture_output=True,
         text=True,
         env=env,
