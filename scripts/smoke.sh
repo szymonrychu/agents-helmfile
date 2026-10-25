@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end smoke of a deployed agent-orchestrator: UI answers, a 1-replica
 # cluster yields a Ready pod, and that pod's `claude mcp list` shows any-mcp.
-# Parameters by env: HOST, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT (SCHEME for tests only).
+# Parameters by env: HOST, RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT (SCHEME for tests only).
 # Without HOST it port-forwards to the api: the public host is behind SSO, and the api's
 # source allowlist admits only 127.0.0.1 (the oauth2-proxy sidecar, or a port-forward).
 # Prints no secrets: only status lines, pod events and the mcp list.
@@ -58,6 +58,18 @@ esac
 curl -fsS --max-time 20 -o /dev/null "${BASE}/api/v1/openapi.json" || fail "openapi.json not reachable"
 log "openapi.json answers"
 
+# 1b. The agents Service (leader-to-agent traffic) exists on 8001 and is not an ingress backend.
+AGENTS_SVC="${RELEASE:-agent-orchestrator}-agents"
+agents_port=$(kubectl -n "$NAMESPACE" get service "$AGENTS_SVC" -o 'jsonpath={.spec.ports[0].port}' 2> /dev/null) ||
+  fail "Service ${AGENTS_SVC} not found in ${NAMESPACE}"
+[ "$agents_port" = "8001" ] || fail "Service ${AGENTS_SVC} port is ${agents_port}, expected 8001"
+backends=$(kubectl -n "$NAMESPACE" get ingress -o 'jsonpath={.items[*].spec.rules[*].http.paths[*].backend.service.name}') ||
+  fail "cannot list ingresses in ${NAMESPACE}"
+case " ${backends} " in
+  *" ${AGENTS_SVC} "*) fail "Service ${AGENTS_SVC} is an ingress backend" ;;
+esac
+log "Service ${AGENTS_SVC} on 8001, not an ingress backend"
+
 # 2. Create a 1-replica cluster through the public API.
 body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 1}}')
 resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/clusters") ||
@@ -109,7 +121,7 @@ fi
 log "claude mcp list shows any-mcp Connected"
 ver=$(kubectl -n "$NAMESPACE" exec "$pod" -- /opt/any-mcp/bin/any-mcp --version 2>&1) || true
 case "$ver" in
-  *0.1.0*) log "any-mcp version 0.1.0" ;;
-  *) fail "any-mcp --version is not 0.1.0: ${ver}" ;;
+  *0.2.0*) log "any-mcp version 0.2.0" ;;
+  *) fail "any-mcp --version is not 0.2.0: ${ver}" ;;
 esac
 log "OK"

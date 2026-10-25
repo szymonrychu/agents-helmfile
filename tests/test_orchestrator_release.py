@@ -167,7 +167,7 @@ def _has_secret_key(node) -> bool:
 def test_any_mcp_configured_for_new_sessions(layered_values):
     env = layered_values(REL)["env"]
     assert env["ORCH_ANY_MCP_REPO"] == "https://github.com/szymonrychu/any-mcp"
-    assert env["ORCH_ANY_MCP_REF"] == "v0.1.0"
+    assert env["ORCH_ANY_MCP_REF"] == "v0.2.0"
 
 
 def _chart_version(repo_root) -> str:
@@ -184,7 +184,7 @@ def test_orchestrator_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"[0-9a-f]{7}", tag)
     assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
-    assert tag == "964db9a"
+    assert tag == "a5b5a75"
 
 
 def test_agent_image_pins_agree(layered_values):
@@ -193,7 +193,7 @@ def test_agent_image_pins_agree(layered_values):
     repo, _, sha = v["agentImage"].rpartition(":")
     assert repo == "harbor.szymonrichert.pl/containers/claude-code-wrapper"
     assert re.fullmatch(r"[0-9a-f]{7}", sha)
-    assert sha == "e9ffa62"
+    assert sha == "1f64e9f"
 
 
 def test_allowed_origins_is_ingress_host(layered_values):
