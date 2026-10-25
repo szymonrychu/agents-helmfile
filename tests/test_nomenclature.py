@@ -84,9 +84,6 @@ OLD_NAME_PHRASES: dict[str, tuple[str, ...]] = {
         "agent-orchestrator-db-cluster-ca",
         "agent_orchestrator",
     ),
-    # The secrets file of the old database release, kept hibernated (D6).
-    "scripts/bootstrap-secrets.sh": ("values/agent-orchestrator-db/default.secrets.yaml",),
-    "tests/test_secrets.py": ("values/agent-orchestrator-db/default.secrets.yaml",),
     # The old database release is still declared while it is hibernated (D6).
     "tests/test_helmfile_base.py": ('"agent-orchestrator-db"',),
     # The retirement test of the old app release (installed: false, D7).
