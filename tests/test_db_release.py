@@ -44,10 +44,14 @@ def test_backups_enabled_with_own_path(layered_values):
     assert b["s3"]["bucket"] == "database-backup-szymonrychu"
     assert b["s3"]["region"] == "eu-central-1"
     assert b["retentionPolicy"] == "30d"
-    (sched,) = b["scheduledBackups"]
-    assert sched["schedule"] == "0 0 3 * * *"
-    assert sched["backupOwnerReference"] == "self"
-    assert sched["method"] == "barmanObjectStore"
+
+
+def test_old_db_hibernated(helmfile_build, layered_values):
+    v = layered_values(REL)
+    assert v["cluster"]["annotations"] == {"cnpg.io/hibernation": "on"}
+    assert v["backups"]["scheduledBackups"] == []
+    assert v["backups"]["enabled"] is True
+    assert _release(helmfile_build)["chart"] == "cnpg/cluster"
 
 
 def test_no_credentials_in_plain_values(layered_values):
