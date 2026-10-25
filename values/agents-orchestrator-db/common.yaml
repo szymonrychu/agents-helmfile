@@ -28,6 +28,11 @@ version:
   postgresql: "16"
 
 cluster:
+  # Chart 0.9.0 reads the target database and owner of an import from
+  # cluster.initdb, not from recovery.database/owner.
+  initdb:
+    database: agents_orchestrator
+    owner: agents_orchestrator
   enablePDB: false
   instances: 1
   storage:

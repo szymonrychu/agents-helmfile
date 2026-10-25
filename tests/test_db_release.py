@@ -85,6 +85,10 @@ def test_import_from_old_cluster(layered_values):
     assert rec["method"] == "import"
     assert rec["database"] == "agents_orchestrator"
     assert rec["owner"] == "agents_orchestrator"
+    assert v["cluster"]["initdb"] == {
+        "database": "agents_orchestrator",
+        "owner": "agents_orchestrator",
+    }
     imp = rec["import"]
     assert imp["type"] == "microservice"
     assert imp["databases"] == ["agent_orchestrator"]
