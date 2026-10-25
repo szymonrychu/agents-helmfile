@@ -11,7 +11,7 @@ import yaml
 
 REL = "agents-webhook"
 DB_REL = "agents-webhook-db"
-SHA = "ed3ea7e"
+SHA = "883958c"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
     "192.168.1.26/32",

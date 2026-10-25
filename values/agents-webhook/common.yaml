@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-webhook
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: ed3ea7e
+  tag: 883958c
 
 # Connection URI from the CNPG app Secret made by the agents-webhook-db release.
 postgres:
