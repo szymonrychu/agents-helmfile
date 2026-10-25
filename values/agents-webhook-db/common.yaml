@@ -26,7 +26,7 @@ cluster:
     enabled: false
 
   # CNPG generates the agents-webhook-db-cluster-app Secret (uri, host, port,
-  # dbname, user, password); the agent-orchestrator release reads it.
+  # dbname, user, password); the agents-orchestrator release reads it.
   initdb:
     database: agents_webhook
     owner: agents_webhook

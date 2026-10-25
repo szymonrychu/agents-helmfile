@@ -95,11 +95,11 @@ releases:
   - name: agents-webhook
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
-    version: 0.1.0-main.206cf8e
+    version: 0.1.0-main.838ba1f
     timeout: 600
     needs:
       - agents/agents-webhook-db
-      - agents/agent-orchestrator
+      - agents/agents-orchestrator
     labels:
       purpose: agents
       application: agents-webhook

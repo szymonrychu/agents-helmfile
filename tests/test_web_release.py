@@ -38,10 +38,10 @@ def test_web_pin_matches_image(repo_root, layered_values):
 
 def test_web_behind_oauth2_proxy_with_orchestrator_secret(layered_values):
     web = layered_values(REL)["podAnnotations"]
-    api = layered_values("agent-orchestrator")["components"]["api"]["podAnnotations"]
+    api = layered_values("agents-orchestrator")["components"]["api"]["podAnnotations"]
     assert web == api
     assert web["oauth2-proxy-admission/enable"] == "true"
-    assert web["oauth2-proxy-admission/secret-name"] == "agent-orchestrator-proxy"
+    assert web["oauth2-proxy-admission/secret-name"] == "agents-orchestrator-proxy"
     assert web["oauth2-proxy-admission/secret-namespace"] == "agents"
     assert web["oauth2-proxy-admission/redeem-url"]
 
@@ -52,7 +52,7 @@ def test_web_ingress_owns_root_without_cert_annotations(layered_values):
     assert ing["className"] == "nginx"
     assert ing["denySourceRanges"] == NODE_IPS
     assert ing["hosts"] == [{"host": HOST, "paths": [{"path": "/", "pathType": "Prefix"}]}]
-    assert ing["tls"] == [{"secretName": "agent-orchestrator-tls", "hosts": [HOST]}]
+    assert ing["tls"] == [{"secretName": "agents-orchestrator-tls", "hosts": [HOST]}]
     for key in ing.get("annotations") or {}:
         assert key not in ("cert-manager.io/cluster-issuer", "kubernetes.io/tls-acme"), key
 

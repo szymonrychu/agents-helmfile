@@ -7,7 +7,7 @@ image:
 podAnnotations:
   oauth2-proxy-admission/enable: "true"
   oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
-  oauth2-proxy-admission/secret-name: agent-orchestrator-proxy
+  oauth2-proxy-admission/secret-name: agents-orchestrator-proxy
   oauth2-proxy-admission/secret-namespace: agents
 
 # Served as /config.json: the UI reaches the orchestrator on the same origin under /api.
@@ -20,7 +20,7 @@ backends:
     basePath: /webhooks/api/v1
 
 # The UI owns "/" of the host. The orchestrator ingress owns /api and the only
-# cert-manager annotations, so there is one Certificate for agent-orchestrator-tls.
+# cert-manager annotations, so there is one Certificate for agents-orchestrator-tls.
 ingress:
   enabled: true
   className: nginx
@@ -37,6 +37,6 @@ ingress:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: agent-orchestrator-tls
+    - secretName: agents-orchestrator-tls
       hosts:
         - lab.szymonrichert.pl

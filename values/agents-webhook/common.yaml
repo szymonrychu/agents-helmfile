@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-webhook
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: 206cf8e
+  tag: 838ba1f
 
 # Connection URI from the CNPG app Secret made by the agents-webhook-db release.
 postgres:
@@ -10,7 +10,7 @@ postgres:
 
 # The service token (orchestrator.token) comes from default.secrets.yaml (SOPS).
 orchestrator:
-  url: http://agent-orchestrator-services:8002
+  url: http://agents-orchestrator-services:8002
 
 publicBaseUrl: https://lab.szymonrichert.pl
 
@@ -39,26 +39,26 @@ trustedProxies:
 env:
   WEBHOOK_BOT_LOGINS: ""
 
-# SSO (oauth2-proxy admission webhook) on the api pod only, as for agent-orchestrator; the
+# SSO (oauth2-proxy admission webhook) on the api pod only, as for agents-orchestrator; the
 # public ingest and the worker stay outside it.
 components:
   api:
     podAnnotations:
       oauth2-proxy-admission/enable: "true"
       oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
-      oauth2-proxy-admission/secret-name: agent-orchestrator-proxy
+      oauth2-proxy-admission/secret-name: agents-orchestrator-proxy
       oauth2-proxy-admission/secret-namespace: agents
   ingest:
     podAnnotations: {}
 
-# Shares the lab host and its certificate with agent-orchestrator (agent-orchestrator-tls, owned
+# Shares the lab host and its certificate with agents-orchestrator (agents-orchestrator-tls, owned
 # by that release's cert-manager annotation), so no cert-manager annotation here.
 ingress:
   enabled: true
   className: nginx
   host: lab.szymonrichert.pl
   tls:
-    secretName: agent-orchestrator-tls
+    secretName: agents-orchestrator-tls
   # Cluster node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
   denySourceRanges:
     - 192.168.1.26/32
