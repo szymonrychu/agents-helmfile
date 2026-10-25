@@ -90,8 +90,10 @@ releases:
   - name: agents-web
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-web
-    version: 0.1.0-main.1343836
+    version: 0.1.0-main.18f5132
     timeout: 600
+    needs:
+      - agents/agents-webhook
     labels:
       purpose: agents
       application: agents-web

@@ -33,7 +33,7 @@ def test_web_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"[0-9a-f]{7}", tag)
     assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
-    assert tag == "1343836"
+    assert tag == "18f5132"
 
 
 def test_web_behind_oauth2_proxy_with_orchestrator_secret(layered_values):
@@ -58,9 +58,22 @@ def test_web_ingress_owns_root_without_cert_annotations(layered_values):
 
 
 def test_web_backends_list_orchestrator_api(layered_values):
-    assert layered_values(REL)["backends"] == [
-        {"id": "orchestrator", "label": "Orchestrator", "basePath": "/api/v1"}
-    ]
+    assert layered_values(REL)["backends"][0] == {
+        "id": "orchestrator",
+        "label": "Orchestrator",
+        "basePath": "/api/v1",
+    }
+
+
+def test_webhooks_backend_configured(layered_values):
+    backends = layered_values(REL)["backends"]
+    assert backends[1] == {"id": "webhooks", "label": "Webhooks", "basePath": "/webhooks/api/v1"}
+
+
+def test_web_release_needs_webhook(repo_root):
+    text = (repo_root / "helmfile.yaml.gotmpl").read_text()
+    block = re.search(rf"- name: {REL}\n(?:(?!\n  - name:).)*", text, re.DOTALL).group(0)
+    assert "- agents/agents-webhook" in block
 
 
 def test_web_release_chart(helmfile_build):
