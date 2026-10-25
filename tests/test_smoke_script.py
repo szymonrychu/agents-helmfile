@@ -18,6 +18,7 @@ SCRIPT = ROOT / "scripts" / "smoke.sh"
 class _Api:
     def __init__(self):
         self.requests: list[tuple[str, str, bytes]] = []
+        self.leader: str | None = "agent-uuid-0"
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -42,6 +43,9 @@ class _Api:
                     self._send(200, "<!doctype html><html></html>", "text/html")
                 elif self.path == "/api/v1/openapi.json":
                     self._send(200, "{}")
+                elif self.path == "/api/v1/clusters/cid-1":
+                    leader = api.leader
+                    self._send(200, json.dumps({"id": "cid-1", "leader_agent_id": leader}))
                 else:
                     self._send(404, "{}")
 
@@ -87,6 +91,7 @@ def fakebin(tmp_path):
         "  *) ;;\n"
         "esac\n"
         'case "$*" in\n'
+        '  *"/agent/v1/me"*) echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s\\n" "${FAKE_ME_STATUS-200}"; exit 0 ;;\n'
         '  *"ls -d /sessions"*) printf "%s\\n" "$FAKE_SESSION_CFG"; exit 0 ;;\n'
         '  *"any-mcp --version"*) printf "%s\\n" "$FAKE_VERSION"; exit 0 ;;\n'
         '  *" exec "*) printf "%s\\n" "$FAKE_MCP_LIST"; exit 0 ;;\n'
@@ -108,6 +113,8 @@ def _run(
     ingress_fail="",
     session_cfg="/sessions/abc/config",
     port_forward=False,
+    me_status="200",
+    smoke_timeout="20",
 ):
     target = (
         {"SMOKE_LOCAL_PORT": str(api.port)}
@@ -118,7 +125,8 @@ def _run(
         **{k: v for k, v in os.environ.items() if k not in ("BASH_ENV", "ENV", "HOST", "SCHEME")},
         "PATH": f"{fakebin}:{os.environ['PATH']}",
         **target,
-        "SMOKE_TIMEOUT_S": "20",
+        "SMOKE_TIMEOUT_S": smoke_timeout,
+        "FAKE_ME_STATUS": me_status,
         "FAKE_MCP_LIST": mcp_list,
         "FAKE_VERSION": version,
         "FAKE_SESSION_CFG": session_cfg,
@@ -140,7 +148,7 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
     assert ("DELETE", "/api/v1/clusters/cid-1") in methods
     body = json.loads(next(b for m, _, b in api.requests if m == "POST"))
     assert re.fullmatch(r"smoke-\d+", body["slug"])
-    assert body["spec"]["replicas"] == 1
+    assert body["spec"]["replicas"] == 2
 
 
 def test_missing_any_mcp_fails_and_cleans_up(api, fakebin):
@@ -238,4 +246,29 @@ def test_default_target_is_a_port_forward_to_the_api(api, fakebin):
     assert r.returncode == 0, r.stdout + r.stderr
     log = (fakebin / "kubectl.log").read_text()
     assert f"port-forward deploy/agent-orchestrator-api {api.port}:8000" in log
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_agent_me_check_fails_without_200(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", me_status="403")
+    assert r.returncode != 0
+    assert "/agent/v1/me" in r.stdout + r.stderr
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_agent_me_check_runs_in_pod_with_its_own_env(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = (fakebin / "kubectl.log").read_text()
+    entry = log[log.index("exec pod/smoke-agent-0 -- python3") :]
+    assert "/agent/v1/me" in entry
+    for name in ("ORCH_AGENT_URL", "ORCH_AGENT_TOKEN", "ORCH_CLUSTER_ID"):
+        assert name in entry
+
+
+def test_no_leader_fails(api, fakebin):
+    api.leader = None
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
+    assert r.returncode != 0
+    assert "leader" in r.stdout + r.stderr
     assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
