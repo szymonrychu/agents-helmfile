@@ -47,6 +47,18 @@ releases:
       application: agent-orchestrator
     <<: *default
 
+  - name: agents-orchestrator-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    # Imports the data of agent-orchestrator-db (design D1); the old release stays.
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-orchestrator
+    <<: *default
+
   - name: agent-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agent-orchestrator

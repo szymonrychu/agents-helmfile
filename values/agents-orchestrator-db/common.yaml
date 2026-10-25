@@ -1,0 +1,67 @@
+# Bootstraps by importing agent_orchestrator from the old cluster over verified
+# TLS. CNPG generates the agents-orchestrator-db-cluster-app Secret (uri, ...).
+mode: recovery
+recovery:
+  method: import
+  database: agents_orchestrator
+  owner: agents_orchestrator
+  import:
+    type: microservice
+    databases:
+      - agent_orchestrator
+    source:
+      host: agent-orchestrator-db-cluster-rw
+      port: 5432
+      username: agent_orchestrator
+      database: agent_orchestrator
+      sslMode: verify-full
+      passwordSecret:
+        create: false
+        name: agent-orchestrator-db-cluster-app
+        key: password
+      sslRootCertSecret:
+        name: agent-orchestrator-db-cluster-ca
+        key: ca.crt
+
+version:
+  # renovate: image=ghcr.io/cloudnative-pg/postgresql
+  postgresql: "16"
+
+cluster:
+  enablePDB: false
+  instances: 1
+  storage:
+    size: 5Gi
+    storageClass: rook-ceph
+
+  walStorage:
+    enabled: true
+    size: 2Gi
+    storageClass: rook-ceph
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  monitoring:
+    enabled: false
+
+
+backups:
+  enabled: true
+  provider: s3
+  s3:
+    region: eu-central-1
+    bucket: database-backup-szymonrychu
+    path: /agents-orchestrator-db/
+    # accessKey / secretKey come from default.secrets.yaml (SOPS)
+  retentionPolicy: "30d"
+  scheduledBackups:
+    - name: daily-backup
+      schedule: "0 0 3 * * *"
+      backupOwnerReference: self
+      method: barmanObjectStore
