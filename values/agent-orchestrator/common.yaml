@@ -63,8 +63,6 @@ ingress:
     - 192.168.1.28/32
     - 192.168.1.29/32
     - 192.168.1.65/32
-  allowSourceRanges:
-    - 192.168.1.0/24
   hosts:
     - host: lab.szymonrichert.pl
       paths:

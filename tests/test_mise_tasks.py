@@ -69,7 +69,7 @@ def test_readme_names_every_task(tasks):
     assert "## Operating" in readme
     for name in {*tasks, "smoke"}:
         assert f"mise run {name}" in readme or f"`{name}`" in readme, name
-    for word in ("agents", "lab.szymonrichert.pl", "LAN", "oauth2-proxy", ".env", "SOPS"):
+    for word in ("agents", "lab.szymonrichert.pl", "node IPs", "oauth2-proxy", ".env", "SOPS"):
         assert word in readme, word
 
 

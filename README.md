@@ -7,8 +7,8 @@ Postgres (`agent-orchestrator-db`) and the `agent-orchestrator` Helm chart.
 
 - Namespace: `agents` (created by helm on first install).
 - Releases: `agent-orchestrator-db` (CNPG database) and `agent-orchestrator`.
-- Host: `https://lab.szymonrichert.pl`. The ingress is LAN-only (allow-listed to
-  192.168.1.0/24) and the api pod sits behind Keycloak SSO: the cluster's oauth2-proxy
+- Host: `https://lab.szymonrichert.pl`. The ingress is public (cluster node IPs
+  denied) and the api pod sits behind Keycloak SSO: the cluster's oauth2-proxy
   admission webhook injects a sidecar from pod annotations, reading the
   `agent-orchestrator-proxy` Secret that the infrastructure repo's `terraform/keycloak`
   creates. The api admits only 127.0.0.1 (that sidecar, or a `kubectl port-forward`).

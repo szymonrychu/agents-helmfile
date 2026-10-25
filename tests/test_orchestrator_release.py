@@ -60,11 +60,11 @@ def test_ingress_lan_only_no_ingress_auth(layered_values):
         assert not any(bad in key for bad in ("auth-url", "auth-signin", "oauth2")), key
 
 
-def test_ingress_denies_node_ips_allows_lan(layered_values):
+def test_ingress_denies_node_ips_not_lan_only(layered_values):
     ing = layered_values(REL)["ingress"]
     assert ing["denySourceRanges"] == NODE_IPS
-    assert ing["allowSourceRanges"] == ["192.168.1.0/24"]
-    # the chart renders the whitelist from allowSourceRanges; no hand-set duplicate
+    # SSO (the oauth2-proxy sidecar) gates access; the LAN-only allowlist is gone
+    assert not ing.get("allowSourceRanges")
     assert "nginx.ingress.kubernetes.io/whitelist-source-range" not in ing["annotations"]
 
 
