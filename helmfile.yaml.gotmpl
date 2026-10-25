@@ -50,7 +50,7 @@ releases:
   - name: agent-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agent-orchestrator
-    version: 0.1.0-main.60cb11c
+    version: 0.1.0-main.a3c1b9d
     timeout: 600
     needs:
       - agents/agent-orchestrator-db
@@ -58,6 +58,10 @@ releases:
       purpose: agents
       application: agent-orchestrator
     <<: *default
+    # Overrides the default anchor's list: the service token hash file comes after default.
+    secrets:
+    - values/agent-orchestrator/default.secrets.yaml
+    - values/agent-orchestrator/service-token-agents-webhook.secrets.yaml
 
   - name: agents-web
     namespace: agents

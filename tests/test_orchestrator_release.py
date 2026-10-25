@@ -184,7 +184,17 @@ def test_orchestrator_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"[0-9a-f]{7}", tag)
     assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
-    assert tag == "60cb11c"
+    assert tag == "a3c1b9d"
+
+
+def test_service_token_file_listed(helmfile_build, layered_values):
+    secrets = _release(helmfile_build).get("secrets", [])
+    names = [s if isinstance(s, str) else s.get("path", "") for s in secrets]
+    token = "values/agent-orchestrator/service-token-agents-webhook.secrets.yaml"
+    assert token in names
+    default = "values/agent-orchestrator/default.secrets.yaml"
+    assert default in names and names.index(token) > names.index(default)
+    assert layered_values(REL)["serviceApi"]["port"] == 8002
 
 
 def test_agent_image_pins_agree(layered_values):
