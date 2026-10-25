@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# End-to-end smoke of a deployed agent-orchestrator: UI answers, a 2-replica hive
-# cluster with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
-# and it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives).
+# End-to-end smoke of a deployed agent-orchestrator: UI answers, a 1-replica hive cluster (cap 2)
+# with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
+# it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives),
+# and the public scale route grows the cluster to 2 pods and back to 1 without restarting pod-0.
 # Parameters by env: HOST, RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT (SCHEME for tests only).
 # Without HOST it port-forwards to the api: the public host is behind SSO, and the api's
 # source allowlist admits only 127.0.0.1 (the oauth2-proxy sidecar, or a port-forward).
@@ -71,8 +72,8 @@ case " ${backends} " in
 esac
 log "Service ${AGENTS_SVC} on 8001, not an ingress backend"
 
-# 2. Create a 1-replica cluster with an init script (the smoke makes its own, never touches existing ones) through the public API.
-body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 2, init_scripts: ["echo smoke-init"]}}')
+# 2. Create a 1-replica cluster with cap 2 (a hive) and an init script (the smoke makes its own, never touches existing ones) through the public API.
+body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 1, max_replicas: 2, init_scripts: ["echo smoke-init"]}}')
 resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/clusters") ||
   fail "cluster create failed"
 CLUSTER_ID=$(echo "$resp" | jq -er '.id') || fail "create response carries no id"
@@ -174,4 +175,43 @@ except urllib.error.HTTPError as e:
 me_status=$(kubectl -n "$NAMESPACE" exec "$pod" -- python3 -c "$me_py" 2>&1 | tail -n1) || true
 [ "$me_status" = "200" ] || fail "GET /agent/v1/me from ${pod} (via ORCH_AGENT_URL, ORCH_AGENT_TOKEN, ORCH_CLUSTER_ID) answered '${me_status}', expected 200"
 log "GET /agent/v1/me from ${pod} through the agents Service: 200"
+
+# 7. Scale 1 -> 2 -> 1 through the public route; pod-0 must never restart.
+uid0=$(kubectl -n "$NAMESPACE" get "$pod" -o 'jsonpath={.metadata.uid}') || fail "cannot read uid of ${pod}"
+[ -n "$uid0" ] || fail "uid of ${pod} is empty"
+scale() {
+  local code
+  code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+    -d "{\"replicas\": $1}" "${BASE}/api/v1/clusters/${CLUSTER_ID}/scale") || fail "scale to $1 request failed"
+  [ "$code" = "202" ] || fail "scale to $1 answered ${code}, expected 202"
+  log "scale to $1 accepted (202)"
+}
+pod_names() { kubectl -n "$NAMESPACE" get pods -l "$label" -o name 2> /dev/null | grep -E "^pod/agent-${SLUG}-[0-9]+\$" | sort || true; }
+
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+scale 2
+pod1=""
+while [ -z "$pod1" ]; do
+  pod1=$(pod_names | grep -vx "$pod" | head -n1 || true)
+  [ -n "$pod1" ] && break
+  [ "$(date +%s)" -ge "$deadline" ] && fail "scale up: pod-1 did not appear within ${SMOKE_TIMEOUT_S}s"
+  sleep 3
+done
+remaining=$((deadline - $(date +%s)))
+[ "$remaining" -lt 1 ] && remaining=1
+kubectl -n "$NAMESPACE" wait --for=condition=Ready "$pod1" --timeout="${remaining}s" ||
+  fail "scale up: ${pod1} not Ready within ${SMOKE_TIMEOUT_S}s"
+log "scaled up: ${pod1} is Ready"
+
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+scale 1
+while [ -n "$(pod_names | grep -vx "$pod" || true)" ]; do
+  [ "$(date +%s)" -ge "$deadline" ] && fail "scale down: ${pod1} still present after ${SMOKE_TIMEOUT_S}s"
+  sleep 3
+done
+log "scaled down: ${pod1} is gone"
+
+uid_now=$(kubectl -n "$NAMESPACE" get "$pod" -o 'jsonpath={.metadata.uid}') || fail "${pod} is gone after scaling"
+[ "$uid_now" = "$uid0" ] || fail "pod-0 uid changed after scaling (${uid0} -> ${uid_now}): pod-0 restarted"
+log "pod-0 kept uid ${uid0}"
 log "OK"

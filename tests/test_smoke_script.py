@@ -27,6 +27,9 @@ class _Api:
         }
         self.init_scripts: list[str] = ["echo smoke-init"]
         self.spec: dict = {}
+        self.scale_status = 202
+        self.restart_pod0 = False
+        self.state_dir: Path | None = None
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -62,8 +65,25 @@ class _Api:
                 else:
                     self._send(404, "{}")
 
+            def _scale(self):
+                n = json.loads(api.requests[-1][2])["replicas"]
+                if api.scale_status != 202:
+                    self._send(api.scale_status, json.dumps({"detail": "refused"}))
+                    return
+                pod1 = api.state_dir / "pod1"
+                if n >= 2:
+                    pod1.touch()
+                else:
+                    pod1.unlink(missing_ok=True)
+                if api.restart_pod0:
+                    (api.state_dir / "uid0").write_text("uid-pod-0-restarted")
+                self._send(202, json.dumps({"id": "cid-1", "replicas": n}))
+
             def do_POST(self):
                 self._record()
+                if self.path == "/api/v1/clusters/cid-1/scale":
+                    self._scale()
+                    return
                 created = json.loads(api.requests[-1][2])
                 api.spec = created.get("spec") or {}
                 slug = created["slug"]
@@ -82,8 +102,11 @@ class _Api:
 
 
 @pytest.fixture
-def api():
+def api(tmp_path):
     a = _Api()
+    a.state_dir = tmp_path / "state"
+    a.state_dir.mkdir()
+    (a.state_dir / "uid0").write_text("uid-pod-0")
     yield a
     a.server.shutdown()
 
@@ -101,8 +124,10 @@ def fakebin(tmp_path):
         ' echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_AGENTS_PORT-8001}"; exit 0 ;;\n'
         '  *"get ingress"*) [ -z "${FAKE_INGRESS_FAIL-}" ] || exit 1;'
         ' printf "%s" "$FAKE_INGRESS_BACKENDS"; exit 0 ;;\n'
+        '  *"get pod/agent-"*) cat "$FAKE_STATE_DIR/uid0"; exit 0 ;;\n'
         '  *"get pod"*) slug=$(echo "$*" | sed -n "s|.*cluster=\\([^ ]*\\).*|\\1|p");'
-        ' echo "pod/agent-${slug}-init-abcde"; echo "pod/agent-${slug}-0"; exit 0 ;;\n'
+        ' echo "pod/agent-${slug}-init-abcde"; echo "pod/agent-${slug}-0";'
+        ' [ ! -e "$FAKE_STATE_DIR/pod1" ] || echo "pod/agent-${slug}-1"; exit 0 ;;\n'
         '  *" exec "*|*port-forward*) echo "$*" >> "$FAKE_KUBECTL_LOG" ;;\n'
         "  *) ;;\n"
         "esac\n"
@@ -149,6 +174,7 @@ def _run(
         "FAKE_AGENTS_PORT": agents_port,
         "FAKE_INGRESS_BACKENDS": ingress_backends,
         "FAKE_INGRESS_FAIL": ingress_fail,
+        "FAKE_STATE_DIR": str(api.state_dir),
         "FAKE_KUBECTL_LOG": str(fakebin / "kubectl.log"),
     }
     return subprocess.run(
@@ -164,7 +190,32 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
     assert ("DELETE", "/api/v1/clusters/cid-1") in methods
     body = json.loads(next(b for m, _, b in api.requests if m == "POST"))
     assert re.fullmatch(r"smoke-\d+", body["slug"])
-    assert body["spec"] == {"replicas": 2, "init_scripts": ["echo smoke-init"]}
+    assert body["spec"] == {
+        "replicas": 1,
+        "max_replicas": 2,
+        "init_scripts": ["echo smoke-init"],
+    }
+    scales = [json.loads(b) for m, p, b in api.requests if p.endswith("/scale")]
+    assert scales == [{"replicas": 2}, {"replicas": 1}]
+    assert not (api.state_dir / "pod1").exists()
+    assert (api.state_dir / "uid0").read_text() == "uid-pod-0"
+
+
+def test_scale_refused_fails(api, fakebin):
+    api.scale_status = 409
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    assert "scale" in r.stdout + r.stderr
+    assert "409" in r.stdout + r.stderr
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_pod0_restart_fails(api, fakebin):
+    api.restart_pod0 = True
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    assert "uid" in r.stdout + r.stderr
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
 
 
 def test_missing_any_mcp_fails_and_cleans_up(api, fakebin):
