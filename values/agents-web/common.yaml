@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-web
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: 1343836
+  tag: "1343836"
 
 # Same oauth2-proxy admission webhook identity as the orchestrator api pod.
 podAnnotations:
