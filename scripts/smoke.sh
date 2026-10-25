@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# End-to-end smoke of a deployed agent-orchestrator: UI answers, a 1-replica
-# cluster yields a Ready pod, and that pod's `claude mcp list` shows any-mcp.
+# End-to-end smoke of a deployed agent-orchestrator: UI answers, a 2-replica
+# cluster (a hive) yields a Ready pod and a leader, that pod's `claude mcp list` shows any-mcp,
+# and it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives).
 # Parameters by env: HOST, RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT (SCHEME for tests only).
 # Without HOST it port-forwards to the api: the public host is behind SSO, and the api's
 # source allowlist admits only 127.0.0.1 (the oauth2-proxy sidecar, or a port-forward).
@@ -70,8 +71,8 @@ case " ${backends} " in
 esac
 log "Service ${AGENTS_SVC} on 8001, not an ingress backend"
 
-# 2. Create a 1-replica cluster through the public API.
-body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 1}}')
+# 2. Create a 2-replica cluster (a hive: the smoke makes its own, never touches existing ones) through the public API.
+body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 2}}')
 resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/clusters") ||
   fail "cluster create failed"
 CLUSTER_ID=$(echo "$resp" | jq -er '.id') || fail "create response carries no id"
@@ -124,4 +125,28 @@ case "$ver" in
   *0.2.0*) log "any-mcp version 0.2.0" ;;
   *) fail "any-mcp --version is not 0.2.0: ${ver}" ;;
 esac
+
+# 5. The hive has a leader (the dispatcher elects the lowest-ordinal ready agent).
+leader=""
+while [ -z "$leader" ]; do
+  leader=$(curl -fsS --max-time 20 "${BASE}/api/v1/clusters/${CLUSTER_ID}" | jq -r '.leader_agent_id // empty') || leader=""
+  [ -n "$leader" ] && break
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    fail "cluster ${SLUG} has no leader within ${SMOKE_TIMEOUT_S}s"
+  fi
+  sleep 3
+done
+log "cluster ${SLUG} leader ${leader}"
+
+# 6. From the agent pod, with its own env, GET /agent/v1/me on the agents Service: 200 only if
+# the token, the cluster and the pod-IP binding all hold (the CNI kept the source IP).
+me_py='import os, urllib.request, urllib.error
+req = urllib.request.Request(os.environ["ORCH_AGENT_URL"].rstrip("/") + "/agent/v1/me", headers={"Authorization": "Bearer " + os.environ["ORCH_AGENT_TOKEN"], "X-Orch-Cluster": os.environ["ORCH_CLUSTER_ID"]})
+try:
+    print(urllib.request.urlopen(req, timeout=15).status)
+except urllib.error.HTTPError as e:
+    print(e.code)'
+me_status=$(kubectl -n "$NAMESPACE" exec "$pod" -- python3 -c "$me_py" 2>&1 | tail -n1) || true
+[ "$me_status" = "200" ] || fail "GET /agent/v1/me from ${pod} (via ORCH_AGENT_URL, ORCH_AGENT_TOKEN, ORCH_CLUSTER_ID) answered '${me_status}', expected 200"
+log "GET /agent/v1/me from ${pod} through the agents Service: 200"
 log "OK"
