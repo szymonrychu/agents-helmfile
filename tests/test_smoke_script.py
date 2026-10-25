@@ -29,6 +29,7 @@ class _Api:
         self.init_scripts: list[str] = ["echo smoke-init"]
         self.spec: dict = {}
         self.scale_status = 202
+        self.closes_at_offset: int | None = 3600
         self.restart_pod0 = False
         self.web_root = '<!doctype html><html><body><div id="root"></div></body></html>'
         self.web_config: dict = {
@@ -65,7 +66,19 @@ class _Api:
                     # Hive rule (agent-orchestrator db/leadership.py): only coalesce(max_replicas, replicas) > 1 elects a leader.
                     size = api.spec.get("max_replicas") or api.spec.get("replicas") or 0
                     leader = api.leader if size > 1 else None
-                    self._send(200, json.dumps({"id": "cid-1", "leader_agent_id": leader}))
+                    view = {
+                        "id": "cid-1",
+                        "spec": api.spec,
+                        "created_at": "2026-10-25T10:00:00.123456Z",
+                        "leader_agent_id": leader,
+                        "leader_since": "2026-10-25T10:00:30Z" if leader else None,
+                        "leader_reason": "start" if leader else None,
+                    }
+                    if api.closes_at_offset is not None:
+                        view["closes_at"] = (
+                            f"2026-10-25T{10 + api.closes_at_offset // 3600}:00:00.123456Z"
+                        )
+                    self._send(200, json.dumps(view))
                 elif self.path == "/api/v1/clusters/cid-1/init-scripts":
                     body = {"scripts": api.init_scripts, "status": api.init_status}
                     self._send(200, json.dumps(body))
@@ -201,11 +214,35 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
         "replicas": 1,
         "max_replicas": 2,
         "init_scripts": ["echo smoke-init"],
+        "wrapper": {
+            "auto_compact": {"idle_seconds": 1800},
+            "hooks": {"onTurnComplete": [{"type": "command", "run": "true"}]},
+        },
+        "leader_lease_seconds": 3600,
+        "autoclose_after_seconds": 3600,
     }
     scales = [json.loads(b) for m, p, b in api.requests if p.endswith("/scale")]
     assert scales == [{"replicas": 2}, {"replicas": 1}]
     assert not (api.state_dir / "pod1").exists()
     assert (api.state_dir / "uid0").read_text() == "uid-pod-0"
+
+
+def test_config_fields_checked(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "config fields echoed" in r.stdout
+    assert "closes_at" in r.stdout
+    assert "leader_since" in r.stdout
+    assert ("GET", "/api/v1/clusters/cid-1") in api.methods()
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_config_view_mismatch_fails(api, fakebin):
+    api.closes_at_offset = None
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    assert "closes_at" in r.stderr
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
 
 
 def test_scale_refused_fails(api, fakebin):
