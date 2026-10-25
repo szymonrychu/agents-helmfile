@@ -47,7 +47,7 @@ Applies are manual and local, run from this directory.
 - `mise run apply` - `helmfile apply --suppress-secrets`. Depends on `lint`,
   `test` and `kube-context`, so a broken tree cannot be applied. Failed upgrades
   roll back (`helmDefaults`); the hook creates the regcred and raw manifests.
-- `mise run smoke` - proves the UI on agents-web answers with HTML and a `config.json` listing the orchestrator
+- `mise run smoke` - proves the UI on agents-web answers with the agents-web index and a `config.json` listing the orchestrator
   backend, that the host routes `/` to agents-web and `/api` to the orchestrator, that a fresh session lists `any-mcp`, that the
   cluster's init scripts ran once and succeeded (`GET .../init-scripts`), then scales a 1-replica cluster (cap 2) to 2 and back to 1
   through `POST /api/v1/clusters/{id}/scale`, failing on a non-202 answer, a timeout or a restarted pod-0.
