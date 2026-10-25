@@ -73,7 +73,7 @@ case "$page" in
   *) fail "UI body is not the agents-web index (no <div id=\"root\">; an SSO page?)" ;;
 esac
 web_cfg=$(curl -fsS --max-time 20 "${WEB_BASE}/config.json") || fail "UI ${WEB_BASE}/config.json not reachable"
-echo "$web_cfg" | jq -e '[.backends[]? | select(.name == "orchestrator" and .basePath == "/api/v1")] | length > 0' > /dev/null ||
+echo "$web_cfg" | jq -e '[.backends[]? | select(.id == "orchestrator" and .basePath == "/api/v1")] | length > 0' > /dev/null ||
   fail "config.json lists no backend orchestrator with basePath /api/v1: ${web_cfg}"
 log "config.json lists backend orchestrator at /api/v1"
 

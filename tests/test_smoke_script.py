@@ -32,7 +32,7 @@ class _Api:
         self.restart_pod0 = False
         self.web_root = '<!doctype html><html><body><div id="root"></div></body></html>'
         self.web_config: dict = {
-            "backends": [{"name": "orchestrator", "basePath": "/api/v1"}],
+            "backends": [{"id": "orchestrator", "basePath": "/api/v1"}],
         }
         self.state_dir: Path | None = None
         api = self
@@ -418,7 +418,7 @@ def test_web_root_not_html_fails(api, fakebin):
 
 
 def test_web_config_without_orchestrator_fails(api, fakebin):
-    api.web_config = {"backends": [{"name": "other", "basePath": "/api/v1"}]}
+    api.web_config = {"backends": [{"id": "other", "basePath": "/api/v1"}]}
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode != 0
     assert "orchestrator" in r.stdout + r.stderr
