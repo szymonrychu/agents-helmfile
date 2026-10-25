@@ -1,0 +1,73 @@
+image:
+  repository: harbor.szymonrichert.pl/containers/agents-webhook
+  # CI-published sha7 tag, equal to the chart appVersion.
+  tag: ed3ea7e
+
+# Connection URI from the CNPG app Secret made by the agents-webhook-db release.
+postgres:
+  existingSecret: agents-webhook-db-cluster-app
+  existingSecretKey: uri
+
+# The service token (orchestrator.token) comes from default.secrets.yaml (SOPS).
+orchestrator:
+  url: http://agent-orchestrator-services:8002
+
+publicBaseUrl: https://lab.szymonrichert.pl
+
+# Reverse proxies whose X-Forwarded-For the ingest trusts. ingress-nginx runs hostNetwork on
+# nodes .26/.27/.28 (flannel CNI); the ingest pod sees the controller's node IP or that node's
+# flannel.1/cni0 address (podCIDR .0 or .1). Every node is listed, as /32s, so the list survives
+# a controller move. Never the whole 10.244.0.0/16: any pod could then spoof X-Forwarded-For.
+trustedProxies:
+  - 192.168.1.26/32
+  - 192.168.1.27/32
+  - 192.168.1.28/32
+  - 192.168.1.29/32
+  - 192.168.1.65/32
+  - 10.244.0.0/32
+  - 10.244.0.1/32
+  - 10.244.1.0/32
+  - 10.244.1.1/32
+  - 10.244.2.0/32
+  - 10.244.2.1/32
+  - 10.244.3.0/32
+  - 10.244.3.1/32
+  - 10.244.4.0/32
+  - 10.244.4.1/32
+
+# Optional author filters: off.
+env:
+  WEBHOOK_BOT_LOGINS: ""
+  WEBHOOK_ALLOWED_AUTHORS: ""
+
+# SSO (oauth2-proxy admission webhook) on the api pod only, as for agent-orchestrator; the
+# public ingest and the worker stay outside it.
+components:
+  api:
+    podAnnotations:
+      oauth2-proxy-admission/enable: "true"
+      oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
+      oauth2-proxy-admission/secret-name: agent-orchestrator-proxy
+      oauth2-proxy-admission/secret-namespace: agents
+  ingest:
+    podAnnotations: {}
+
+# Shares the lab host and its certificate with agent-orchestrator (agent-orchestrator-tls, owned
+# by that release's cert-manager annotation), so no cert-manager annotation here.
+ingress:
+  enabled: true
+  className: nginx
+  host: lab.szymonrichert.pl
+  tls:
+    secretName: agent-orchestrator-tls
+  # Cluster node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
+  denySourceRanges:
+    - 192.168.1.26/32
+    - 192.168.1.27/32
+    - 192.168.1.28/32
+    - 192.168.1.29/32
+    - 192.168.1.65/32
+  # Ingest Ingress: above the 5 MiB body cap.
+  proxyBodySize: 6m
+  proxyReadTimeout: "60"
+  proxySendTimeout: "60"

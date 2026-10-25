@@ -63,6 +63,30 @@ releases:
     - values/agent-orchestrator/default.secrets.yaml
     - values/agent-orchestrator/service-token-agents-webhook.secrets.yaml
 
+  - name: agents-webhook-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-webhook
+    <<: *default
+
+  - name: agents-webhook
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
+    version: 0.1.0-main.ed3ea7e
+    timeout: 600
+    needs:
+      - agents/agents-webhook-db
+      - agents/agent-orchestrator
+    labels:
+      purpose: agents
+      application: agents-webhook
+    <<: *default
+
   - name: agents-web
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-web
