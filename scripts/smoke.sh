@@ -188,6 +188,7 @@ scale() {
 }
 pod_names() { kubectl -n "$NAMESPACE" get pods -l "$label" -o name 2> /dev/null | grep -E "^pod/agent-${SLUG}-[0-9]+\$" | sort || true; }
 
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
 scale 2
 pod1=""
 while [ -z "$pod1" ]; do
@@ -202,6 +203,7 @@ kubectl -n "$NAMESPACE" wait --for=condition=Ready "$pod1" --timeout="${remainin
   fail "scale up: ${pod1} not Ready within ${SMOKE_TIMEOUT_S}s"
 log "scaled up: ${pod1} is Ready"
 
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
 scale 1
 while [ -n "$(pod_names | grep -vx "$pod" || true)" ]; do
   [ "$(date +%s)" -ge "$deadline" ] && fail "scale down: ${pod1} still present after ${SMOKE_TIMEOUT_S}s"
