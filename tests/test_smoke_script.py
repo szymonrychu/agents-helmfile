@@ -1,5 +1,6 @@
 """scripts/smoke.sh offline: fake HTTP API and a fake kubectl on PATH."""
 
+import base64
 import json
 import os
 import re
@@ -13,6 +14,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "smoke.sh"
+WH_USER = "wh-user-smoke"
+WH_PASSWORD = "wh-pass-SECRET-value-123"
+WH_TOKEN = "orch-token-SECRET-value-456"
+WH_ENDPOINT = "/webhooks/api/v1/endpoints/7"
 DEFAULT_ROUTES = "lab.szymonrichert.pl / agents-web\nlab.szymonrichert.pl /api agent-orchestrator\n"
 
 
@@ -36,6 +41,16 @@ class _Api:
             "backends": [{"id": "orchestrator", "basePath": "/api/v1"}],
         }
         self.state_dir: Path | None = None
+        # webhook service fakes (api, ingest and events share this one server)
+        self.endpoint_create_status = 201
+        self.accept_any_password = False
+        self.ingest_ok_reason = "action_ignored"
+        self.unknown_suffix_body = None
+        self.healthz_status = 200
+        self.events: list[dict] | None = None
+        self.public_auth_header = 'Basic realm="agents-webhook"'
+        self.public_status = 401
+        self.suffix: str | None = None
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -54,9 +69,46 @@ class _Api:
                 n = int(self.headers.get("Content-Length") or 0)
                 api.requests.append((self.command, self.path, self.rfile.read(n)))
 
+            def _basic_ok(self):
+                want = base64.b64encode(f"{WH_USER}:{WH_PASSWORD}".encode()).decode()
+                got = self.headers.get("Authorization", "")
+                return got == f"Basic {want}" or (api.accept_any_password and got.startswith("Basic "))
+
+            def _unauthorized(self, www=True):
+                body = json.dumps({"error": {"code": "unauthorized", "message": "unauthorized"}})
+                data = body.encode()
+                self.send_response(401)
+                if www:
+                    self.send_header("WWW-Authenticate", 'Basic realm="agents-webhook"')
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
             def do_GET(self):
                 self._record()
-                if self.path == "/":
+                path = self.path.split("?")[0]
+                if path == "/healthz":
+                    self._send(api.healthz_status, json.dumps({"status": "ok"}))
+                elif path == "/api/v1/presets":
+                    presets = [
+                        {"id": "preset-other", "name": "other", "is_default": False},
+                        {"id": "preset-default", "name": "default", "is_default": True},
+                    ]
+                    self._send(200, json.dumps(presets))
+                elif path == "/webhooks/api/v1/events":
+                    events = api.events
+                    if events is None:
+                        events = [
+                            {
+                                "id": 101,
+                                "endpoint_id": 7,
+                                "status": "ignored",
+                                "reason": "action_ignored",
+                            }
+                        ]
+                    self._send(200, json.dumps(events))
+                elif self.path == "/":
                     self._send(200, api.web_root, "text/html")
                 elif self.path == "/config.json":
                     self._send(200, json.dumps(api.web_config))
@@ -99,8 +151,45 @@ class _Api:
                     (api.state_dir / "uid0").write_text("uid-pod-0-restarted")
                 self._send(202, json.dumps({"id": "cid-1", "replicas": n}))
 
+            def _webhook_post(self):
+                if self.path == "/webhooks/api/v1/endpoints":
+                    if api.endpoint_create_status != 201:
+                        self._send(api.endpoint_create_status, "{}")
+                        return
+                    created = json.loads(api.requests[-1][2])
+                    api.suffix = created["suffix"]
+                    view = {
+                        "id": 7,
+                        "suffix": created["suffix"],
+                        "type": created["type"],
+                        "preset_id": created["preset_id"],
+                        "username": WH_USER,
+                        "password": WH_PASSWORD,
+                    }
+                    self._send(201, json.dumps(view))
+                    return
+                if not self.path.startswith("/webhook/"):
+                    self._send(404, "{}")
+                    return
+                suffix = self.path[len("/webhook/") :]
+                if suffix == api.suffix and self._basic_ok():
+                    ok = {"id": 101, "status": "ignored", "reason": api.ingest_ok_reason}
+                    self._send(202, json.dumps(ok))
+                elif suffix != api.suffix and api.unknown_suffix_body is not None:
+                    self._send(200, api.unknown_suffix_body)
+                elif suffix == "smoke-unknown":
+                    if api.public_status == 401:
+                        self._unauthorized(www=api.public_auth_header is not None)
+                    else:
+                        self._send(api.public_status, "{}")
+                else:
+                    self._unauthorized()
+
             def do_POST(self):
                 self._record()
+                if self.path.startswith(("/webhook", "/webhooks")):
+                    self._webhook_post()
+                    return
                 if self.path == "/api/v1/clusters/cid-1/scale":
                     self._scale()
                     return
@@ -111,6 +200,10 @@ class _Api:
 
             def do_DELETE(self):
                 self._record()
+                if self.path == WH_ENDPOINT:
+                    self.send_response(204)
+                    self.end_headers()
+                    return
                 self._send(202, json.dumps({"id": "cid-1", "desired": "deleting"}))
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -139,7 +232,8 @@ def fakebin(tmp_path):
     k.write_text(
         "#!/bin/sh\n"
         'case "$*" in\n'
-        '  *" wait "*) exit 0 ;;\n'
+        '  *" wait "*) echo "$*" >> "$FAKE_KUBECTL_LOG"; case "$*" in *"${FAKE_WAIT_FAIL:-@none@}"*) exit 1 ;; esac; exit 0 ;;\n'
+        '  *"get secret"*) printf "%s" "$FAKE_WH_TOKEN_B64"; exit 0 ;;\n'
         '  *"get service"*) [ -n "${FAKE_AGENTS_PORT-8001}" ] || exit 1;'
         ' echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_AGENTS_PORT-8001}"; exit 0 ;;\n'
         '  *"get ingress"*) [ -z "${FAKE_INGRESS_FAIL-}" ] || exit 1;'
@@ -152,6 +246,8 @@ def fakebin(tmp_path):
         "  *) ;;\n"
         "esac\n"
         'case "$*" in\n'
+        '  *"/api/v1/presets"*) cat > /dev/null;'
+        ' printf "%s %s\\n" "${FAKE_SVC_WITH-200}" "${FAKE_SVC_WITHOUT-401}"; exit 0 ;;\n'
         '  *"/agent/v1/me"*) echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s\\n" "${FAKE_ME_STATUS-200}"; exit 0 ;;\n'
         '  *"ls -d /sessions"*) printf "%s\\n" "$FAKE_SESSION_CFG"; exit 0 ;;\n'
         '  *"any-mcp --version"*) printf "%s\\n" "$FAKE_VERSION"; exit 0 ;;\n'
@@ -176,9 +272,15 @@ def _run(
     port_forward=False,
     me_status="200",
     smoke_timeout="20",
+    extra_env=None,
 ):
     target = (
-        {"SMOKE_LOCAL_PORT": str(api.port), "SMOKE_WEB_LOCAL_PORT": str(api.port)}
+        {
+            "SMOKE_LOCAL_PORT": str(api.port),
+            "SMOKE_WEB_LOCAL_PORT": str(api.port),
+            "SMOKE_WEBHOOK_API_LOCAL_PORT": str(api.port),
+            "SMOKE_WEBHOOK_INGEST_LOCAL_PORT": str(api.port),
+        }
         if port_forward
         else {"HOST": f"127.0.0.1:{api.port}", "SCHEME": "http"}
     )
@@ -196,6 +298,9 @@ def _run(
         "FAKE_INGRESS_FAIL": ingress_fail,
         "FAKE_STATE_DIR": str(api.state_dir),
         "FAKE_KUBECTL_LOG": str(fakebin / "kubectl.log"),
+        "FAKE_WH_TOKEN_B64": base64.b64encode(WH_TOKEN.encode()).decode(),
+        "SMOKE_PUBLIC_URL": f"http://127.0.0.1:{api.port}",
+        **(extra_env or {}),
     }
     return subprocess.run(
         ["bash", str(SCRIPT)], check=False, env=env, capture_output=True, text=True, timeout=60
@@ -486,3 +591,91 @@ def test_sso_page_instead_of_web_index_fails(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode != 0
     assert "agents-web index" in r.stdout + r.stderr
+
+
+def _wh_delete(api):
+    return ("DELETE", WH_ENDPOINT) in api.methods()
+
+
+def test_webhook_checks_happy_path(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = (fakebin / "kubectl.log").read_text()
+    for name in ("agents-webhook-ingest", "agents-webhook-api", "agents-webhook-worker"):
+        assert f"deploy/{name}" in log
+    create = next(b for m, p, b in api.requests if (m, p) == ("POST", "/webhooks/api/v1/endpoints"))
+    body = json.loads(create)
+    assert body["type"] == "github-issue"
+    assert body["preset_id"] == "preset-default"
+    assert re.fullmatch(r"smoke-[0-9a-f]+", body["suffix"])
+    posts = [p for m, p, _ in api.requests if m == "POST" and p.startswith("/webhook/")]
+    assert posts.count(f"/webhook/{body['suffix']}") == 2
+    assert "/webhook/smoke-unknown" in posts
+    assert len(posts) == 4
+    assert ("GET", "/healthz") in api.methods()
+    assert ("GET", "/webhooks/api/v1/events?endpoint_id=7&limit=5") in api.methods()
+    assert _wh_delete(api)
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert re.search(r"exec -i pod/agent-smoke-\d+-0 -- python3 .*agent-orchestrator-services:8002", log, re.S)
+    assert "agent-orchestrator-services:8002" in r.stdout
+    assert "WWW-Authenticate" in r.stdout
+
+
+def test_webhook_port_forwards_bypass_the_sidecar(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", port_forward=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = (fakebin / "kubectl.log").read_text()
+    assert f"port-forward deploy/agents-webhook-api {api.port}:8000" in log
+    assert f"port-forward svc/agents-webhook-ingest {api.port}:80" in log
+    assert _wh_delete(api)
+
+
+@pytest.mark.parametrize(
+    ("name", "setup", "extra_env", "needle", "endpoint_created"),
+    [
+        ("worker-not-available", None, {"FAKE_WAIT_FAIL": "agents-webhook-worker"}, "worker", False),
+        ("endpoint-create-fails", {"endpoint_create_status": 500}, None, "endpoint", False),
+        ("event-not-ignored", {"ingest_ok_reason": "queued"}, None, "action_ignored", True),
+        ("wrong-password-accepted", {"accept_any_password": True}, None, "wrong password", True),
+        (
+            "unknown-suffix-body-differs",
+            {"unknown_suffix_body": '{"x": 1}'},
+            None,
+            "unknown suffix",
+            True,
+        ),
+        ("healthz-down", {"healthz_status": 500}, None, "healthz", True),
+        ("event-missing-from-api", {"events": []}, None, "events", True),
+        ("service-port-rejects-token", None, {"FAKE_SVC_WITH": "401"}, "8002", True),
+        ("service-port-open-without-token", None, {"FAKE_SVC_WITHOUT": "200"}, "8002", True),
+        ("public-401-lacks-realm", {"public_auth_header": None}, None, "WWW-Authenticate", True),
+        ("public-not-401", {"public_status": 302}, None, "public", True),
+    ],
+)
+def test_webhook_check_failures(api, fakebin, name, setup, extra_env, needle, endpoint_created):
+    for key, value in (setup or {}).items():
+        setattr(api, key, value)
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=extra_env)
+    out = r.stdout + r.stderr
+    assert r.returncode != 0, f"{name}: smoke passed\n{out}"
+    assert needle in out, f"{name}: {out}"
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+    assert _wh_delete(api) is endpoint_created
+
+
+def test_webhook_smoke_prints_no_secret(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    for secret in (WH_PASSWORD, WH_USER, WH_TOKEN, base64.b64encode(WH_TOKEN.encode()).decode()):
+        assert secret not in r.stdout + r.stderr
+    auth = base64.b64encode(f"{WH_USER}:{WH_PASSWORD}".encode()).decode()
+    assert auth not in r.stdout + r.stderr
+    # also on a failing run: the failure path never echoes the create response or the token
+    api.requests.clear()
+    api.accept_any_password = True
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    for secret in (WH_PASSWORD, WH_TOKEN, auth):
+        assert secret not in r.stdout + r.stderr
+    log = (fakebin / "kubectl.log").read_text()
+    assert WH_TOKEN not in log and WH_PASSWORD not in log
