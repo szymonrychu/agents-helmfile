@@ -67,7 +67,7 @@ ingress:
   hosts:
     - host: lab.szymonrichert.pl
       paths:
-        - path: /
+        - path: /api
           pathType: Prefix
   tls:
     - secretName: agent-orchestrator-tls

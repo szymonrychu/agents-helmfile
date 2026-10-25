@@ -58,3 +58,13 @@ releases:
       purpose: agents
       application: agent-orchestrator
     <<: *default
+
+  - name: agents-web
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-web
+    version: 0.1.0-main.cb291df
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-web
+    <<: *default

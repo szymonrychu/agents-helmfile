@@ -200,3 +200,8 @@ def test_allowed_origins_is_ingress_host(layered_values):
     v = layered_values(REL)
     host = v["ingress"]["hosts"][0]["host"]
     assert v["env"]["ORCH_ALLOWED_ORIGINS"].split(",") == [f"https://{host}"]
+
+
+def test_orchestrator_ingress_path_is_api(layered_values):
+    hosts = layered_values(REL)["ingress"]["hosts"]
+    assert hosts == [{"host": HOST, "paths": [{"path": "/api", "pathType": "Prefix"}]}]
