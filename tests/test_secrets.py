@@ -17,6 +17,8 @@ ORCH = "values/agents-orchestrator/default.secrets.yaml"
 DB = "values/agents-orchestrator-db/default.secrets.yaml"
 WH = "values/agents-webhook/default.secrets.yaml"
 WH_TOKEN = "values/agents-orchestrator/service-token-agents-webhook.secrets.yaml"
+SCH = "values/agents-schedule/default.secrets.yaml"
+SCH_TOKEN = "values/agents-orchestrator/service-token-agents-schedule.secrets.yaml"
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -39,6 +41,8 @@ def _load(rel: str) -> dict:
         (DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (WH, {"orchestrator.token"}),
         (WH_TOKEN, {"serviceApi.tokenHashes.agents-webhook"}),
+        (SCH, {"orchestrator.token"}),
+        (SCH_TOKEN, {"serviceApi.tokenHashes.agents-schedule"}),
     ],
 )
 def test_secrets_files_encrypted_with_expected_keys(rel, keys):
@@ -98,13 +102,13 @@ def _run(tmp_path: Path, bindir: Path) -> subprocess.CompletedProcess:
 
 def test_script_does_not_overwrite_existing(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB, WH, WH_TOKEN):
+    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
     r = _run(tmp_path, bindir)
     assert r.returncode == 0, r.stderr
-    for rel in (ORCH, DB, WH, WH_TOKEN):
+    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
 
@@ -141,7 +145,7 @@ def test_webhook_token_hash_matches():
 
 def test_webhook_secrets_never_rotate(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB):
+    for rel in (ORCH, DB, SCH, SCH_TOKEN):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -182,7 +186,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
     (bindir / "sops").write_text(
         '#!/bin/sh\ncat > "$(mktemp "' + str(tmp_path) + "/plain.XXXXXX\")\"\necho 'sops: stub'\n"
     )
-    for rel in (ORCH, DB):
+    for rel in (ORCH, DB, SCH, SCH_TOKEN):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -202,3 +206,83 @@ def test_webhook_secrets_have_no_sources():
     assert doc["orchestrator"]["token"]
     digest = _decrypt(WH_TOKEN)["serviceApi"]["tokenHashes"]["agents-webhook"]
     assert digest == hashlib.sha256(doc["orchestrator"]["token"].encode()).hexdigest()
+
+
+def _schedule_sandbox(tmp_path: Path) -> Path:
+    """Sandbox with real jq/openssl and a fake sops that keeps each plaintext by target name."""
+    bindir = _sandbox(tmp_path)
+    for tool in ("jq", "openssl"):
+        (bindir / tool).unlink()
+        real = shutil.which(tool)
+        if tool == "jq" and shutil.which("mise"):
+            out = subprocess.run(
+                ["mise", "which", "jq"], capture_output=True, text=True, check=False
+            )
+            real = out.stdout.strip() or real
+        (bindir / tool).symlink_to(real)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (bindir / "sops").write_text(
+        "#!/bin/sh\n"
+        'while [ "$1" != "--filename-override" ]; do shift; done\n'
+        'name="$(echo "$2" | tr / _)"\n'
+        f'cat > "{plain}/$name"\n'
+        "echo 'sops: stub'\n"
+    )
+    for rel in (ORCH, DB, WH, WH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    return bindir
+
+
+def _plain(tmp_path: Path, rel: str) -> dict:
+    return json.loads((tmp_path / "plain" / rel.replace("/", "_")).read_text())
+
+
+def test_schedule_service_token_bootstrapped(tmp_path):
+    bindir = _schedule_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / SCH).read_text() == "sops: stub\n"
+    assert (tmp_path / SCH_TOKEN).read_text() == "sops: stub\n"
+    sch = _plain(tmp_path, SCH)
+    assert set(sch) == {"orchestrator"}
+    assert set(sch["orchestrator"]) == {"token"}
+    token = sch["orchestrator"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", token)
+    hashes = _plain(tmp_path, SCH_TOKEN)
+    assert set(hashes) == {"serviceApi"}
+    assert hashes["serviceApi"] == {
+        "tokenHashes": {"agents-schedule": hashlib.sha256(token.encode()).hexdigest()}
+    }
+
+
+def test_schedule_service_token_idempotent(tmp_path):
+    bindir = _schedule_sandbox(tmp_path)
+    assert _run(tmp_path, bindir).returncode == 0
+    first = {rel: _plain(tmp_path, rel) for rel in (SCH, SCH_TOKEN)}
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert {rel: _plain(tmp_path, rel) for rel in (SCH, SCH_TOKEN)} == first
+    # exactly one present: exit 1 naming both, the survivor untouched, nothing written
+    for present, absent in ((SCH, SCH_TOKEN), (SCH_TOKEN, SCH)):
+        (tmp_path / absent).unlink()
+        (tmp_path / present).write_text("sentinel: keep\n")
+        r = _run(tmp_path, bindir)
+        assert r.returncode == 1
+        assert SCH in r.stderr and SCH_TOKEN in r.stderr
+        assert not (tmp_path / absent).exists()
+        assert (tmp_path / present).read_text() == "sentinel: keep\n"
+        (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+def test_schedule_service_token_not_printed(tmp_path):
+    bindir = _schedule_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    token = _plain(tmp_path, SCH)["orchestrator"]["token"]
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    for stream in (r.stdout, r.stderr):
+        assert token not in stream
+        assert digest not in stream

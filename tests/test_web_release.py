@@ -33,7 +33,7 @@ def test_web_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"[0-9a-f]{7}", tag)
     assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
-    assert tag == "5a8d6c8"
+    assert tag == "586344d"
 
 
 def test_web_behind_oauth2_proxy_with_orchestrator_secret(layered_values):
@@ -68,6 +68,16 @@ def test_web_backends_list_orchestrator_api(layered_values):
 def test_webhooks_backend_configured(layered_values):
     backends = layered_values(REL)["backends"]
     assert backends[1] == {"id": "webhooks", "label": "Webhooks", "basePath": "/webhooks/api/v1"}
+
+
+def test_schedules_backend_configured(layered_values):
+    backends = layered_values(REL)["backends"]
+    assert backends[0]["id"] == "orchestrator"
+    assert backends[2] == {
+        "id": "schedules",
+        "label": "Schedules",
+        "basePath": "/schedules/api/v1",
+    }
 
 
 def test_web_release_needs_webhook(repo_root):

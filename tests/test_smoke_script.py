@@ -16,11 +16,14 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "smoke.sh"
 ORCH_VALUES = ROOT / "values" / "agents-orchestrator" / "common.yaml"
 # The any-mcp the sessions install: the orchestrator release's pinned tag without its leading v.
-ANY_MCP_VERSION = re.search(r"^\s*ORCH_ANY_MCP_REF:\s*v(\S+)", ORCH_VALUES.read_text(), re.M)[1]
+ANY_MCP_VERSION = re.search(
+    r"^\s*ORCH_ANY_MCP_REF:\s*v(\S+)", ORCH_VALUES.read_text(), re.MULTILINE
+)[1]
 WH_USER = "wh-user-smoke"
 WH_PASSWORD = "wh-pass-SECRET-value-123"
 WH_TOKEN = "orch-token-SECRET-value-456"
 WH_ENDPOINT = "/webhooks/api/v1/endpoints/7"
+SCHED = "/schedules/api/v1"
 DEFAULT_ROUTES = (
     "lab.szymonrichert.pl / agents-web\nlab.szymonrichert.pl /api agents-orchestrator\n"
 )
@@ -59,6 +62,12 @@ class _Api:
         self.store_filters = True
         self.preview_passes = False
         self.put_clears = True
+        # schedule service fakes (same server)
+        self.run_status = "in-progress"
+        self.run_reason: str | None = None
+        self.run_session: str | None = "sid-sched"
+        self.schedule_delete_status = 204
+        self.readyz_status = 200
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -100,6 +109,20 @@ class _Api:
                 path = self.path.split("?")[0]
                 if path == "/healthz":
                     self._send(api.healthz_status, json.dumps({"status": "ok"}))
+                elif path == "/readyz":
+                    self._send(api.readyz_status, json.dumps({"status": "ready"}))
+                elif path == f"{SCHED}/runs/run-1":
+                    run = {
+                        "id": "run-1",
+                        "schedule_id": "sch-1",
+                        "trigger": "manual",
+                        "status": api.run_status,
+                        "reason": api.run_reason,
+                        "session_id": api.run_session if api.run_status != "failed" else None,
+                        "session_slug": "smoke-1-abcd1234",
+                        "message_id": "msg-1",
+                    }
+                    self._send(200, json.dumps(run))
                 elif path == "/api/v1/presets":
                     presets = [
                         {"id": "preset-other", "name": "other", "is_default": False},
@@ -207,8 +230,25 @@ class _Api:
                 else:
                     self._unauthorized()
 
+            def _schedule_post(self):
+                if self.path == f"{SCHED}/schedules":
+                    created = json.loads(api.requests[-1][2])
+                    view = {"id": "sch-1", **created, "next_fires": []}
+                    self._send(201, json.dumps(view))
+                elif self.path == f"{SCHED}/schedules/preview":
+                    fires = ["2026-10-26T03:00:00Z", "2026-10-27T03:00:00Z", "2026-10-28T03:00:00Z"]
+                    self._send(200, json.dumps({"next_fires": fires}))
+                elif self.path == f"{SCHED}/schedules/sch-1/run":
+                    run = {"id": "run-1", "schedule_id": "sch-1", "status": "new"}
+                    self._send(202, json.dumps(run))
+                else:
+                    self._send(404, "{}")
+
             def do_POST(self):
                 self._record()
+                if self.path.startswith("/schedules/"):
+                    self._schedule_post()
+                    return
                 if self.path.startswith(("/webhook", "/webhooks")):
                     self._webhook_post()
                     return
@@ -242,6 +282,14 @@ class _Api:
                 if self.path == WH_ENDPOINT:
                     self.send_response(204)
                     self.end_headers()
+                    return
+                if self.path == f"{SCHED}/schedules/sch-1":
+                    self.send_response(api.schedule_delete_status)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if self.path == "/api/v1/sessions/sid-sched":
+                    self._send(202, json.dumps({"id": "sid-sched", "desired": "deleting"}))
                     return
                 if self.path != "/api/v1/sessions/sid-1":
                     self._send(404, "{}")
@@ -325,6 +373,7 @@ def _run(
             "SMOKE_WEB_LOCAL_PORT": str(api.port),
             "SMOKE_WEBHOOK_API_LOCAL_PORT": str(api.port),
             "SMOKE_WEBHOOK_INGEST_LOCAL_PORT": str(api.port),
+            "SMOKE_SCHEDULE_API_LOCAL_PORT": str(api.port),
         }
         if port_forward
         else {"HOST": f"127.0.0.1:{api.port}", "SCHEME": "http"}
@@ -833,3 +882,79 @@ def test_webhook_smoke_prints_no_secret(api, fakebin):
         assert secret not in r.stdout + r.stderr
     log = (fakebin / "kubectl.log").read_text()
     assert WH_TOKEN not in log and WH_PASSWORD not in log
+
+
+def _sched_requests(api):
+    return [(m, p, b) for m, p, b in api.requests if p.startswith(SCHED)]
+
+
+def test_schedule_step_passes(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    methods = api.methods()
+    assert ("GET", "/readyz") in methods
+    create = next(b for m, p, b in api.requests if (m, p) == ("POST", f"{SCHED}/schedules"))
+    body = json.loads(create)
+    assert re.fullmatch(r"smoke-\d+", body["name"])
+    assert body["cron"] == "0 3 * * *"
+    assert body["enabled"] is False
+    assert body["preset_id"] == "preset-default"
+    assert body["prompt"]
+    preview = next(
+        b for m, p, b in api.requests if (m, p) == ("POST", f"{SCHED}/schedules/preview")
+    )
+    assert json.loads(preview)["cron"] == "0 3 * * *"
+    assert ("POST", f"{SCHED}/schedules/sch-1/run") in methods
+    assert ("GET", f"{SCHED}/runs/run-1") in methods
+    assert "schedule preview lists 3 fire times" in r.stdout
+    assert "run run-1 is in-progress with session sid-sched" in r.stdout
+
+
+def test_schedule_step_failed_run(api, fakebin):
+    api.run_status = "failed"
+    api.run_reason = "preset_not_found"
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    assert "schedule: run run-1 failed: preset_not_found" in r.stderr
+    assert ("DELETE", f"{SCHED}/schedules/sch-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-sched") not in api.methods()
+
+
+def test_schedule_step_cleans_up(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    methods = api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-sched") in methods
+    assert ("DELETE", f"{SCHED}/schedules/sch-1") in methods
+    assert "discarded schedule session sid-sched" in r.stdout
+    assert "deleted schedule sch-1" in r.stdout
+
+
+def test_schedule_cleanup_failure_prints_manual_line(api, fakebin):
+    api.schedule_delete_status = 500
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert "delete schedule id sch-1 manually" in r.stderr
+    assert ("DELETE", "/api/v1/sessions/sid-sched") in api.methods()
+
+
+def test_schedule_never_in_progress_times_out_and_cleans_up(api, fakebin):
+    api.run_status = "new"
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
+    assert r.returncode != 0
+    assert "schedule: run run-1 not in-progress" in r.stderr
+    assert ("DELETE", f"{SCHED}/schedules/sch-1") in api.methods()
+
+
+def test_schedule_port_forward_to_api_container(api, fakebin):
+    r = _run(
+        api,
+        fakebin,
+        "any-mcp: x - Connected",
+        port_forward=True,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (
+        f"port-forward deploy/agents-schedule-api {api.port}:8000"
+        in (fakebin / "kubectl.log").read_text()
+    )
