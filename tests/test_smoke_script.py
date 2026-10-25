@@ -78,6 +78,9 @@ def fakebin(tmp_path):
         "#!/bin/sh\n"
         'case "$*" in\n'
         '  *" wait "*) exit 0 ;;\n'
+        '  *"get service"*) [ -n "${FAKE_AGENTS_PORT-8001}" ] || exit 1;'
+        ' echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_AGENTS_PORT-8001}"; exit 0 ;;\n'
+        '  *"get ingress"*) printf "%s" "$FAKE_INGRESS_BACKENDS"; exit 0 ;;\n'
         '  *"get pod"*) echo "pod/smoke-agent-0"; exit 0 ;;\n'
         '  *" exec "*|*port-forward*) echo "$*" >> "$FAKE_KUBECTL_LOG" ;;\n'
         "  *) ;;\n"
@@ -98,7 +101,9 @@ def _run(
     api,
     fakebin,
     mcp_list,
-    version="any-mcp 0.1.0",
+    version="any-mcp 0.2.0",
+    agents_port="8001",
+    ingress_backends="agent-orchestrator",
     session_cfg="/sessions/abc/config",
     port_forward=False,
 ):
@@ -115,6 +120,8 @@ def _run(
         "FAKE_MCP_LIST": mcp_list,
         "FAKE_VERSION": version,
         "FAKE_SESSION_CFG": session_cfg,
+        "FAKE_AGENTS_PORT": agents_port,
+        "FAKE_INGRESS_BACKENDS": ingress_backends,
         "FAKE_KUBECTL_LOG": str(fakebin / "kubectl.log"),
     }
     return subprocess.run(
@@ -155,9 +162,32 @@ def test_any_mcp_not_connected_fails(api, fakebin):
 
 
 def test_wrong_any_mcp_version_fails(api, fakebin):
-    r = _run(api, fakebin, "any-mcp: x - Connected", version="any-mcp 0.2.0")
+    r = _run(api, fakebin, "any-mcp: x - Connected", version="any-mcp 0.1.0")
     assert r.returncode != 0
-    assert "0.1.0" in r.stdout + r.stderr
+    assert "0.2.0" in r.stdout + r.stderr
+
+
+def test_missing_agents_service_fails(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", agents_port="")
+    assert r.returncode != 0
+    assert "agent-orchestrator-agents" in r.stdout + r.stderr
+
+
+def test_wrong_agents_service_port_fails(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", agents_port="8000")
+    assert r.returncode != 0
+    assert "8001" in r.stdout + r.stderr
+
+
+def test_agents_service_as_ingress_backend_fails(api, fakebin):
+    r = _run(
+        api,
+        fakebin,
+        "any-mcp: x - Connected",
+        ingress_backends="agent-orchestrator agent-orchestrator-agents",
+    )
+    assert r.returncode != 0
+    assert "ingress" in r.stdout + r.stderr
 
 
 def test_no_session_config_dir_fails(api, fakebin):

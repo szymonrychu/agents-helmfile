@@ -1,10 +1,10 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agent-orchestrator
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: 964db9a
+  tag: a5b5a75
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE).
-agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:e9ffa62
+agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:1f64e9f
 
 # Connection URI from the CNPG app Secret made by the agent-orchestrator-db release.
 # No password in plain values.
@@ -19,12 +19,12 @@ env:
   # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods
   # reach the api port only through the sidecar's SSO.
   ORCH_ALLOWED_CIDRS: 127.0.0.1/32
-  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:e9ffa62
+  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:1f64e9f
   # WebSocket upgrades must carry an Origin in this list: the UI origin (the ingress host over https).
   ORCH_ALLOWED_ORIGINS: https://lab.szymonrichert.pl
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
   ORCH_ANY_MCP_REPO: https://github.com/szymonrychu/any-mcp
-  ORCH_ANY_MCP_REF: v0.1.0
+  ORCH_ANY_MCP_REF: v0.2.0
 
 # Keycloak SSO via the oauth2-proxy admission webhook (same shape as the infrastructure
 # helmfile's searxng/comfyui). The agent-orchestrator-proxy Secret is created by the
