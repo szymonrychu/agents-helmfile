@@ -51,6 +51,9 @@ class _Api:
         self.public_auth_header = 'Basic realm="agents-webhook"'
         self.public_status = 401
         self.suffix: str | None = None
+        self.store_filters = True
+        self.preview_passes = False
+        self.put_clears = True
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -167,8 +170,20 @@ class _Api:
                         "preset_id": created["preset_id"],
                         "username": WH_USER,
                         "password": WH_PASSWORD,
+                        "filters": created.get("filters", {})
+                        if api.store_filters
+                        else {"allow": [], "deny": []},
                     }
                     self._send(201, json.dumps(view))
+                    return
+                if self.path == "/webhooks/api/v1/templates/preview":
+                    if api.preview_passes:
+                        result = {"passed": True, "reason": None}
+                        text = None
+                    else:
+                        result = {"passed": False, "reason": "filter_denied: title"}
+                        text = None
+                    self._send(200, json.dumps({"prompt": text, "filters": result}))
                     return
                 if not self.path.startswith("/webhook/"):
                     self._send(404, "{}")
@@ -199,6 +214,20 @@ class _Api:
                 api.spec = created.get("spec") or {}
                 slug = created["slug"]
                 self._send(201, json.dumps({"id": "cid-1", "slug": slug}))
+
+            def do_PUT(self):
+                self._record()
+                if self.path == WH_ENDPOINT + "/filters":
+                    sent = json.loads(api.requests[-1][2])
+                    view = {
+                        "id": 7,
+                        "filters": sent
+                        if api.put_clears
+                        else {"allow": [], "deny": [{"field": "title"}]},
+                    }
+                    self._send(200, json.dumps(view))
+                    return
+                self._send(404, "{}")
 
             def do_DELETE(self):
                 self._record()
@@ -614,6 +643,25 @@ def test_webhook_checks_happy_path(api, fakebin):
     assert posts.count(f"/webhook/{body['suffix']}") == 2
     assert "/webhook/smoke-unknown" in posts
     assert len(posts) == 4
+    assert body["filters"]["deny"][0]["field"] == "title"
+    assert body["filters"]["deny"][0]["match"] == "regex"
+    assert body["filters"]["deny"][0]["values"] == ["^smoke-deny"]
+    preview = next(
+        b for m, p, b in api.requests if (m, p) == ("POST", "/webhooks/api/v1/templates/preview")
+    )
+    pbody = json.loads(preview)
+    assert pbody["type"] == "github-issue"
+    assert pbody["example"]["issue"]["title"] == "smoke-deny check"
+    assert pbody["example"]["action"] == "opened"
+    assert pbody["filters"] == body["filters"]
+    put = next(b for m, p, b in api.requests if (m, p) == ("PUT", WH_ENDPOINT + "/filters"))
+    assert json.loads(put) == {"allow": [], "deny": []}
+    for line in (
+        "endpoint stored the deny filter",
+        "preview denied by the filter",
+        "filters replaced",
+    ):
+        assert line in r.stdout
     assert ("GET", "/healthz") in api.methods()
     assert ("GET", "/webhooks/api/v1/events?endpoint_id=7&limit=5") in api.methods()
     assert _wh_delete(api)
@@ -673,6 +721,43 @@ def test_webhook_check_failures(api, fakebin, name, setup, extra_env, needle, en
     assert needle in out, f"{name}: {out}"
     assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
     assert _wh_delete(api) is endpoint_created
+
+
+@pytest.mark.parametrize(
+    ("name", "setup", "needle"),
+    [
+        (
+            "filters-not-stored",
+            {"store_filters": False},
+            "endpoint create did not store the filters",
+        ),
+        ("preview-passed", {"preview_passes": True}, "preview"),
+        ("put-not-applied", {"put_clears": False}, "PUT"),
+    ],
+)
+def test_webhook_filter_check_failures(api, fakebin, name, setup, needle):
+    for key, value in setup.items():
+        setattr(api, key, value)
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    out = r.stdout + r.stderr
+    assert r.returncode != 0, f"{name}: smoke passed\n{out}"
+    assert needle in out, f"{name}: {out}"
+    assert _wh_delete(api)
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_webhook_smoke_ingests_only_the_closed_issue(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    delivered = [
+        b
+        for m, p, b in api.requests
+        if m == "POST" and p.startswith("/webhook/") and p != "/webhook/smoke-unknown"
+    ]
+    assert len(delivered) == 3
+    for raw in delivered:
+        assert json.loads(raw)["action"] == "closed"
+        assert "smoke-deny" not in raw.decode()
 
 
 def test_webhook_smoke_prints_no_secret(api, fakebin):

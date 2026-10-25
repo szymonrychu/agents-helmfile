@@ -11,7 +11,7 @@ import yaml
 
 REL = "agents-webhook"
 DB_REL = "agents-webhook-db"
-SHA = "cc0f706"
+SHA = "206cf8e"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
     "192.168.1.26/32",
@@ -80,7 +80,7 @@ def test_database_and_orchestrator_wiring(layered_values):
     assert v["trustedProxies"] == TRUSTED
     for cidr in v["trustedProxies"]:
         assert ipaddress.ip_network(cidr).prefixlen == 32
-    assert v["env"] == {"WEBHOOK_BOT_LOGINS": "", "WEBHOOK_ALLOWED_AUTHORS": ""}
+    assert v["env"] == {"WEBHOOK_BOT_LOGINS": ""}
 
 
 def test_ingress_host_and_tls(layered_values):
@@ -174,3 +174,9 @@ def test_api_allowlist_stays_chart_default(layered_values):
     # The oauth2-proxy sidecar reaches the api over 127.0.0.1:8000, the chart default
     # (WEBHOOK_API_ALLOWED_CIDRS=127.0.0.1/32); an override here would widen or break it.
     assert "allowedCidrs" not in layered_values(REL).get("api", {})
+
+
+def test_allowed_authors_not_set(layered_values):
+    env = layered_values(REL)["env"]
+    assert "WEBHOOK_ALLOWED_AUTHORS" not in env
+    assert "WEBHOOK_BOT_LOGINS" in env

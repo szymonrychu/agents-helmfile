@@ -275,14 +275,18 @@ fi
 preset_id=$(curl -fsS --max-time 20 "${BASE}/api/v1/presets" | jq -er '[.[] | select(.is_default)][0].id') ||
   fail "webhook: no default preset in GET /api/v1/presets"
 WH_SUFFIX="smoke-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
-ep_body=$(jq -n --arg preset "$preset_id" --arg suffix "$WH_SUFFIX" '{type: "github-issue", preset_id: $preset, suffix: $suffix}')
+deny_filters='{"deny":[{"field":"title","match":"regex","values":["^smoke-deny"]}]}'
+ep_body=$(jq -n --arg preset "$preset_id" --arg suffix "$WH_SUFFIX" --argjson filters "$deny_filters" \
+  '{type: "github-issue", preset_id: $preset, suffix: $suffix, filters: $filters}')
 ep_resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$ep_body" "${WH_API_BASE}/webhooks/api/v1/endpoints") ||
   fail "webhook: endpoint create failed (POST /webhooks/api/v1/endpoints)"
 ENDPOINT_ID=$(echo "$ep_resp" | jq -er '.id') || fail "webhook: endpoint create response carries no id"
 WH_USER=$(echo "$ep_resp" | jq -er '.username') || fail "webhook: endpoint create response carries no username"
 WH_PASS=$(echo "$ep_resp" | jq -er '.password') || fail "webhook: endpoint create response carries no password"
+echo "$ep_resp" | jq -e '.filters.deny[0].field == "title"' > /dev/null || fail "webhook: endpoint create did not store the filters"
 unset ep_resp
 log "created webhook endpoint ${ENDPOINT_ID} (suffix ${WH_SUFFIX})"
+log "endpoint stored the deny filter"
 
 # 8d. Ingest: healthz, a closed-issue delivery with the credentials, a wrong password, an unknown suffix. Credentials go to curl on
 # stdin, never on the command line.
@@ -317,6 +321,20 @@ events=$(curl -fsS --max-time 20 "${WH_API_BASE}/webhooks/api/v1/events?endpoint
 echo "$events" | jq -e --argjson id "$EVENT_ID" 'any(.[]; .id == $id and .status == "ignored")' > /dev/null ||
   fail "webhook: events API does not list event ${EVENT_ID} as ignored for endpoint ${ENDPOINT_ID}: $(echo "$events" | jq -c '[.[] | {id, status, reason}]' 2> /dev/null)"
 log "events API lists event ${EVENT_ID} as ignored"
+
+# 8e2. Filters: a preview (nothing is ingested, so no cluster can start) is denied by the stored rule, then the PUT clears the rules.
+pv_body=$(jq -n --argjson filters "$deny_filters" \
+  '{type: "github-issue", example: {action: "opened", issue: {number: 2, title: "smoke-deny check", body: "", user: {login: "smoke"}, labels: []}, repository: {full_name: "smoke/smoke"}, sender: {login: "smoke"}}, filters: $filters}')
+pv_resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$pv_body" "${WH_API_BASE}/webhooks/api/v1/templates/preview") ||
+  fail "webhook: filter preview failed (POST /webhooks/api/v1/templates/preview)"
+echo "$pv_resp" | jq -e '.filters.passed == false and .filters.reason == "filter_denied: title" and .prompt == null' > /dev/null ||
+  fail "webhook: filter preview was not denied with filter_denied: title: $(echo "$pv_resp" | jq -c '{prompt, filters}' 2> /dev/null)"
+log "preview denied by the filter (filter_denied: title)"
+put_resp=$(curl -fsS --max-time 20 -X PUT -H 'Content-Type: application/json' -d '{"allow":[],"deny":[]}' \
+  "${WH_API_BASE}/webhooks/api/v1/endpoints/${ENDPOINT_ID}/filters") ||
+  fail "webhook: filters PUT failed (PUT /webhooks/api/v1/endpoints/${ENDPOINT_ID}/filters)"
+echo "$put_resp" | jq -e '.filters.deny == []' > /dev/null || fail "webhook: filters PUT did not clear the deny rules"
+log "filters replaced: PUT cleared the deny rules"
 
 # 8f. The orchestrator service port (8002) from an agent pod: 200 with the webhook token, 401 without. The token is read from the
 # agents-webhook Secret and handed to the pod on stdin.
