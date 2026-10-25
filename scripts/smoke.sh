@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end smoke of a deployed agent-orchestrator: UI answers, a 2-replica
-# cluster (a hive) yields a Ready pod and a leader, that pod's `claude mcp list` shows any-mcp,
+# End-to-end smoke of a deployed agent-orchestrator: UI answers, a 2-replica hive
+# cluster with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
 # and it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives).
 # Parameters by env: HOST, RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT (SCHEME for tests only).
 # Without HOST it port-forwards to the api: the public host is behind SSO, and the api's
@@ -71,8 +71,8 @@ case " ${backends} " in
 esac
 log "Service ${AGENTS_SVC} on 8001, not an ingress backend"
 
-# 2. Create a 2-replica cluster (a hive: the smoke makes its own, never touches existing ones) through the public API.
-body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 2}}')
+# 2. Create a 1-replica cluster with an init script (the smoke makes its own, never touches existing ones) through the public API.
+body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 2, init_scripts: ["echo smoke-init"]}}')
 resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/clusters") ||
   fail "cluster create failed"
 CLUSTER_ID=$(echo "$resp" | jq -er '.id') || fail "create response carries no id"
@@ -83,7 +83,8 @@ label="agents.szymonrichert.pl/cluster=${SLUG}"
 deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
 pod=""
 while [ -z "$pod" ]; do
-  pod=$(kubectl -n "$NAMESPACE" get pods -l "$label" -o name 2> /dev/null | head -n1 || true)
+  # By name: the init Job pod carries the same cluster label and is never the agent.
+  pod=$(kubectl -n "$NAMESPACE" get pods -l "$label" -o name 2> /dev/null | grep -Fx "pod/agent-${SLUG}-0" || true)
   [ -n "$pod" ] && break
   if [ "$(date +%s)" -ge "$deadline" ]; then
     kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp 2>&1 | tail -n 30 >&2 || true
@@ -125,6 +126,30 @@ case "$ver" in
   *0.2.0*) log "any-mcp version 0.2.0" ;;
   *) fail "any-mcp --version is not 0.2.0: ${ver}" ;;
 esac
+
+# 4b. The init scripts ran once and succeeded, and are visible through the public API.
+init_json=""
+while :; do
+  init_json=$(curl -fsS --max-time 20 "${BASE}/api/v1/clusters/${CLUSTER_ID}/init-scripts") || init_json=""
+  state=$(echo "$init_json" | jq -r '.status.state // empty' 2> /dev/null || true)
+  case "$state" in
+    succeeded) break ;;
+    failed)
+      fail "init scripts failed: reason=$(echo "$init_json" | jq -r '.status.reason // ""') exit_code=$(echo "$init_json" | jq -r '.status.exit_code // ""') log_tail=$(echo "$init_json" | jq -r '.status.log_tail // ""')"
+      ;;
+  esac
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    fail "init scripts did not succeed within ${SMOKE_TIMEOUT_S}s (state '${state}')"
+  fi
+  sleep 3
+done
+log "init scripts state succeeded"
+echo "$init_json" | jq -e '.status.log_tail | contains("smoke-init")' > /dev/null ||
+  fail "init log tail lacks smoke-init: $(echo "$init_json" | jq -r '.status.log_tail // ""')"
+log "init log tail contains smoke-init"
+echo "$init_json" | jq -e '.scripts == ["echo smoke-init"]' > /dev/null ||
+  fail "init scripts are not [\"echo smoke-init\"]: $(echo "$init_json" | jq -c '.scripts')"
+log "init scripts succeeded and visible: [\"echo smoke-init\"]"
 
 # 5. The hive has a leader (the dispatcher elects the lowest-ordinal ready agent).
 leader=""

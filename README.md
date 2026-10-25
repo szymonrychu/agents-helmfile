@@ -41,7 +41,8 @@ Applies are manual and local, run from this directory.
 - `mise run apply` - `helmfile apply --suppress-secrets`. Depends on `lint`,
   `test` and `kube-context`, so a broken tree cannot be applied. Failed upgrades
   roll back (`helmDefaults`); the hook creates the regcred and raw manifests.
-- `mise run smoke` - proves the UI answers and that a fresh session lists `any-mcp`.
+- `mise run smoke` - proves the UI answers, that a fresh session lists `any-mcp`, and that the
+  cluster's init scripts ran once and succeeded (`GET .../init-scripts`).
   Without `HOST` it port-forwards to the api (the public host needs SSO).
 - `mise run kube-context` - guard used by diff and apply: fails unless a kube
   context is set and the API answers; prints only the context name.
