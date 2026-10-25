@@ -26,6 +26,7 @@ class _Api:
             "log_tail": "smoke-init\n",
         }
         self.init_scripts: list[str] = ["echo smoke-init"]
+        self.spec: dict = {}
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -51,7 +52,9 @@ class _Api:
                 elif self.path == "/api/v1/openapi.json":
                     self._send(200, "{}")
                 elif self.path == "/api/v1/clusters/cid-1":
-                    leader = api.leader
+                    # Hive rule (agent-orchestrator db/leadership.py): only coalesce(max_replicas, replicas) > 1 elects a leader.
+                    size = api.spec.get("max_replicas") or api.spec.get("replicas") or 0
+                    leader = api.leader if size > 1 else None
                     self._send(200, json.dumps({"id": "cid-1", "leader_agent_id": leader}))
                 elif self.path == "/api/v1/clusters/cid-1/init-scripts":
                     body = {"scripts": api.init_scripts, "status": api.init_status}
@@ -61,7 +64,9 @@ class _Api:
 
             def do_POST(self):
                 self._record()
-                slug = json.loads(api.requests[-1][2])["slug"]
+                created = json.loads(api.requests[-1][2])
+                api.spec = created.get("spec") or {}
+                slug = created["slug"]
                 self._send(201, json.dumps({"id": "cid-1", "slug": slug}))
 
             def do_DELETE(self):
@@ -159,7 +164,7 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
     assert ("DELETE", "/api/v1/clusters/cid-1") in methods
     body = json.loads(next(b for m, _, b in api.requests if m == "POST"))
     assert re.fullmatch(r"smoke-\d+", body["slug"])
-    assert body["spec"] == {"replicas": 1, "init_scripts": ["echo smoke-init"]}
+    assert body["spec"] == {"replicas": 2, "init_scripts": ["echo smoke-init"]}
 
 
 def test_missing_any_mcp_fails_and_cleans_up(api, fakebin):

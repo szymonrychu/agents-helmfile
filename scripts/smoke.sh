@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke of a deployed agent-orchestrator: UI answers, a 1-replica
+# End-to-end smoke of a deployed agent-orchestrator: UI answers, a 2-replica hive
 # cluster with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
 # and it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives).
 # Parameters by env: HOST, RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT (SCHEME for tests only).
@@ -72,7 +72,7 @@ esac
 log "Service ${AGENTS_SVC} on 8001, not an ingress backend"
 
 # 2. Create a 1-replica cluster with an init script (the smoke makes its own, never touches existing ones) through the public API.
-body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 1, init_scripts: ["echo smoke-init"]}}')
+body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 2, init_scripts: ["echo smoke-init"]}}')
 resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/clusters") ||
   fail "cluster create failed"
 CLUSTER_ID=$(echo "$resp" | jq -er '.id') || fail "create response carries no id"
