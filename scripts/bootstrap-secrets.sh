@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Creates the two SOPS-encrypted secrets files the releases need.
+# Creates the SOPS-encrypted secrets files the releases need.
 # The orchestrator file has the chart values shape (claude.token, masterKey.value).
 # Values only ever travel between processes (pipes, env of a single command);
 # nothing is echoed, traced or written to disk unencrypted.
@@ -11,6 +11,8 @@ cd "$ROOT"
 
 ORCH_FILE="values/agent-orchestrator/default.secrets.yaml"
 DB_FILE="values/agent-orchestrator-db/default.secrets.yaml"
+WH_FILE="values/agents-webhook/default.secrets.yaml"
+WH_TOKEN_FILE="values/agent-orchestrator/service-token-agents-webhook.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
@@ -73,6 +75,26 @@ bootstrap_database() {
     encrypt_to "$DB_FILE"
 }
 
+# Both files or neither: one service token (its sha256 goes to the orchestrator).
+# Never rotates, never half-writes.
+bootstrap_webhook() {
+  if [[ -e "$WH_FILE" && -e "$WH_TOKEN_FILE" ]]; then return 0; fi
+  if [[ -e "$WH_FILE" || -e "$WH_TOKEN_FILE" ]]; then
+    die "exactly one of $WH_FILE and $WH_TOKEN_FILE exists; refusing to rotate or half-write"
+  fi
+  local svc digest
+  svc="$(openssl rand -hex 32)"
+  digest="$(printf '%s' "$svc" | openssl dgst -sha256 -r | cut -d' ' -f1)"
+  SVC="$svc" jq -n '{orchestrator: {token: $ENV.SVC}}' |
+    encrypt_to "$WH_FILE"
+  if ! DIGEST="$digest" jq -n '{serviceApi: {tokenHashes: {"agents-webhook": $ENV.DIGEST}}}' |
+    encrypt_to "$WH_TOKEN_FILE"; then
+    rm -f "$WH_FILE"
+    die "writing $WH_TOKEN_FILE failed; removed $WH_FILE"
+  fi
+}
+
 bootstrap_orchestrator
 bootstrap_database
+bootstrap_webhook
 echo "secrets bootstrap done (existing files left untouched)" >&2

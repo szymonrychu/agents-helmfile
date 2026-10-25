@@ -9,6 +9,12 @@
 # SMOKE_WEB_LOCAL_PORT (SCHEME for tests only).
 # Without HOST it port-forwards the UI to deploy/agents-web (the nginx container, bypassing the SSO sidecar) and the API to the orchestrator: the public host is behind SSO, and the api's
 # source allowlist admits only 127.0.0.1 (the oauth2-proxy sidecar, or a port-forward).
+# Webhook steps (agents-webhook release): the three deployments are Available; a temporary github-issue endpoint is created through the
+# webhook API (port-forward to the api container, bypassing its SSO sidecar; its password stays in a shell variable and the trap deletes
+# the endpoint), the ingest Service answers /healthz, accepts a closed-issue delivery with the credentials (202 ignored/action_ignored) and
+# rejects a wrong password and an unknown suffix with the same 401; the events API lists the event; the orchestrator service port answers
+# 200 with the webhook token and 401 without it from an agent pod; the public host answers 401 with the Basic realm. Extra env:
+# WEBHOOK_RELEASE, SMOKE_WEBHOOK_API_LOCAL_PORT, SMOKE_WEBHOOK_INGEST_LOCAL_PORT, SMOKE_PUBLIC_URL (tests only).
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
@@ -17,6 +23,8 @@ SMOKE_TIMEOUT_S="${SMOKE_TIMEOUT_S:-600}"
 WEB_RELEASE="${WEB_RELEASE:-agents-web}"
 PF_PID=""
 WEB_PF_PID=""
+WH_PF_PIDS=""
+WEBHOOK_RELEASE="${WEBHOOK_RELEASE:-agents-webhook}"
 if [ -z "${HOST:-}" ]; then
   HOST="127.0.0.1:${SMOKE_LOCAL_PORT:-18000}"
   WEB_HOST="127.0.0.1:${SMOKE_WEB_LOCAL_PORT:-18080}"
@@ -30,6 +38,10 @@ BASE="${SCHEME:-https}://${HOST}"
 WEB_BASE="${SCHEME:-https}://${WEB_HOST:-$HOST}"
 SLUG="smoke-$(date +%s)"
 CLUSTER_ID=""
+ENDPOINT_ID=""
+WH_API_BASE="$BASE"
+WH_INGEST_BASE="$BASE"
+PUBLIC_URL="${SMOKE_PUBLIC_URL:-https://lab.szymonrichert.pl}"
 
 log() { echo "smoke: $*"; }
 fail() {
@@ -47,6 +59,14 @@ cleanup() {
       echo "smoke: cleanup failed, API unreachable; delete cluster '${SLUG}' (id ${CLUSTER_ID}) manually" >&2
     fi
   fi
+  if [ -n "$ENDPOINT_ID" ]; then
+    if curl -fsS --max-time 20 -X DELETE -o /dev/null "${WH_API_BASE}/webhooks/api/v1/endpoints/${ENDPOINT_ID}"; then
+      log "deleted webhook endpoint ${ENDPOINT_ID}"
+    else
+      echo "smoke: cleanup failed, webhook API unreachable; delete webhook endpoint id ${ENDPOINT_ID} manually" >&2
+    fi
+  fi
+  for pid in $WH_PF_PIDS; do kill "$pid" 2> /dev/null || true; done
   [ -n "$PF_PID" ] && kill "$PF_PID" 2> /dev/null
   [ -n "$WEB_PF_PID" ] && kill "$WEB_PF_PID" 2> /dev/null
   exit "$rc"
@@ -223,6 +243,107 @@ except urllib.error.HTTPError as e:
 me_status=$(kubectl -n "$NAMESPACE" exec "$pod" -- python3 -c "$me_py" 2>&1 | tail -n1) || true
 [ "$me_status" = "200" ] || fail "GET /agent/v1/me from ${pod} (via ORCH_AGENT_URL, ORCH_AGENT_TOKEN, ORCH_CLUSTER_ID) answered '${me_status}', expected 200"
 log "GET /agent/v1/me from ${pod} through the agents Service: 200"
+
+# 8. The webhook service (agents-webhook release). No cluster is started: the only side effects are one temporary endpoint
+# (deleted by the trap) and one ignored event row.
+# 8a. The three deployments are Available.
+for part in ingest api worker; do
+  kubectl -n "$NAMESPACE" wait --for=condition=Available "deploy/${WEBHOOK_RELEASE}-${part}" --timeout="${SMOKE_TIMEOUT_S}s" > /dev/null ||
+    fail "deploy/${WEBHOOK_RELEASE}-${part} is not Available within ${SMOKE_TIMEOUT_S}s"
+done
+log "deploy/${WEBHOOK_RELEASE}-ingest, -api and -worker are Available"
+
+# 8b. Port-forwards: the api container port (8000, bypassing the SSO sidecar on the Service port) and the ingest Service.
+if [ -n "$PF_PID" ]; then
+  WH_API_HOST="127.0.0.1:${SMOKE_WEBHOOK_API_LOCAL_PORT:-18001}"
+  WH_INGEST_HOST="127.0.0.1:${SMOKE_WEBHOOK_INGEST_LOCAL_PORT:-18002}"
+  kubectl -n "$NAMESPACE" port-forward "deploy/${WEBHOOK_RELEASE}-api" "${WH_API_HOST#*:}:8000" > /dev/null 2>&1 &
+  WH_PF_PIDS="$WH_PF_PIDS $!"
+  kubectl -n "$NAMESPACE" port-forward "svc/${WEBHOOK_RELEASE}-ingest" "${WH_INGEST_HOST#*:}:80" > /dev/null 2>&1 &
+  WH_PF_PIDS="$WH_PF_PIDS $!"
+  WH_API_BASE="http://${WH_API_HOST}"
+  WH_INGEST_BASE="http://${WH_INGEST_HOST}"
+  for base in "$WH_API_BASE" "$WH_INGEST_BASE"; do
+    for _ in $(seq 1 20); do
+      curl -s --max-time 2 -o /dev/null "${base}/healthz" && break
+      sleep 1
+    done
+  done
+fi
+
+# 8c. Create a temporary github-issue endpoint on the default preset. The username and password live only in these variables.
+preset_id=$(curl -fsS --max-time 20 "${BASE}/api/v1/presets" | jq -er '[.[] | select(.is_default)][0].id') ||
+  fail "webhook: no default preset in GET /api/v1/presets"
+WH_SUFFIX="smoke-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+ep_body=$(jq -n --arg preset "$preset_id" --arg suffix "$WH_SUFFIX" '{type: "github-issue", preset_id: $preset, suffix: $suffix}')
+ep_resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$ep_body" "${WH_API_BASE}/webhooks/api/v1/endpoints") ||
+  fail "webhook: endpoint create failed (POST /webhooks/api/v1/endpoints)"
+ENDPOINT_ID=$(echo "$ep_resp" | jq -er '.id') || fail "webhook: endpoint create response carries no id"
+WH_USER=$(echo "$ep_resp" | jq -er '.username') || fail "webhook: endpoint create response carries no username"
+WH_PASS=$(echo "$ep_resp" | jq -er '.password') || fail "webhook: endpoint create response carries no password"
+unset ep_resp
+log "created webhook endpoint ${ENDPOINT_ID} (suffix ${WH_SUFFIX})"
+
+# 8d. Ingest: healthz, a closed-issue delivery with the credentials, a wrong password, an unknown suffix. Credentials go to curl on
+# stdin, never on the command line.
+curl -fsS --max-time 20 -o /dev/null "${WH_INGEST_BASE}/healthz" || fail "webhook: ingest healthz not 200"
+log "ingest healthz 200"
+issue_payload='{"action":"closed","issue":{"number":1,"title":"smoke","body":"","user":{"login":"smoke"},"labels":[]},"repository":{"full_name":"smoke/smoke"},"sender":{"login":"smoke"}}'
+deliver() { # $1 suffix, $2 password; prints "<status> <body>"
+  local out
+  out=$(printf 'user = "%s:%s"\n' "$WH_USER" "$2" |
+    curl -sS --max-time 20 -K - -X POST -H 'Content-Type: application/json' -H 'X-GitHub-Event: issues' -d "$issue_payload" \
+      -w '\n%{http_code}' "${WH_INGEST_BASE}/webhook/$1") || return 1
+  printf '%s %s' "${out##*$'\n'}" "${out%$'\n'*}"
+}
+good=$(deliver "$WH_SUFFIX" "$WH_PASS") || fail "webhook: delivery request failed"
+[ "${good%% *}" = "202" ] || fail "webhook: delivery with credentials answered ${good%% *}, expected 202"
+echo "${good#* }" | jq -e '.status == "ignored" and .reason == "action_ignored"' > /dev/null ||
+  fail "webhook: delivery is not ignored/action_ignored: ${good#* }"
+EVENT_ID=$(echo "${good#* }" | jq -er '.id') || fail "webhook: delivery answer carries no id"
+log "ingest accepted the closed-issue delivery: 202 ignored (action_ignored)"
+bad=$(deliver "$WH_SUFFIX" "wrong-$(date +%s)") || fail "webhook: wrong password request failed"
+[ "${bad%% *}" = "401" ] || fail "webhook: wrong password answered ${bad%% *}, expected 401"
+log "ingest rejected a wrong password: 401"
+unknown=$(deliver "smoke-nosuch-$(date +%s)" "$WH_PASS") || fail "webhook: unknown suffix request failed"
+[ "${unknown%% *}" = "401" ] || fail "webhook: unknown suffix answered ${unknown%% *}, expected 401"
+[ "${unknown#* }" = "${bad#* }" ] || fail "webhook: unknown suffix 401 body differs from the wrong password 401 body"
+log "ingest rejected an unknown suffix: 401 with the same body"
+unset WH_PASS
+
+# 8e. The events API lists the delivery as ignored.
+events=$(curl -fsS --max-time 20 "${WH_API_BASE}/webhooks/api/v1/events?endpoint_id=${ENDPOINT_ID}&limit=5") ||
+  fail "webhook: events API not reachable"
+echo "$events" | jq -e --argjson id "$EVENT_ID" 'any(.[]; .id == $id and .status == "ignored")' > /dev/null ||
+  fail "webhook: events API does not list event ${EVENT_ID} as ignored for endpoint ${ENDPOINT_ID}: $(echo "$events" | jq -c '[.[] | {id, status, reason}]' 2> /dev/null)"
+log "events API lists event ${EVENT_ID} as ignored"
+
+# 8f. The orchestrator service port (8002) from an agent pod: 200 with the webhook token, 401 without. The token is read from the
+# agents-webhook Secret and handed to the pod on stdin.
+svc_py='import sys, urllib.request, urllib.error
+token = sys.stdin.read().strip()
+def status(headers):
+    try:
+        return urllib.request.urlopen(urllib.request.Request("http://agent-orchestrator-services:8002/api/v1/presets", headers=headers), timeout=15).status
+    except urllib.error.HTTPError as e:
+        return e.code
+print(status({"Authorization": "Bearer " + token}), status({}))'
+wh_token=$(kubectl -n "$NAMESPACE" get secret "${WEBHOOK_RELEASE}-orchestrator" -o 'jsonpath={.data.token}' | base64 -d) ||
+  fail "webhook: cannot read the ${WEBHOOK_RELEASE}-orchestrator token Secret"
+svc_status=$(kubectl -n "$NAMESPACE" exec -i "$pod" -- python3 -c "$svc_py" <<< "$wh_token" 2>&1 | tail -n1) || true
+unset wh_token
+[ "$svc_status" = "200 401" ] ||
+  fail "webhook: GET http://agent-orchestrator-services:8002/api/v1/presets answered '${svc_status}' (with token, without token), expected '200 401'"
+log "http://agent-orchestrator-services:8002/api/v1/presets: 200 with the webhook token, 401 without"
+
+# 8g. The public ingress routes /webhook to the ingest pod (not SSO): 401 with the Basic realm.
+hdrs=$(curl -sS --max-time 20 -D - -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "${PUBLIC_URL}/webhook/smoke-unknown") ||
+  fail "webhook: public ${PUBLIC_URL}/webhook/smoke-unknown not reachable"
+pub_status=$(echo "$hdrs" | awk 'NR==1 {print $2}')
+[ "$pub_status" = "401" ] || fail "webhook: public POST /webhook/smoke-unknown answered '${pub_status}', expected 401 (an SSO redirect?)"
+echo "$hdrs" | tr -d '\r' | grep -iqx 'www-authenticate: Basic realm="agents-webhook"' ||
+  fail "webhook: public 401 lacks WWW-Authenticate: Basic realm=\"agents-webhook\""
+log "public ${PUBLIC_URL}/webhook/smoke-unknown: 401 with WWW-Authenticate: Basic realm=\"agents-webhook\""
 
 # 7. Scale 1 -> 2 -> 1 through the public route; pod-0 must never restart.
 uid0=$(kubectl -n "$NAMESPACE" get "$pod" -o 'jsonpath={.metadata.uid}') || fail "cannot read uid of ${pod}"

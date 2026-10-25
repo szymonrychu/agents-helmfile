@@ -1,5 +1,7 @@
 """Encrypted secrets and the bootstrap script that creates them."""
 
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -13,6 +15,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "bootstrap-secrets.sh"
 ORCH = "values/agent-orchestrator/default.secrets.yaml"
 DB = "values/agent-orchestrator-db/default.secrets.yaml"
+WH = "values/agents-webhook/default.secrets.yaml"
+WH_TOKEN = "values/agent-orchestrator/service-token-agents-webhook.secrets.yaml"
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -33,6 +37,8 @@ def _load(rel: str) -> dict:
     [
         (ORCH, {"claude.token", "masterKey.value"}),
         (DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
+        (WH, {"orchestrator.token"}),
+        (WH_TOKEN, {"serviceApi.tokenHashes.agents-webhook"}),
     ],
 )
 def test_secrets_files_encrypted_with_expected_keys(rel, keys):
@@ -92,13 +98,13 @@ def _run(tmp_path: Path, bindir: Path) -> subprocess.CompletedProcess:
 
 def test_script_does_not_overwrite_existing(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB):
+    for rel in (ORCH, DB, WH, WH_TOKEN):
         p = tmp_path / rel
-        p.parent.mkdir(parents=True)
+        p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
     r = _run(tmp_path, bindir)
     assert r.returncode == 0, r.stderr
-    for rel in (ORCH, DB):
+    for rel in (ORCH, DB, WH, WH_TOKEN):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
 
@@ -116,3 +122,83 @@ def test_script_exits_1_naming_namespaces_when_token_missing(tmp_path):
     assert r.returncode == 1
     assert "tatara" in r.stderr and "magic-trainer" in r.stderr
     assert not (tmp_path / ORCH).exists()
+
+
+def _decrypt(rel: str) -> dict:
+    # In-process only: the plaintext is parsed and compared, never printed or written.
+    r = subprocess.run(
+        ["sops", "--decrypt", str(ROOT / rel)], capture_output=True, text=True, check=False
+    )
+    assert r.returncode == 0, "sops could not decrypt (key unavailable?)"
+    return yaml.safe_load(r.stdout)
+
+
+def test_webhook_token_hash_matches():
+    token = _decrypt(WH)["orchestrator"]["token"]
+    digest = _decrypt(WH_TOKEN)["serviceApi"]["tokenHashes"]["agents-webhook"]
+    assert digest == hashlib.sha256(token.encode()).hexdigest()
+
+
+def test_webhook_secrets_never_rotate(tmp_path):
+    bindir = _sandbox(tmp_path)
+    for rel in (ORCH, DB):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    # both present: nothing happens
+    for rel in (WH, WH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert not (tmp_path / "calls").exists()
+    for rel in (WH, WH_TOKEN):
+        assert (tmp_path / rel).read_text() == "sentinel: keep\n"
+    # exactly one present: exit 1 naming both, nothing written, nothing called
+    for present, absent in ((WH, WH_TOKEN), (WH_TOKEN, WH)):
+        (tmp_path / absent).unlink()
+        r = _run(tmp_path, bindir)
+        assert r.returncode == 1
+        assert WH in r.stderr and WH_TOKEN in r.stderr
+        assert not (tmp_path / absent).exists()
+        assert (tmp_path / present).read_text() == "sentinel: keep\n"
+        assert not (tmp_path / "calls").exists()
+        (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+def test_webhook_bootstrap_writes_no_sources(tmp_path):
+    bindir = _sandbox(tmp_path)
+    for tool in ("jq", "openssl"):
+        (bindir / tool).unlink()
+        real = shutil.which(tool)
+        if tool == "jq" and shutil.which("mise"):
+            out = subprocess.run(
+                ["mise", "which", "jq"], capture_output=True, text=True, check=False
+            )
+            real = out.stdout.strip() or real
+        (bindir / tool).symlink_to(real)
+    # Fake sops: records the plaintext it is asked to encrypt (stays in the sandbox) and emits a stub.
+    (bindir / "sops").write_text(
+        '#!/bin/sh\ncat > "$(mktemp "' + str(tmp_path) + "/plain.XXXXXX\")\"\necho 'sops: stub'\n"
+    )
+    for rel in (ORCH, DB):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    docs = [json.loads(f.read_text()) for f in tmp_path.glob("plain.*")]
+    assert len(docs) == 2
+    wh = next(d for d in docs if "orchestrator" in d)
+    assert set(wh) == {"orchestrator"}
+    assert set(wh["orchestrator"]) == {"token"}
+    assert "sources" not in wh
+
+
+def test_webhook_secrets_have_no_sources():
+    doc = _decrypt(WH)
+    assert set(doc) == {"orchestrator"}
+    assert doc["orchestrator"]["token"]
+    digest = _decrypt(WH_TOKEN)["serviceApi"]["tokenHashes"]["agents-webhook"]
+    assert digest == hashlib.sha256(doc["orchestrator"]["token"].encode()).hexdigest()

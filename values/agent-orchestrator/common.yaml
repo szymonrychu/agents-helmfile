@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agent-orchestrator
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: 60cb11c
+  tag: a3c1b9d
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
@@ -12,6 +12,10 @@ agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.2.0
 postgres:
   existingSecret: agent-orchestrator-db-cluster-app
   existingSecretKey: uri
+
+# Service port for in-cluster callers (agents-webhook); the token hashes are in the secrets files.
+serviceApi:
+  port: 8002
 
 # masterKey.value and claude.token come from default.secrets.yaml (SOPS).
 
