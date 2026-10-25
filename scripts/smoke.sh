@@ -18,6 +18,14 @@
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
+# The any-mcp the sessions install: the orchestrator release's pinned ORCH_ANY_MCP_REF, leading v stripped.
+ORCH_VALUES="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/values/agents-orchestrator/common.yaml"
+ANY_MCP_VERSION=$(sed -n 's/^[[:space:]]*ORCH_ANY_MCP_REF:[[:space:]]*v\{0,1\}\([^[:space:]#]*\).*/\1/p' "$ORCH_VALUES" 2> /dev/null | head -n1)
+if [ -z "$ANY_MCP_VERSION" ]; then
+  echo "smoke: FAIL: no ORCH_ANY_MCP_REF in ${ORCH_VALUES}" >&2
+  exit 1
+fi
+
 NAMESPACE="${NAMESPACE:-agents}"
 SMOKE_TIMEOUT_S="${SMOKE_TIMEOUT_S:-600}"
 RELEASE="${RELEASE:-agents-orchestrator}"
@@ -190,8 +198,8 @@ fi
 log "claude mcp list shows any-mcp Connected"
 ver=$(kubectl -n "$NAMESPACE" exec "$pod" -- /opt/any-mcp/bin/any-mcp --version 2>&1) || true
 case "$ver" in
-  *0.2.0*) log "any-mcp version 0.2.0" ;;
-  *) fail "any-mcp --version is not 0.2.0: ${ver}" ;;
+  *" ${ANY_MCP_VERSION}" | "${ANY_MCP_VERSION}") log "any-mcp version ${ANY_MCP_VERSION}" ;;
+  *) fail "any-mcp --version is not ${ANY_MCP_VERSION}: ${ver}" ;;
 esac
 
 # 4b. The init scripts ran once and succeeded, and are visible through the public API.

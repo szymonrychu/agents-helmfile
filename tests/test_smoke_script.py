@@ -14,6 +14,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "smoke.sh"
+ORCH_VALUES = ROOT / "values" / "agents-orchestrator" / "common.yaml"
+# The any-mcp the sessions install: the orchestrator release's pinned tag without its leading v.
+ANY_MCP_VERSION = re.search(r"^\s*ORCH_ANY_MCP_REF:\s*v(\S+)", ORCH_VALUES.read_text(), re.M)[1]
 WH_USER = "wh-user-smoke"
 WH_PASSWORD = "wh-pass-SECRET-value-123"
 WH_TOKEN = "orch-token-SECRET-value-456"
@@ -305,7 +308,7 @@ def _run(
     api,
     fakebin,
     mcp_list,
-    version="any-mcp 0.2.0",
+    version=f"any-mcp {ANY_MCP_VERSION}",
     agents_port="8001",
     ingress_routes=DEFAULT_ROUTES,
     ingress_fail="",
@@ -314,6 +317,7 @@ def _run(
     me_status="200",
     smoke_timeout="20",
     extra_env=None,
+    script=SCRIPT,
 ):
     target = (
         {
@@ -344,7 +348,7 @@ def _run(
         **(extra_env or {}),
     }
     return subprocess.run(
-        ["bash", str(SCRIPT)], check=False, env=env, capture_output=True, text=True, timeout=60
+        ["bash", str(script)], check=False, env=env, capture_output=True, text=True, timeout=60
     )
 
 
@@ -442,7 +446,42 @@ def test_any_mcp_not_connected_fails(api, fakebin):
 def test_wrong_any_mcp_version_fails(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected", version="any-mcp 0.1.0")
     assert r.returncode != 0
-    assert "0.2.0" in r.stdout + r.stderr
+    assert f"any-mcp --version is not {ANY_MCP_VERSION}" in r.stdout + r.stderr
+
+
+def test_any_mcp_version_is_the_orchestrator_values_ref(api, fakebin):
+    assert ANY_MCP_VERSION == "0.3.0"
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"any-mcp version {ANY_MCP_VERSION}" in r.stdout
+
+
+def _tree_with_any_mcp_ref(tmp_path, line):
+    tree = tmp_path / "tree"
+    (tree / "scripts").mkdir(parents=True)
+    shutil.copy(SCRIPT, tree / "scripts" / "smoke.sh")
+    values = tree / "values" / "agents-orchestrator"
+    values.mkdir(parents=True)
+    (values / "common.yaml").write_text(f"env:\n{line}")
+    return tree / "scripts" / "smoke.sh"
+
+
+def test_any_mcp_version_follows_the_values_file(api, fakebin, tmp_path):
+    script = _tree_with_any_mcp_ref(tmp_path, "  ORCH_ANY_MCP_REF: v9.8.7\n")
+    r = _run(api, fakebin, "any-mcp: x - Connected", version="any-mcp 9.8.7", script=script)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "any-mcp version 9.8.7" in r.stdout
+    r = _run(api, fakebin, "any-mcp: x - Connected", script=script)
+    assert r.returncode != 0
+    assert "any-mcp --version is not 9.8.7" in r.stderr
+
+
+def test_missing_any_mcp_ref_fails_before_any_change(api, fakebin, tmp_path):
+    script = _tree_with_any_mcp_ref(tmp_path, "  ORCH_ANY_MCP_REPO: https://example\n")
+    r = _run(api, fakebin, "any-mcp: x - Connected", script=script)
+    assert r.returncode != 0
+    assert "ORCH_ANY_MCP_REF" in r.stderr
+    assert not [m for m, _ in api.methods() if m == "POST"]
 
 
 def test_missing_agents_service_fails(api, fakebin):
