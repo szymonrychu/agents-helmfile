@@ -19,6 +19,13 @@ class _Api:
     def __init__(self):
         self.requests: list[tuple[str, str, bytes]] = []
         self.leader: str | None = "agent-uuid-0"
+        self.init_status: dict = {
+            "state": "succeeded",
+            "exit_code": 0,
+            "reason": None,
+            "log_tail": "smoke-init\n",
+        }
+        self.init_scripts: list[str] = ["echo smoke-init"]
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -46,6 +53,9 @@ class _Api:
                 elif self.path == "/api/v1/clusters/cid-1":
                     leader = api.leader
                     self._send(200, json.dumps({"id": "cid-1", "leader_agent_id": leader}))
+                elif self.path == "/api/v1/clusters/cid-1/init-scripts":
+                    body = {"scripts": api.init_scripts, "status": api.init_status}
+                    self._send(200, json.dumps(body))
                 else:
                     self._send(404, "{}")
 
@@ -86,7 +96,8 @@ def fakebin(tmp_path):
         ' echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_AGENTS_PORT-8001}"; exit 0 ;;\n'
         '  *"get ingress"*) [ -z "${FAKE_INGRESS_FAIL-}" ] || exit 1;'
         ' printf "%s" "$FAKE_INGRESS_BACKENDS"; exit 0 ;;\n'
-        '  *"get pod"*) echo "pod/smoke-agent-0"; exit 0 ;;\n'
+        '  *"get pod"*) slug=$(echo "$*" | sed -n "s|.*cluster=\\([^ ]*\\).*|\\1|p");'
+        ' echo "pod/agent-${slug}-init-abcde"; echo "pod/agent-${slug}-0"; exit 0 ;;\n'
         '  *" exec "*|*port-forward*) echo "$*" >> "$FAKE_KUBECTL_LOG" ;;\n'
         "  *) ;;\n"
         "esac\n"
@@ -148,7 +159,7 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
     assert ("DELETE", "/api/v1/clusters/cid-1") in methods
     body = json.loads(next(b for m, _, b in api.requests if m == "POST"))
     assert re.fullmatch(r"smoke-\d+", body["slug"])
-    assert body["spec"]["replicas"] == 2
+    assert body["spec"] == {"replicas": 1, "init_scripts": ["echo smoke-init"]}
 
 
 def test_missing_any_mcp_fails_and_cleans_up(api, fakebin):
@@ -260,7 +271,9 @@ def test_agent_me_check_runs_in_pod_with_its_own_env(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode == 0, r.stdout + r.stderr
     log = (fakebin / "kubectl.log").read_text()
-    entry = log[log.index("exec pod/smoke-agent-0 -- python3") :]
+    start = re.search(r"exec pod/agent-smoke-\d+-0 -- python3", log)
+    assert start, log
+    entry = log[start.start() :]
     assert "/agent/v1/me" in entry
     for name in ("ORCH_AGENT_URL", "ORCH_AGENT_TOKEN", "ORCH_CLUSTER_ID"):
         assert name in entry
@@ -271,4 +284,54 @@ def test_no_leader_fails(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
     assert r.returncode != 0
     assert "leader" in r.stdout + r.stderr
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_init_scripts_succeed(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    body = json.loads(next(b for m, _, b in api.requests if m == "POST"))
+    assert body["spec"]["init_scripts"] == ["echo smoke-init"]
+    assert ("GET", "/api/v1/clusters/cid-1/init-scripts") in api.methods()
+    # the init Job pod is listed first but the agent pod is chosen by name
+    log = (fakebin / "kubectl.log").read_text()
+    assert re.search(r"exec pod/agent-smoke-\d+-0 ", log)
+    assert "-init-abcde" not in log
+    assert "init scripts succeeded" in r.stdout
+
+
+def test_init_scripts_failed_fails_and_cleans_up(api, fakebin):
+    api.init_status = {
+        "state": "failed",
+        "exit_code": 7,
+        "reason": "BackoffLimitExceeded",
+        "log_tail": "boom\n",
+    }
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    out = r.stdout + r.stderr
+    assert "BackoffLimitExceeded" in out
+    assert "7" in out
+    assert "boom" in out
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_init_scripts_timeout_fails_and_cleans_up(api, fakebin):
+    api.init_status = {"state": "running", "exit_code": None, "reason": None, "log_tail": ""}
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="8")
+    assert r.returncode != 0
+    assert "init" in r.stdout + r.stderr
+    assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
+
+
+def test_init_scripts_wrong_log_or_scripts_fails(api, fakebin):
+    api.init_status = {"state": "succeeded", "exit_code": 0, "reason": None, "log_tail": "other\n"}
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    assert "smoke-init" in r.stdout + r.stderr
+    api.requests.clear()
+    api.init_status["log_tail"] = "smoke-init\n"
+    api.init_scripts = ["echo other"]
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
     assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
