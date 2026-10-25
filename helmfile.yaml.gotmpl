@@ -80,6 +80,7 @@ releases:
     secrets:
     - values/agents-orchestrator/default.secrets.yaml
     - values/agents-orchestrator/service-token-agents-webhook.secrets.yaml
+    - values/agents-orchestrator/service-token-agents-schedule.secrets.yaml
 
   - name: agents-webhook-db
     namespace: agents
@@ -114,6 +115,19 @@ releases:
     labels:
       purpose: agents
       application: agents-webhook
+    <<: *default
+
+  - name: agents-schedule
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-schedule
+    version: 0.1.0
+    timeout: 600
+    needs:
+      - agents/agents-schedule-db
+      - agents/agents-orchestrator
+    labels:
+      purpose: agents
+      application: agents-schedule
     <<: *default
 
   - name: agents-web
