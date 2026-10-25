@@ -9,10 +9,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ORCH_FILE="values/agent-orchestrator/default.secrets.yaml"
+ORCH_FILE="values/agents-orchestrator/default.secrets.yaml"
 DB_FILE="values/agent-orchestrator-db/default.secrets.yaml"
 WH_FILE="values/agents-webhook/default.secrets.yaml"
-WH_TOKEN_FILE="values/agent-orchestrator/service-token-agents-webhook.secrets.yaml"
+WH_TOKEN_FILE="values/agents-orchestrator/service-token-agents-webhook.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"

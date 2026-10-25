@@ -13,10 +13,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "bootstrap-secrets.sh"
-ORCH = "values/agent-orchestrator/default.secrets.yaml"
+ORCH = "values/agents-orchestrator/default.secrets.yaml"
 DB = "values/agent-orchestrator-db/default.secrets.yaml"
 WH = "values/agents-webhook/default.secrets.yaml"
-WH_TOKEN = "values/agent-orchestrator/service-token-agents-webhook.secrets.yaml"
+WH_TOKEN = "values/agents-orchestrator/service-token-agents-webhook.secrets.yaml"
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 

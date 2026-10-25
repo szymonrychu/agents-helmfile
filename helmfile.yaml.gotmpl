@@ -59,21 +59,27 @@ releases:
       application: agents-orchestrator
     <<: *default
 
+  # Retired by the rename to agents-orchestrator (design D7): apply uninstalls it.
   - name: agent-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agent-orchestrator
-    version: 0.1.0-main.a3c1b9d
+    installed: false
+
+  - name: agents-orchestrator
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-orchestrator
+    version: 0.1.0-main.bba074f
     timeout: 600
     needs:
-      - agents/agent-orchestrator-db
+      - agents/agents-orchestrator-db
     labels:
       purpose: agents
-      application: agent-orchestrator
+      application: agents-orchestrator
     <<: *default
     # Overrides the default anchor's list: the service token hash file comes after default.
     secrets:
-    - values/agent-orchestrator/default.secrets.yaml
-    - values/agent-orchestrator/service-token-agents-webhook.secrets.yaml
+    - values/agents-orchestrator/default.secrets.yaml
+    - values/agents-orchestrator/service-token-agents-webhook.secrets.yaml
 
   - name: agents-webhook-db
     namespace: agents
