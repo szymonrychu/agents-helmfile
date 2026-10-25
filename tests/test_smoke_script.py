@@ -72,7 +72,9 @@ class _Api:
             def _basic_ok(self):
                 want = base64.b64encode(f"{WH_USER}:{WH_PASSWORD}".encode()).decode()
                 got = self.headers.get("Authorization", "")
-                return got == f"Basic {want}" or (api.accept_any_password and got.startswith("Basic "))
+                return got == f"Basic {want}" or (
+                    api.accept_any_password and got.startswith("Basic ")
+                )
 
             def _unauthorized(self, www=True):
                 body = json.dumps({"error": {"code": "unauthorized", "message": "unauthorized"}})
@@ -616,7 +618,11 @@ def test_webhook_checks_happy_path(api, fakebin):
     assert ("GET", "/webhooks/api/v1/events?endpoint_id=7&limit=5") in api.methods()
     assert _wh_delete(api)
     assert ("DELETE", "/api/v1/clusters/cid-1") in api.methods()
-    assert re.search(r"exec -i pod/agent-smoke-\d+-0 -- python3 .*agent-orchestrator-services:8002", log, re.S)
+    assert re.search(
+        r"exec -i pod/agent-smoke-\d+-0 -- python3 .*agent-orchestrator-services:8002",
+        log,
+        re.DOTALL,
+    )
     assert "agent-orchestrator-services:8002" in r.stdout
     assert "WWW-Authenticate" in r.stdout
 
@@ -633,7 +639,13 @@ def test_webhook_port_forwards_bypass_the_sidecar(api, fakebin):
 @pytest.mark.parametrize(
     ("name", "setup", "extra_env", "needle", "endpoint_created"),
     [
-        ("worker-not-available", None, {"FAKE_WAIT_FAIL": "agents-webhook-worker"}, "worker", False),
+        (
+            "worker-not-available",
+            None,
+            {"FAKE_WAIT_FAIL": "agents-webhook-worker"},
+            "worker",
+            False,
+        ),
         ("endpoint-create-fails", {"endpoint_create_status": 500}, None, "endpoint", False),
         ("event-not-ignored", {"ingest_ok_reason": "queued"}, None, "action_ignored", True),
         ("wrong-password-accepted", {"accept_any_password": True}, None, "wrong password", True),
