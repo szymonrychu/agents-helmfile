@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "smoke.sh"
 ORCH_VALUES = ROOT / "values" / "agents-orchestrator" / "common.yaml"
 # The any-mcp the sessions install: the orchestrator release's pinned tag without its leading v.
-ANY_MCP_VERSION = re.search(r"^\s*ORCH_ANY_MCP_REF:\s*v(\S+)", ORCH_VALUES.read_text(), re.M)[1]
+ANY_MCP_VERSION = re.search(r"^\s*ORCH_ANY_MCP_REF:\s*v(\S+)", ORCH_VALUES.read_text(), re.MULTILINE)[1]
 WH_USER = "wh-user-smoke"
 WH_PASSWORD = "wh-pass-SECRET-value-123"
 WH_TOKEN = "orch-token-SECRET-value-456"
