@@ -63,7 +63,8 @@ AGENTS_SVC="${RELEASE:-agent-orchestrator}-agents"
 agents_port=$(kubectl -n "$NAMESPACE" get service "$AGENTS_SVC" -o 'jsonpath={.spec.ports[0].port}' 2> /dev/null) ||
   fail "Service ${AGENTS_SVC} not found in ${NAMESPACE}"
 [ "$agents_port" = "8001" ] || fail "Service ${AGENTS_SVC} port is ${agents_port}, expected 8001"
-backends=$(kubectl -n "$NAMESPACE" get ingress -o 'jsonpath={.items[*].spec.rules[*].http.paths[*].backend.service.name}' 2> /dev/null || true)
+backends=$(kubectl -n "$NAMESPACE" get ingress -o 'jsonpath={.items[*].spec.rules[*].http.paths[*].backend.service.name}') ||
+  fail "cannot list ingresses in ${NAMESPACE}"
 case " ${backends} " in
   *" ${AGENTS_SVC} "*) fail "Service ${AGENTS_SVC} is an ingress backend" ;;
 esac

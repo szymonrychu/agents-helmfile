@@ -80,7 +80,8 @@ def fakebin(tmp_path):
         '  *" wait "*) exit 0 ;;\n'
         '  *"get service"*) [ -n "${FAKE_AGENTS_PORT-8001}" ] || exit 1;'
         ' echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_AGENTS_PORT-8001}"; exit 0 ;;\n'
-        '  *"get ingress"*) printf "%s" "$FAKE_INGRESS_BACKENDS"; exit 0 ;;\n'
+        '  *"get ingress"*) [ -z "${FAKE_INGRESS_FAIL-}" ] || exit 1;'
+        ' printf "%s" "$FAKE_INGRESS_BACKENDS"; exit 0 ;;\n'
         '  *"get pod"*) echo "pod/smoke-agent-0"; exit 0 ;;\n'
         '  *" exec "*|*port-forward*) echo "$*" >> "$FAKE_KUBECTL_LOG" ;;\n'
         "  *) ;;\n"
@@ -104,6 +105,7 @@ def _run(
     version="any-mcp 0.2.0",
     agents_port="8001",
     ingress_backends="agent-orchestrator",
+    ingress_fail="",
     session_cfg="/sessions/abc/config",
     port_forward=False,
 ):
@@ -122,6 +124,7 @@ def _run(
         "FAKE_SESSION_CFG": session_cfg,
         "FAKE_AGENTS_PORT": agents_port,
         "FAKE_INGRESS_BACKENDS": ingress_backends,
+        "FAKE_INGRESS_FAIL": ingress_fail,
         "FAKE_KUBECTL_LOG": str(fakebin / "kubectl.log"),
     }
     return subprocess.run(
@@ -188,6 +191,17 @@ def test_agents_service_as_ingress_backend_fails(api, fakebin):
     )
     assert r.returncode != 0
     assert "ingress" in r.stdout + r.stderr
+
+
+def test_ingress_query_error_fails(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", ingress_fail="1")
+    assert r.returncode != 0
+    assert "ingress" in r.stdout + r.stderr
+
+
+def test_no_ingresses_still_passes(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", ingress_backends="")
+    assert r.returncode == 0, r.stdout + r.stderr
 
 
 def test_no_session_config_dir_fails(api, fakebin):
