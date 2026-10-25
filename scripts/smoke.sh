@@ -15,6 +15,10 @@
 # rejects a wrong password and an unknown suffix with the same 401; the events API lists the event; the orchestrator service port answers
 # 200 with the webhook token and 401 without it from an agent pod; the public host answers 401 with the Basic realm. Extra env:
 # WEBHOOK_RELEASE, SMOKE_WEBHOOK_API_LOCAL_PORT, SMOKE_WEBHOOK_INGEST_LOCAL_PORT, SMOKE_PUBLIC_URL (tests only).
+# Schedule steps (agents-schedule release): a disabled schedule smoke-<ts> on the default preset (cron 0 3 * * *, so it never fires on its own) is
+# created through the schedule API (port-forward to the api container, bypassing its SSO sidecar), /readyz answers, the cron preview lists
+# 3 fire times, run-now answers 202 and the run reaches in-progress with a session_id; the trap deletes that session through the orchestrator
+# API and the schedule through the schedule API. Extra env: SCHEDULE_RELEASE, SMOKE_SCHEDULE_API_LOCAL_PORT.
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
@@ -34,6 +38,11 @@ PF_PID=""
 WEB_PF_PID=""
 WH_PF_PIDS=""
 WEBHOOK_RELEASE="${WEBHOOK_RELEASE:-agents-webhook}"
+SCHEDULE_RELEASE="${SCHEDULE_RELEASE:-agents-schedule}"
+SCHED_PF_PID=""
+SCHEDULE_ID=""
+SCHED_RUN_ID=""
+SCHED_SESSION_ID=""
 if [ -z "${HOST:-}" ]; then
   HOST="127.0.0.1:${SMOKE_LOCAL_PORT:-18000}"
   WEB_HOST="127.0.0.1:${SMOKE_WEB_LOCAL_PORT:-18080}"
@@ -50,6 +59,7 @@ SESSION_ID=""
 ENDPOINT_ID=""
 WH_API_BASE="$BASE"
 WH_INGEST_BASE="$BASE"
+SCHED_API_BASE="$BASE"
 PUBLIC_URL="${SMOKE_PUBLIC_URL:-https://lab.szymonrichert.pl}"
 
 log() { echo "smoke: $*"; }
@@ -75,6 +85,25 @@ cleanup() {
       echo "smoke: cleanup failed, webhook API unreachable; delete webhook endpoint id ${ENDPOINT_ID} manually" >&2
     fi
   fi
+  if [ -n "$SCHEDULE_ID" ]; then
+    # A run that was still waiting may have created its session since the last poll.
+    if [ -z "$SCHED_SESSION_ID" ] && [ -n "$SCHED_RUN_ID" ]; then
+      SCHED_SESSION_ID=$(curl -fsS --max-time 20 "${SCHED_API_BASE}/schedules/api/v1/runs/${SCHED_RUN_ID}" 2> /dev/null | jq -r '.session_id // empty' 2> /dev/null) || SCHED_SESSION_ID=""
+    fi
+    if [ -n "$SCHED_SESSION_ID" ]; then
+      if curl -fsS --max-time 20 -X DELETE -o /dev/null "${BASE}/api/v1/sessions/${SCHED_SESSION_ID}"; then
+        log "discarded schedule session ${SCHED_SESSION_ID}"
+      else
+        echo "smoke: cleanup failed, API unreachable; delete schedule session id ${SCHED_SESSION_ID} manually" >&2
+      fi
+    fi
+    if curl -fsS --max-time 20 -X DELETE -o /dev/null "${SCHED_API_BASE}/schedules/api/v1/schedules/${SCHEDULE_ID}"; then
+      log "deleted schedule ${SCHEDULE_ID}"
+    else
+      echo "smoke: cleanup failed, schedule API unreachable; delete schedule id ${SCHEDULE_ID} manually" >&2
+    fi
+  fi
+  [ -n "$SCHED_PF_PID" ] && kill "$SCHED_PF_PID" 2> /dev/null
   for pid in $WH_PF_PIDS; do kill "$pid" 2> /dev/null || true; done
   [ -n "$PF_PID" ] && kill "$PF_PID" 2> /dev/null
   [ -n "$WEB_PF_PID" ] && kill "$WEB_PF_PID" 2> /dev/null
@@ -411,4 +440,59 @@ log "scaled down: ${pod1} is gone"
 uid_now=$(kubectl -n "$NAMESPACE" get "$pod" -o 'jsonpath={.metadata.uid}') || fail "${pod} is gone after scaling"
 [ "$uid_now" = "$uid0" ] || fail "pod-0 uid changed after scaling (${uid0} -> ${uid_now}): pod-0 restarted"
 log "pod-0 kept uid ${uid0}"
+
+# 9. The schedule service (agents-schedule release). The schedule is created disabled: only run-now starts a session.
+# 9a. Port-forward to the api container (8000, bypassing the SSO sidecar on the Service port); /readyz answers.
+if [ -n "$PF_PID" ]; then
+  SCHED_API_HOST="127.0.0.1:${SMOKE_SCHEDULE_API_LOCAL_PORT:-18003}"
+  kubectl -n "$NAMESPACE" port-forward "deploy/${SCHEDULE_RELEASE}-api" "${SCHED_API_HOST#*:}:8000" > /dev/null 2>&1 &
+  SCHED_PF_PID=$!
+  SCHED_API_BASE="http://${SCHED_API_HOST}"
+  for _ in $(seq 1 20); do
+    curl -s --max-time 2 -o /dev/null "${SCHED_API_BASE}/readyz" && break
+    sleep 1
+  done
+fi
+SCHED_BASE="${SCHED_API_BASE}/schedules/api/v1"
+curl -fsS --max-time 20 -o /dev/null "${SCHED_API_BASE}/readyz" || fail "schedule: ${SCHED_API_BASE}/readyz not 200"
+log "schedule API readyz 200"
+
+# 9b. Create a disabled schedule on the default preset.
+sched_preset=$(curl -fsS --max-time 20 "${BASE}/api/v1/presets" | jq -er '[.[] | select(.is_default)][0].id') ||
+  fail "schedule: no default preset in GET /api/v1/presets"
+sched_body=$(jq -n --arg name "$SLUG" --arg preset "$sched_preset" \
+  '{name: $name, cron: "0 3 * * *", preset_id: $preset, prompt: "smoke check of the schedule service: reply with ok", enabled: false}')
+sched_resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$sched_body" "${SCHED_BASE}/schedules") ||
+  fail "schedule: create failed (POST /schedules/api/v1/schedules)"
+SCHEDULE_ID=$(echo "$sched_resp" | jq -er '.id') || fail "schedule: create response carries no id"
+log "created schedule ${SLUG} (${SCHEDULE_ID}), disabled"
+
+# 9c. The cron preview lists three fire times.
+pv=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d '{"cron":"0 3 * * *"}' "${SCHED_BASE}/schedules/preview") ||
+  fail "schedule: preview failed (POST /schedules/api/v1/schedules/preview)"
+echo "$pv" | jq -e '.next_fires | length == 3' > /dev/null || fail "schedule: preview does not list 3 fire times: ${pv}"
+log "schedule preview lists 3 fire times"
+
+# 9d. Run now answers 202 and the run reaches in-progress with a session.
+run_out=$(curl -sS --max-time 20 -X POST -w '\n%{http_code}' "${SCHED_BASE}/schedules/${SCHEDULE_ID}/run") ||
+  fail "schedule: run request failed"
+[ "${run_out##*$'\n'}" = "202" ] || fail "schedule: run answered ${run_out##*$'\n'}, expected 202: ${run_out%$'\n'*}"
+SCHED_RUN_ID=$(echo "${run_out%$'\n'*}" | jq -er '.id') || fail "schedule: run response carries no id"
+log "schedule run ${SCHED_RUN_ID} accepted (202)"
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+run_status=""
+while :; do
+  run_json=$(curl -fsS --max-time 20 "${SCHED_BASE}/runs/${SCHED_RUN_ID}") || run_json=""
+  run_status=$(echo "$run_json" | jq -r '.status // empty' 2> /dev/null || true)
+  SCHED_SESSION_ID=$(echo "$run_json" | jq -r '.session_id // empty' 2> /dev/null || true)
+  case "$run_status" in
+    failed | ignored) fail "schedule: run ${SCHED_RUN_ID} ${run_status}: $(echo "$run_json" | jq -r '.reason // ""')" ;;
+    in-progress | handled) [ -n "$SCHED_SESSION_ID" ] && break ;;
+  esac
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    fail "schedule: run ${SCHED_RUN_ID} not in-progress with a session within ${SMOKE_TIMEOUT_S}s (status '${run_status}')"
+  fi
+  sleep 3
+done
+log "schedule run ${SCHED_RUN_ID} is ${run_status} with session ${SCHED_SESSION_ID}"
 log "OK"
