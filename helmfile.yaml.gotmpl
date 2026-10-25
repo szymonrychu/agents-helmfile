@@ -92,6 +92,17 @@ releases:
       application: agents-webhook
     <<: *default
 
+  - name: agents-schedule-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-schedule
+    <<: *default
+
   - name: agents-webhook
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
