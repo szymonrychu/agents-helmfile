@@ -11,7 +11,7 @@ import yaml
 
 REL = "agents-webhook"
 DB_REL = "agents-webhook-db"
-SHA = "883958c"
+SHA = "cc0f706"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
     "192.168.1.26/32",
@@ -168,3 +168,9 @@ def _rendered_cnpg_app_secret(repo_root) -> str:
 
 def test_db_secret_matches_rendered_cnpg_cluster_helmfile_build(layered_values, repo_root):
     assert layered_values(REL)["postgres"]["existingSecret"] == _rendered_cnpg_app_secret(repo_root)
+
+
+def test_api_allowlist_stays_chart_default(layered_values):
+    # The oauth2-proxy sidecar reaches the api over 127.0.0.1:8000, the chart default
+    # (WEBHOOK_API_ALLOWED_CIDRS=127.0.0.1/32); an override here would widen or break it.
+    assert "allowedCidrs" not in layered_values(REL).get("api", {})
