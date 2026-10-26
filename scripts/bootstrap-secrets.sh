@@ -15,6 +15,8 @@ WH_FILE="values/agents-webhook/default.secrets.yaml"
 WH_TOKEN_FILE="values/agents-orchestrator/service-token-agents-webhook.secrets.yaml"
 SCH_FILE="values/agents-schedule/default.secrets.yaml"
 SCH_TOKEN_FILE="values/agents-orchestrator/service-token-agents-schedule.secrets.yaml"
+MX_FILE="values/agents-matrix-connector/default.secrets.yaml"
+MX_TOKEN_FILE="values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
@@ -98,8 +100,35 @@ bootstrap_service_token() {
   fi
 }
 
+# bootstrap_matrix_connector: both files or neither. Needs MATRIX_CONNECTOR_TOKEN_FILE
+# (path to a file holding the Matrix access token) only when it has to write.
+# One service token (its sha256 goes to the orchestrator). Never rotates, never half-writes.
+bootstrap_matrix_connector() {
+  local svc digest matrix
+  if [[ -e "$MX_FILE" && -e "$MX_TOKEN_FILE" ]]; then return 0; fi
+  if [[ -e "$MX_FILE" || -e "$MX_TOKEN_FILE" ]]; then
+    die "exactly one of $MX_FILE and $MX_TOKEN_FILE exists; refusing to rotate or half-write"
+  fi
+  [[ -n "${MATRIX_CONNECTOR_TOKEN_FILE:-}" && -s "$MATRIX_CONNECTOR_TOKEN_FILE" ]] ||
+    die "MATRIX_CONNECTOR_TOKEN_FILE must name a non-empty file holding the Matrix access token"
+  matrix="$(tr -d '\r\n' <"$MATRIX_CONNECTOR_TOKEN_FILE")"
+  [[ -n "$matrix" ]] || die "MATRIX_CONNECTOR_TOKEN_FILE holds an empty token"
+  svc="$(openssl rand -hex 32)"
+  digest="$(printf '%s' "$svc" | openssl dgst -sha256 -r | cut -d' ' -f1)"
+  SVC="$svc" MATRIX="$matrix" \
+    jq -n '{orchestrator: {token: $ENV.SVC}, matrix: {accessToken: $ENV.MATRIX}}' |
+    encrypt_to "$MX_FILE"
+  if ! DIGEST="$digest" \
+    jq -n '{serviceApi: {tokenHashes: {"agents-matrix-connector": $ENV.DIGEST}}}' |
+    encrypt_to "$MX_TOKEN_FILE"; then
+    rm -f "$MX_FILE"
+    die "writing $MX_TOKEN_FILE failed; removed $MX_FILE"
+  fi
+}
+
 bootstrap_orchestrator
 bootstrap_database
 bootstrap_service_token agents-webhook "$WH_FILE" "$WH_TOKEN_FILE"
 bootstrap_service_token agents-schedule "$SCH_FILE" "$SCH_TOKEN_FILE"
+bootstrap_matrix_connector
 echo "secrets bootstrap done (existing files left untouched)" >&2

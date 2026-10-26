@@ -11,7 +11,7 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "ea1fac7"
+PIN = "ab37f1e"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -257,6 +257,7 @@ def test_values_dir_moved(repo_root):
     assert sorted(tracked(f"values/{REL}")) == [
         f"values/{REL}/common.yaml",
         f"values/{REL}/default.secrets.yaml",
+        f"values/{REL}/service-token-agents-matrix-connector.secrets.yaml",
         f"values/{REL}/service-token-agents-schedule.secrets.yaml",
         f"values/{REL}/service-token-agents-webhook.secrets.yaml",
     ]

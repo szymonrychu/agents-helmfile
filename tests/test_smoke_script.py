@@ -24,6 +24,8 @@ WH_PASSWORD = "wh-pass-SECRET-value-123"
 WH_TOKEN = "orch-token-SECRET-value-456"
 WH_ENDPOINT = "/webhooks/api/v1/endpoints/7"
 SCHED = "/schedules/api/v1"
+MATRIX = "/matrix/api/v1"
+MATRIX_USER = "@hermes:szymonrichert.pl"
 DEFAULT_ROUTES = (
     "lab.szymonrichert.pl / agents-web\nlab.szymonrichert.pl /api agents-orchestrator\n"
 )
@@ -46,7 +48,10 @@ class _Api:
         self.restart_pod0 = False
         self.web_root = '<!doctype html><html><body><div id="root"></div></body></html>'
         self.web_config: dict = {
-            "backends": [{"id": "orchestrator", "basePath": "/api/v1"}],
+            "backends": [
+                {"id": "orchestrator", "basePath": "/api/v1"},
+                {"id": "matrix", "basePath": MATRIX},
+            ],
         }
         self.state_dir: Path | None = None
         # webhook service fakes (api, ingest and events share this one server)
@@ -74,6 +79,12 @@ class _Api:
         self.cache_init_fails_a = False
         self.cache_store: dict[str, str] = {}
         self.cache_sessions: dict[str, dict] = {}
+        # matrix connector fakes (same server)
+        self.matrix_user = MATRIX_USER
+        self.matrix_sync_healthy = True
+        self.matrix_rooms_status = 200
+        self.matrix_rules: dict[int, dict] = {}
+        self.matrix_list_hides_rule = False
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -129,6 +140,8 @@ class _Api:
                         "message_id": "msg-1",
                     }
                     self._send(200, json.dumps(run))
+                elif path.startswith(MATRIX + "/"):
+                    self._matrix_get(path)
                 elif path == "/api/v1/presets":
                     presets = [
                         {"id": "preset-other", "name": "other", "is_default": False},
@@ -180,6 +193,28 @@ class _Api:
                     pass
                 else:
                     self._send(404, "{}")
+
+            def _matrix_get(self, path):
+                if path == f"{MATRIX}/meta":
+                    meta = {
+                        "user_id": api.matrix_user,
+                        "sync": {"healthy": api.matrix_sync_healthy, "last_sync_at": None},
+                    }
+                    self._send(200, json.dumps(meta))
+                elif path == f"{MATRIX}/rules":
+                    rules = [] if api.matrix_list_hides_rule else list(api.matrix_rules.values())
+                    body = {"allow": [], "deny": [r for r in rules if r["list"] == "deny"]}
+                    self._send(200, json.dumps(body))
+                elif path == f"{MATRIX}/rooms":
+                    self._send(api.matrix_rooms_status, "[]")
+                else:
+                    self._send(404, "{}")
+
+            def _matrix_rule_create(self):
+                sent = json.loads(api.requests[-1][2])
+                rule = {"id": 5, "note": None, "created_at": "2026-10-25T10:00:00Z", **sent}
+                api.matrix_rules[5] = rule
+                self._send(201, json.dumps(rule))
 
             def _cache_get(self):
                 m = re.fullmatch(r"/api/v1/sessions/(sid-cache-[ab])(/init-scripts)?", self.path)
@@ -301,6 +336,9 @@ class _Api:
                 if self.path.startswith("/schedules/"):
                     self._schedule_post()
                     return
+                if self.path == f"{MATRIX}/rules":
+                    self._matrix_rule_create()
+                    return
                 if self.path.startswith(("/webhook", "/webhooks")):
                     self._webhook_post()
                     return
@@ -336,6 +374,12 @@ class _Api:
                 self._record()
                 if self.path == WH_ENDPOINT:
                     self.send_response(204)
+                    self.end_headers()
+                    return
+                if self.path.startswith(f"{MATRIX}/rules/"):
+                    gone = api.matrix_rules.pop(int(self.path.rsplit("/", 1)[1]), None)
+                    self.send_response(204 if gone else 404)
+                    self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
                 if self.path == f"{SCHED}/schedules/sch-1":
@@ -432,6 +476,7 @@ def _run(
             "SMOKE_WEBHOOK_API_LOCAL_PORT": str(api.port),
             "SMOKE_WEBHOOK_INGEST_LOCAL_PORT": str(api.port),
             "SMOKE_SCHEDULE_API_LOCAL_PORT": str(api.port),
+            "SMOKE_MATRIX_API_LOCAL_PORT": str(api.port),
         }
         if port_forward
         else {"HOST": f"127.0.0.1:{api.port}", "SCHEME": "http"}
@@ -1072,3 +1117,75 @@ def test_workspace_cache_first_session_failing_is_deleted(api, fakebin):
     assert r.returncode != 0
     assert ("DELETE", "/api/v1/sessions/sid-cache-a") in api.methods()
     assert len(_cache_posts(api)) == 1
+
+
+def _matrix_requests(api):
+    return [(m, p) for m, p in api.methods() if p.startswith(MATRIX)]
+
+
+def test_matrix_connector_checks(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = (fakebin / "kubectl.log").read_text()
+    for name in ("agents-matrix-connector-api", "agents-matrix-connector-bot"):
+        assert f"wait --for=condition=Available deploy/{name}" in log
+    assert _matrix_requests(api) == [
+        ("GET", f"{MATRIX}/meta"),
+        ("POST", f"{MATRIX}/rules"),
+        ("GET", f"{MATRIX}/rules"),
+        ("DELETE", f"{MATRIX}/rules/5"),
+        ("GET", f"{MATRIX}/rooms"),
+    ]
+    sent = json.loads(next(b for m, p, b in api.requests if (m, p) == ("POST", f"{MATRIX}/rules")))
+    assert sent["list"] == "deny"
+    assert sent["kind"] == "user"
+    assert re.fullmatch(r"@smoke-[0-9a-f]+:invalid\.example", sent["value"])
+    assert api.matrix_rules == {}
+    assert "config.json lists backend matrix" in r.stdout
+
+
+def test_matrix_port_forward_bypasses_the_sidecar(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", port_forward=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = (fakebin / "kubectl.log").read_text()
+    assert f"port-forward deploy/agents-matrix-connector-api {api.port}:8000" in log
+
+
+@pytest.mark.parametrize(
+    ("name", "setup", "needle"),
+    [
+        ("wrong user", lambda a: setattr(a, "matrix_user", "@someone:else"), "user_id"),
+        ("sync unhealthy", lambda a: setattr(a, "matrix_sync_healthy", False), "sync"),
+        ("rooms 500", lambda a: setattr(a, "matrix_rooms_status", 500), "rooms"),
+        ("rule not listed", lambda a: setattr(a, "matrix_list_hides_rule", True), "rules"),
+        (
+            "no matrix backend",
+            lambda a: setattr(
+                a, "web_config", {"backends": [{"id": "orchestrator", "basePath": "/api/v1"}]}
+            ),
+            "matrix",
+        ),
+    ],
+)
+def test_matrix_check_failures(api, fakebin, name, setup, needle):
+    setup(api)
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0, name
+    assert needle in r.stderr
+    assert api.matrix_rules == {}, "the trap must delete the rule"
+
+
+def test_matrix_smoke_sends_nothing(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    for _, path in api.methods():
+        assert "/_matrix" not in path
+        assert "/send" not in path
+    assert {p for m, p in _matrix_requests(api) if m == "POST"} == {f"{MATRIX}/rules"}
+    text = "\n".join(
+        line for line in SCRIPT.read_text().splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "/_matrix" not in text
+    assert "homeserver" not in text.lower()
+    assert "matrix-synapse" not in text
+    assert "/send" not in text
