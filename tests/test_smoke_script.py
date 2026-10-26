@@ -68,6 +68,12 @@ class _Api:
         self.run_session: str | None = "sid-sched"
         self.schedule_delete_status = 204
         self.readyz_status = 200
+        # workspace cache fakes: the store maps a cache key to the marker the last deleted session wrote
+        self.cache_available = True
+        self.cache_carries = True
+        self.cache_init_fails_a = False
+        self.cache_store: dict[str, str] = {}
+        self.cache_sessions: dict[str, dict] = {}
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -167,8 +173,54 @@ class _Api:
                 elif self.path == "/api/v1/sessions/sid-1/init-scripts":
                     body = {"scripts": api.init_scripts, "status": api.init_status}
                     self._send(200, json.dumps(body))
+                elif self.path == "/api/v1/meta":
+                    meta = {"cache": {"available": api.cache_available, "max_bytes": 5368709120}}
+                    self._send(200, json.dumps(meta))
+                elif self._cache_get():
+                    pass
                 else:
                     self._send(404, "{}")
+
+            def _cache_get(self):
+                m = re.fullmatch(r"/api/v1/sessions/(sid-cache-[ab])(/init-scripts)?", self.path)
+                sess = api.cache_sessions.get(m[1]) if m else None
+                if sess is None or sess["deleted"]:
+                    return False
+                key = sess["spec"]["cache"]["key"]
+                script = sess["spec"]["init_scripts"][0]
+                restore = "restored" if key in api.cache_store else "miss"
+                if m[2]:
+                    init = {"state": "succeeded", "exit_code": 0, "log_tail": ""}
+                    want = re.search(r'grep -qx "(\w+)" cache-marker', script)
+                    if want and api.cache_store.get(key) != want[1]:
+                        init = {"state": "failed", "exit_code": 1, "log_tail": "grep: no match"}
+                    if m[1] == "sid-cache-a" and api.cache_init_fails_a:
+                        init = {"state": "failed", "exit_code": 2, "log_tail": "boom"}
+                    self._send(200, json.dumps({"scripts": [script], "status": init}))
+                else:
+                    status = {"cache": {"key": key, "restore": {"state": restore}, "save": None}}
+                    self._send(
+                        200, json.dumps({"id": m[1], "spec": sess["spec"], "status": status})
+                    )
+                return True
+
+            def _cache_create(self, created):
+                sid = "sid-cache-" + created["slug"][-1]
+                api.cache_sessions[sid] = {"spec": created["spec"], "deleted": False}
+                self._send(201, json.dumps({"id": sid, "slug": created["slug"]}))
+
+            def _cache_delete(self):
+                sess = api.cache_sessions.get(self.path.rsplit("/", 1)[1])
+                if sess is None or sess["deleted"]:
+                    self._send(404, "{}")
+                    return
+                sess["deleted"] = True
+                write = re.search(
+                    r"printf '%s\\n' \"(\w+)\" > cache-marker", sess["spec"]["init_scripts"][0]
+                )
+                if write and api.cache_carries:
+                    api.cache_store[sess["spec"]["cache"]["key"]] = write[1]
+                self._send(202, json.dumps({"desired": "deleting"}))
 
             def _scale(self):
                 n = json.loads(api.requests[-1][2])["replicas"]
@@ -259,6 +311,9 @@ class _Api:
                     self._send(404, "{}")
                     return
                 created = json.loads(api.requests[-1][2])
+                if "cache" in (created.get("spec") or {}):
+                    self._cache_create(created)
+                    return
                 api.spec = created.get("spec") or {}
                 slug = created["slug"]
                 self._send(201, json.dumps({"id": "sid-1", "slug": slug}))
@@ -290,6 +345,9 @@ class _Api:
                     return
                 if self.path == "/api/v1/sessions/sid-sched":
                     self._send(202, json.dumps({"id": "sid-sched", "desired": "deleting"}))
+                    return
+                if self.path.startswith("/api/v1/sessions/sid-cache-"):
+                    self._cache_delete()
                     return
                 if self.path != "/api/v1/sessions/sid-1":
                     self._send(404, "{}")
@@ -958,3 +1016,59 @@ def test_schedule_port_forward_to_api_container(api, fakebin):
         f"port-forward deploy/agents-schedule-api {api.port}:8000"
         in (fakebin / "kubectl.log").read_text()
     )
+
+
+def _cache_posts(api):
+    return [json.loads(b) for m, p, b in api.requests if m == "POST" and p == "/api/v1/sessions"][
+        1:
+    ]
+
+
+def test_workspace_cache_round_trip_passes(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: http://x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert ("GET", "/api/v1/meta") in api.methods()
+    a, b = _cache_posts(api)
+    assert a["spec"]["cache"] == {"key": "smoke-workspace-cache"} == b["spec"]["cache"]
+    assert a["spec"]["replicas"] == 1 == b["spec"]["replicas"]
+    assert re.fullmatch(
+        r"printf '%s\\n' \"[0-9a-f]+\" > cache-marker", a["spec"]["init_scripts"][0]
+    )
+    assert re.fullmatch(r'grep -qx "[0-9a-f]+" cache-marker', b["spec"]["init_scripts"][0])
+    assert ("DELETE", "/api/v1/sessions/sid-cache-a") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-cache-b") in api.methods()
+    assert "cache" in r.stdout and "OK" in r.stdout
+    assert "cleanup failed" not in r.stderr
+
+
+def test_workspace_cache_unavailable_fails(api, fakebin):
+    api.cache_available = False
+    r = _run(api, fakebin, "any-mcp: http://x - Connected")
+    assert r.returncode != 0
+    assert "workspace cache is not configured" in r.stderr
+    assert _cache_posts(api) == []
+
+
+def test_workspace_cache_marker_missing_fails(api, fakebin):
+    api.cache_carries = False
+    r = _run(api, fakebin, "any-mcp: http://x - Connected")
+    assert r.returncode != 0
+    assert "workspace cache did not carry the marker" in r.stderr
+    assert "grep: no match" in r.stderr
+
+
+def test_workspace_cache_sessions_cleaned_up(api, fakebin):
+    api.cache_carries = False
+    r = _run(api, fakebin, "any-mcp: http://x - Connected")
+    assert r.returncode != 0
+    assert ("DELETE", "/api/v1/sessions/sid-cache-a") in api.methods()
+    assert ("DELETE", "/api/v1/sessions/sid-cache-b") in api.methods()
+    assert all(s["deleted"] for s in api.cache_sessions.values())
+
+
+def test_workspace_cache_first_session_failing_is_deleted(api, fakebin):
+    api.cache_init_fails_a = True
+    r = _run(api, fakebin, "any-mcp: http://x - Connected")
+    assert r.returncode != 0
+    assert ("DELETE", "/api/v1/sessions/sid-cache-a") in api.methods()
+    assert len(_cache_posts(api)) == 1

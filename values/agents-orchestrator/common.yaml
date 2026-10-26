@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: bba074f
+  tag: ea1fac7
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
@@ -79,3 +79,14 @@ ingress:
     - secretName: agents-orchestrator-tls
       hosts:
         - lab.szymonrichert.pl
+
+# Workspace cache on rook-ceph. The bucket and the Secret (AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY) come from the ObjectBucketClaim agents-workspace-cache in
+# raw/workspace-cache-bucket.pre.yaml; no key in plain values.
+cache:
+  s3:
+    endpoint: http://rook-ceph-rgw-ceph-objectstore.rook-ceph.svc:80
+    region: us-east-1
+    bucket: agents-workspace-cache
+    pathStyle: true
+    existingSecret: agents-workspace-cache
