@@ -90,6 +90,15 @@ Applies are manual and local, run from this directory.
   writes a random marker in its init script and is discarded (its save runs in the discard), then session B on the same key must
   restore and its init must find the marker, else the smoke fails with "workspace cache did not carry the marker". The object
   `workspace-cache/smoke-workspace-cache.tar.zst` stays and is overwritten on each run; both sessions are deleted on any failure.
+  Then the session options. Kubernetes access: `GET /api/v1/meta` must report `kube_access.available`; session `smoke-kube-<ts>`
+  (`kube_access` true) gets a Ready pod running as a ServiceAccount ending `-kube-access` with its token mounted, and from inside it
+  (`kubectl exec -c ccw`, curl with the mounted token and CA against `KUBERNETES_SERVICE_HOST`/`PORT`, no kubectl in the pod) a
+  SelfSubjectAccessReview for `*` on `*` must answer allowed true and `GET /api/v1/namespaces` 200, which is full Kubernetes access; the
+  hive session's pod must have `automountServiceAccountToken` false and no token file. Cross-session messaging: superleader
+  `smoke-msg-a-<ts>` (`session_messaging` true) and plain `smoke-msg-b-<ts>`; from A's pod (its own `ORCH_AGENT_*` env, never printed)
+  `GET /agent/v1/sessions` lists B and the hive session, `POST /agent/v1/sessions/<B>/messages` answers 202 with a `message_id`, the
+  message reaches `sent` and B's events carry a `user_message` starting `<session-message from="<A>"`; from B's pod the list shows A and
+  not the hive session and a send to the hive session answers 403 `target_not_superleader`. The three sessions are deleted on every exit.
 - `mise run kube-context` - guard used by diff and apply: fails unless a kube
   context is set and the API answers; prints only the context name.
 - `mise run fmt` - format code.
