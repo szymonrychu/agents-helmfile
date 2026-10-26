@@ -11,7 +11,7 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "747ca91"
+PIN = "ea1fac7"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
