@@ -4,7 +4,8 @@
 # with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
 # it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives),
 # the view echoes the wrapper, lease and autoclose settings with closes_at = created_at + 3600s and a leader_since,
-# and the public scale route grows the session to 2 pods and back to 1 without restarting pod-0.
+# and the public scale route grows the session to 2 pods, makes pod-1's agent the leader, then scales back to 1: the scale-down below the
+# leader must hand leadership to pod-0 (leader_reason scale_down) before pod-1 goes, and pod-0 never restarts.
 # Parameters by env: HOST, RELEASE, WEB_RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT,
 # SMOKE_WEB_LOCAL_PORT (SCHEME for tests only).
 # Without HOST it port-forwards the UI to deploy/agents-web (the nginx container, bypassing the SSO sidecar) and the API to the orchestrator: the public host is behind SSO, and the api's
@@ -480,7 +481,7 @@ echo "$web_cfg" | jq -e '[.backends[]? | select(.id == "matrix" and .basePath ==
   fail "matrix: config.json lists no backend matrix with basePath /matrix/api/v1: ${web_cfg}"
 log "config.json lists backend matrix at /matrix/api/v1"
 
-# 7. Scale 1 -> 2 -> 1 through the public route; pod-0 must never restart.
+# 7. Scale 1 -> 2 -> 1 through the public route, with pod-1 as leader at the scale-down; pod-0 must never restart.
 uid0=$(kubectl -n "$NAMESPACE" get "$pod" -o 'jsonpath={.metadata.uid}') || fail "cannot read uid of ${pod}"
 [ -n "$uid0" ] || fail "uid of ${pod} is empty"
 scale() {
@@ -507,8 +508,37 @@ kubectl -n "$NAMESPACE" wait --for=condition=Ready "$pod1" --timeout="${remainin
   fail "scale up: ${pod1} not Ready within ${SMOKE_TIMEOUT_S}s"
 log "scaled up: ${pod1} is Ready"
 
+session_leader() { curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${SESSION_ID}" | jq -r '(.leader_agent_id // "") + " " + (.leader_reason // "")'; }
+agent_of() {
+  curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${SESSION_ID}/agents" |
+    jq -r --arg pod "$1" '[.[] | select(.pod_name == $pod and (.gone | not))][0].id // empty'
+}
+agent0=$(agent_of "${pod#pod/}") || agent0=""
+[ -n "$agent0" ] || fail "scale down: no agent for ${pod} in the session agents list"
+agent1=""
+while [ -z "$agent1" ]; do
+  agent1=$(agent_of "${pod1#pod/}") || agent1=""
+  [ -n "$agent1" ] && break
+  [ "$(date +%s)" -ge "$deadline" ] && fail "scale down: no agent for ${pod1} in the session agents list within ${SMOKE_TIMEOUT_S}s"
+  sleep 3
+done
+code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+  -d "{\"agent_id\": \"${agent1}\"}" "${BASE}/api/v1/sessions/${SESSION_ID}/leader") || fail "make ${pod1} leader: request failed"
+[ "$code" = "202" ] || fail "make ${pod1} leader answered ${code}, expected 202"
+while [ "$(session_leader | cut -d' ' -f1)" != "$agent1" ]; do
+  [ "$(date +%s)" -ge "$deadline" ] && fail "scale down: leader did not become ${pod1} (${agent1}) within ${SMOKE_TIMEOUT_S}s"
+  sleep 3
+done
+log "scale down: ${pod1} (${agent1}) is the leader"
+
 deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
 scale 1
+while [ "$(session_leader)" != "${agent0} scale_down" ]; do
+  [ "$(date +%s)" -ge "$deadline" ] && fail "scale down: leader did not move to pod-0 with reason scale_down within ${SMOKE_TIMEOUT_S}s (now: $(session_leader || true))"
+  sleep 3
+done
+log "scale down: leader is ${agent0} with reason scale_down"
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
 while [ -n "$(pod_names | grep -vx "$pod" || true)" ]; do
   [ "$(date +%s)" -ge "$deadline" ] && fail "scale down: ${pod1} still present after ${SMOKE_TIMEOUT_S}s"
   sleep 3
