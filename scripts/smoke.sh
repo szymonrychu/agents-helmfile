@@ -22,6 +22,12 @@
 # Workspace cache steps: GET /api/v1/meta reports cache.available; session A (cache key smoke-workspace-cache) writes a random marker
 # in its init script and is discarded (its save runs in the discard); session B with the same key must restore before its init and its
 # init greps the marker. The object workspace-cache/smoke-workspace-cache.tar.zst stays and is overwritten on each run.
+# Matrix connector steps (agents-matrix-connector release, never sends a Matrix message nor calls the homeserver): the -api and -bot
+# deployments are Available; through a port-forward to the api container (bypassing its SSO sidecar) GET /matrix/api/v1/meta answers
+# user_id @hermes:szymonrichert.pl and sync.healthy true (proves the token, the homeserver path and the sync loop); a deny rule
+# {list: deny, kind: user, value: @smoke-<random>:invalid.example} is created (POST /rules), listed (GET /rules) and deleted
+# (DELETE /rules/{id}, the trap deletes it on failure); GET /rooms answers 200; the UI config.json lists the matrix backend.
+# Extra env: MATRIX_RELEASE, SMOKE_MATRIX_API_LOCAL_PORT.
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
@@ -42,6 +48,9 @@ WEB_PF_PID=""
 WH_PF_PIDS=""
 WEBHOOK_RELEASE="${WEBHOOK_RELEASE:-agents-webhook}"
 SCHEDULE_RELEASE="${SCHEDULE_RELEASE:-agents-schedule}"
+MATRIX_RELEASE="${MATRIX_RELEASE:-agents-matrix-connector}"
+MATRIX_PF_PID=""
+MATRIX_RULE_ID=""
 SCHED_PF_PID=""
 SCHEDULE_ID=""
 SCHED_RUN_ID=""
@@ -65,6 +74,7 @@ ENDPOINT_ID=""
 WH_API_BASE="$BASE"
 WH_INGEST_BASE="$BASE"
 SCHED_API_BASE="$BASE"
+MATRIX_API_BASE="$BASE"
 PUBLIC_URL="${SMOKE_PUBLIC_URL:-https://lab.szymonrichert.pl}"
 
 log() { echo "smoke: $*"; }
@@ -115,6 +125,14 @@ cleanup() {
       echo "smoke: cleanup failed, schedule API unreachable; delete schedule id ${SCHEDULE_ID} manually" >&2
     fi
   fi
+  if [ -n "$MATRIX_RULE_ID" ]; then
+    if curl -fsS --max-time 20 -X DELETE -o /dev/null "${MATRIX_API_BASE}/matrix/api/v1/rules/${MATRIX_RULE_ID}"; then
+      log "deleted matrix rule ${MATRIX_RULE_ID}"
+    else
+      echo "smoke: cleanup failed, matrix API unreachable; delete matrix rule id ${MATRIX_RULE_ID} manually" >&2
+    fi
+  fi
+  [ -n "$MATRIX_PF_PID" ] && kill "$MATRIX_PF_PID" 2> /dev/null
   [ -n "$SCHED_PF_PID" ] && kill "$SCHED_PF_PID" 2> /dev/null
   for pid in $WH_PF_PIDS; do kill "$pid" 2> /dev/null || true; done
   [ -n "$PF_PID" ] && kill "$PF_PID" 2> /dev/null
@@ -413,6 +431,54 @@ pub_status=$(echo "$hdrs" | awk 'NR==1 {print $2}')
 echo "$hdrs" | tr -d '\r' | grep -iqx 'www-authenticate: Basic realm="agents-webhook"' ||
   fail "webhook: public 401 lacks WWW-Authenticate: Basic realm=\"agents-webhook\""
 log "public ${PUBLIC_URL}/webhook/smoke-unknown: 401 with WWW-Authenticate: Basic realm=\"agents-webhook\""
+
+# 8h. The matrix connector (agents-matrix-connector release). It sends no Matrix message and calls no homeserver: the only side effect
+# is one temporary deny rule (deleted below, and by the trap on failure).
+for part in api bot; do
+  kubectl -n "$NAMESPACE" wait --for=condition=Available "deploy/${MATRIX_RELEASE}-${part}" --timeout="${SMOKE_TIMEOUT_S}s" > /dev/null ||
+    fail "matrix: deploy/${MATRIX_RELEASE}-${part} is not Available within ${SMOKE_TIMEOUT_S}s"
+done
+log "deploy/${MATRIX_RELEASE}-api and -bot are Available"
+
+if [ -n "$PF_PID" ]; then
+  MATRIX_API_HOST="127.0.0.1:${SMOKE_MATRIX_API_LOCAL_PORT:-18004}"
+  kubectl -n "$NAMESPACE" port-forward "deploy/${MATRIX_RELEASE}-api" "${MATRIX_API_HOST#*:}:8000" > /dev/null 2>&1 &
+  MATRIX_PF_PID=$!
+  MATRIX_API_BASE="http://${MATRIX_API_HOST}"
+  for _ in $(seq 1 20); do
+    curl -s --max-time 2 -o /dev/null "${MATRIX_API_BASE}/healthz" && break
+    sleep 1
+  done
+fi
+MX="${MATRIX_API_BASE}/matrix/api/v1"
+
+# The identity and the sync loop: user_id is the Hermes Matrix user and sync.healthy is true.
+mx_meta=$(curl -fsS --max-time 20 "${MX}/meta") || fail "matrix: GET ${MX}/meta failed"
+[ "$(echo "$mx_meta" | jq -r '.user_id')" = "@hermes:szymonrichert.pl" ] ||
+  fail "matrix: meta user_id is not @hermes:szymonrichert.pl: $(echo "$mx_meta" | jq -c '{user_id}' 2> /dev/null)"
+echo "$mx_meta" | jq -e '.sync.healthy == true' > /dev/null ||
+  fail "matrix: meta sync is not healthy: $(echo "$mx_meta" | jq -c '{sync}' 2> /dev/null)"
+log "matrix meta: user_id @hermes:szymonrichert.pl, sync healthy"
+
+# A deny rule round trip: create, list, delete.
+mx_value="@smoke-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n'):invalid.example"
+mx_body=$(jq -cn --arg v "$mx_value" '{list: "deny", kind: "user", value: $v}')
+mx_resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$mx_body" "${MX}/rules") ||
+  fail "matrix: rule create failed (POST ${MX}/rules)"
+MATRIX_RULE_ID=$(echo "$mx_resp" | jq -er '.id') || fail "matrix: rule create response carries no id"
+mx_rules=$(curl -fsS --max-time 20 "${MX}/rules") || fail "matrix: GET ${MX}/rules failed"
+echo "$mx_rules" | jq -e --argjson id "$MATRIX_RULE_ID" --arg v "$mx_value" 'any(.deny[]; .id == $id and .value == $v)' > /dev/null ||
+  fail "matrix: GET /rules does not list the deny rule ${MATRIX_RULE_ID}"
+curl -fsS --max-time 20 -X DELETE -o /dev/null "${MX}/rules/${MATRIX_RULE_ID}" || fail "matrix: DELETE ${MX}/rules/${MATRIX_RULE_ID} failed"
+log "matrix rules: created, listed and deleted deny rule ${MATRIX_RULE_ID}"
+MATRIX_RULE_ID=""
+
+curl -fsS --max-time 20 -o /dev/null "${MX}/rooms" || fail "matrix: GET ${MX}/rooms did not answer 200"
+log "matrix rooms: 200"
+
+echo "$web_cfg" | jq -e '[.backends[]? | select(.id == "matrix" and .basePath == "/matrix/api/v1")] | length > 0' > /dev/null ||
+  fail "matrix: config.json lists no backend matrix with basePath /matrix/api/v1: ${web_cfg}"
+log "config.json lists backend matrix at /matrix/api/v1"
 
 # 7. Scale 1 -> 2 -> 1 through the public route; pod-0 must never restart.
 uid0=$(kubectl -n "$NAMESPACE" get "$pod" -o 'jsonpath={.metadata.uid}') || fail "cannot read uid of ${pod}"

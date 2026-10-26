@@ -79,6 +79,11 @@ Applies are manual and local, run from this directory.
   `RELEASE` (default `agents-orchestrator`) names the orchestrator release.
   Without `HOST` it port-forwards to `deploy/agents-orchestrator-api` and to `deploy/agents-web` (bypassing their SSO sidecars) (the public host needs SSO).
   It also checks the webhook service (see `## agents-webhook`) without starting a session, and deletes its temporary endpoint on every exit.
+  It also checks the matrix connector (`MATRIX_RELEASE`, default `agents-matrix-connector`) without sending any Matrix message or
+  calling the homeserver: the `-api` and `-bot` Deployments are Available; through a port-forward to the api container (bypassing
+  its SSO sidecar) `GET /matrix/api/v1/meta` answers `user_id` `@hermes:szymonrichert.pl` and `sync.healthy` true; a temporary deny
+  rule `@smoke-<random>:invalid.example` is created, listed and deleted through `/rules` (deleted on every exit); `GET /rooms`
+  answers 200; and the UI `config.json` lists the `matrix` backend.
   Last it checks the workspace cache: `GET /api/v1/meta` must report `cache.available`; session A (cache key `smoke-workspace-cache`)
   writes a random marker in its init script and is discarded (its save runs in the discard), then session B on the same key must
   restore and its init must find the marker, else the smoke fails with "workspace cache did not carry the marker". The object
