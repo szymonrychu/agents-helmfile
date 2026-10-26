@@ -79,6 +79,10 @@ Applies are manual and local, run from this directory.
   `RELEASE` (default `agents-orchestrator`) names the orchestrator release.
   Without `HOST` it port-forwards to `deploy/agents-orchestrator-api` and to `deploy/agents-web` (bypassing their SSO sidecars) (the public host needs SSO).
   It also checks the webhook service (see `## agents-webhook`) without starting a session, and deletes its temporary endpoint on every exit.
+  Last it checks the workspace cache: `GET /api/v1/meta` must report `cache.available`; session A (cache key `smoke-workspace-cache`)
+  writes a random marker in its init script and is discarded (its save runs in the discard), then session B on the same key must
+  restore and its init must find the marker, else the smoke fails with "workspace cache did not carry the marker". The object
+  `workspace-cache/smoke-workspace-cache.tar.zst` stays and is overwritten on each run; both sessions are deleted on any failure.
 - `mise run kube-context` - guard used by diff and apply: fails unless a kube
   context is set and the API answers; prints only the context name.
 - `mise run fmt` - format code.

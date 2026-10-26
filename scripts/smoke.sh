@@ -19,6 +19,9 @@
 # created through the schedule API (port-forward to the api container, bypassing its SSO sidecar), /readyz answers, the cron preview lists
 # 3 fire times, run-now answers 202 and the run reaches in-progress with a session_id; the trap deletes that session through the orchestrator
 # API and the schedule through the schedule API. Extra env: SCHEDULE_RELEASE, SMOKE_SCHEDULE_API_LOCAL_PORT.
+# Workspace cache steps: GET /api/v1/meta reports cache.available; session A (cache key smoke-workspace-cache) writes a random marker
+# in its init script and is discarded (its save runs in the discard); session B with the same key must restore before its init and its
+# init greps the marker. The object workspace-cache/smoke-workspace-cache.tar.zst stays and is overwritten on each run.
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
@@ -43,6 +46,8 @@ SCHED_PF_PID=""
 SCHEDULE_ID=""
 SCHED_RUN_ID=""
 SCHED_SESSION_ID=""
+CACHE_KEY="smoke-workspace-cache"
+CACHE_SESSION_IDS=""
 if [ -z "${HOST:-}" ]; then
   HOST="127.0.0.1:${SMOKE_LOCAL_PORT:-18000}"
   WEB_HOST="127.0.0.1:${SMOKE_WEB_LOCAL_PORT:-18080}"
@@ -78,6 +83,13 @@ cleanup() {
       echo "smoke: cleanup failed, API unreachable; delete session '${SLUG}' (id ${SESSION_ID}) manually" >&2
     fi
   fi
+  for cid in $CACHE_SESSION_IDS; do
+    if curl -fsS --max-time 20 -X DELETE -o /dev/null "${BASE}/api/v1/sessions/${cid}"; then
+      log "discarded cache session ${cid}"
+    else
+      echo "smoke: cleanup failed, API unreachable; delete cache session id ${cid} manually" >&2
+    fi
+  done
   if [ -n "$ENDPOINT_ID" ]; then
     if curl -fsS --max-time 20 -X DELETE -o /dev/null "${WH_API_BASE}/webhooks/api/v1/endpoints/${ENDPOINT_ID}"; then
       log "deleted webhook endpoint ${ENDPOINT_ID}"
@@ -495,4 +507,80 @@ while :; do
   sleep 3
 done
 log "schedule run ${SCHED_RUN_ID} is ${run_status} with session ${SCHED_SESSION_ID}"
+
+# 10. Workspace cache: a marker written by session A's init is restored for session B (restore runs before init).
+cache_available=$(curl -fsS --max-time 20 "${BASE}/api/v1/meta" | jq -r '.cache.available // false') || fail "cache: GET /api/v1/meta failed"
+[ "$cache_available" = "true" ] || fail "workspace cache is not configured (GET /api/v1/meta cache.available is '${cache_available}')"
+log "meta reports cache.available"
+RUN_ID=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+
+# cache_create <suffix> <init script>: creates a 1-replica raw-spec session on the shared cache key; sets CACHE_NEW_ID.
+cache_create() {
+  local body resp
+  body=$(jq -n --arg slug "${SLUG}-cache-$1" --arg key "$CACHE_KEY" --arg script "$2" \
+    '{slug: $slug, spec: {replicas: 1, cache: {key: $key}, init_scripts: [$script]}}')
+  resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/sessions") ||
+    fail "cache: create of session ${SLUG}-cache-$1 failed"
+  CACHE_NEW_ID=$(echo "$resp" | jq -er '.id') || fail "cache: create response carries no id"
+  CACHE_SESSION_IDS="$CACHE_SESSION_IDS $CACHE_NEW_ID"
+  log "created cache session ${SLUG}-cache-$1 (${CACHE_NEW_ID})"
+}
+
+# cache_wait <id> <restore states, space separated>: waits for the init to finish and the restore state to be one of the given
+# states. A failed init fails the smoke (B's with the marker message); a failed restore fails it with the reason.
+cache_wait() {
+  local id=$1 want=$2 deadline view init_json rstate istate
+  deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+  while :; do
+    view=$(curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${id}") || view=""
+    rstate=$(echo "$view" | jq -r '.status.cache.restore.state // empty' 2> /dev/null || true)
+    init_json=$(curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${id}/init-scripts") || init_json=""
+    istate=$(echo "$init_json" | jq -r '.status.state // empty' 2> /dev/null || true)
+    if [ "$rstate" = "failed" ]; then
+      fail "cache: restore of ${id} failed: $(echo "$view" | jq -r '.status.cache.restore.reason // ""')"
+    fi
+    if [ "$istate" = "failed" ]; then
+      if [ "$want" = "restored" ]; then
+        fail "workspace cache did not carry the marker: restore '${rstate}', init log tail: $(echo "$init_json" | jq -r '.status.log_tail // ""')"
+      fi
+      fail "cache: init of ${id} failed: $(echo "$init_json" | jq -r '.status.log_tail // ""')"
+    fi
+    if [ "$istate" = "succeeded" ]; then
+      case " $want " in *" $rstate "*) return 0 ;; esac
+    fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      fail "cache: ${id} not ready within ${SMOKE_TIMEOUT_S}s (restore '${rstate}', init '${istate}', want restore '${want}')"
+    fi
+    sleep 3
+  done
+}
+
+# cache_discard <id>: deletes the session and waits for 404 (its save ran in the discard).
+cache_discard() {
+  local id=$1 deadline code
+  curl -fsS --max-time 20 -X DELETE -o /dev/null "${BASE}/api/v1/sessions/${id}" || fail "cache: delete of ${id} failed"
+  deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+  while :; do
+    code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "${BASE}/api/v1/sessions/${id}") || code=""
+    [ "$code" = "404" ] && break
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      fail "cache: session ${id} still answers '${code}' ${SMOKE_TIMEOUT_S}s after delete"
+    fi
+    sleep 3
+  done
+  CACHE_SESSION_IDS=$(echo "$CACHE_SESSION_IDS" | tr ' ' '\n' | grep -vxF "$id" | tr '\n' ' ' || true)
+  log "cache session ${id} discarded (404)"
+}
+
+cache_create a "printf '%s\\n' \"${RUN_ID}\" > cache-marker"
+cache_a=$CACHE_NEW_ID
+cache_wait "$cache_a" "restored miss"
+log "cache session A init wrote the marker; restore '$(curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${cache_a}" | jq -r '.status.cache.restore.state')'"
+cache_discard "$cache_a"
+
+cache_create b "grep -qx \"${RUN_ID}\" cache-marker"
+cache_b=$CACHE_NEW_ID
+cache_wait "$cache_b" "restored"
+log "cache session B restored the workspace and found the marker"
+cache_discard "$cache_b"
 log "OK"
