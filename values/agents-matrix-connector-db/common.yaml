@@ -26,7 +26,7 @@ cluster:
     enabled: false
 
   # CNPG generates the agents-matrix-connector-db-cluster-app Secret (uri, host, port,
-  # dbname, user, password); the agents-orchestrator release reads it.
+  # dbname, user, password); the agents-matrix-connector release reads it.
   initdb:
     database: agents_matrix_connector
     owner: agents_matrix_connector

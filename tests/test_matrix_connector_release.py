@@ -141,4 +141,7 @@ def test_db_secret_matches_rendered_cnpg_cluster_helmfile_build(layered_values, 
         if isinstance(d, dict) and d.get("kind") == "Cluster"
     ]
     assert len(clusters) == 1
-    assert layered_values(REL)["postgres"]["existingSecret"] == clusters[0]["metadata"]["name"] + "-app"
+    assert (
+        layered_values(REL)["postgres"]["existingSecret"]
+        == clusters[0]["metadata"]["name"] + "-app"
+    )
