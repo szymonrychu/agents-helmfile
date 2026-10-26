@@ -33,7 +33,7 @@ def test_web_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"[0-9a-f]{7}", tag)
     assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
-    assert tag == "d81b219"
+    assert tag == "122a404"
 
 
 def test_web_behind_oauth2_proxy_with_orchestrator_secret(layered_values):
@@ -78,6 +78,18 @@ def test_schedules_backend_configured(layered_values):
         "label": "Schedules",
         "basePath": "/schedules/api/v1",
     }
+
+
+def test_matrix_backend_configured(layered_values):
+    backends = layered_values(REL)["backends"]
+    assert backends[-1] == {"id": "matrix", "label": "Chats", "basePath": "/matrix/api/v1"}
+    assert [b["id"] for b in backends] == ["orchestrator", "webhooks", "schedules", "matrix"]
+
+
+def test_web_release_needs_matrix_connector(repo_root):
+    text = (repo_root / "helmfile.yaml.gotmpl").read_text()
+    block = re.search(rf"- name: {REL}\n(?:(?!\n  - name:).)*", text, re.DOTALL).group(0)
+    assert "- agents/agents-matrix-connector" in block
 
 
 def test_web_release_needs_webhook(repo_root):

@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-web
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: "d81b219"
+  tag: "122a404"
 
 # Same oauth2-proxy admission webhook identity as the orchestrator api pod.
 podAnnotations:
@@ -21,6 +21,9 @@ backends:
   - id: schedules
     label: Schedules
     basePath: /schedules/api/v1
+  - id: matrix
+    label: Chats
+    basePath: /matrix/api/v1
 
 # The UI owns "/" of the host. The orchestrator ingress owns /api and the only
 # cert-manager annotations, so there is one Certificate for agents-orchestrator-tls.
