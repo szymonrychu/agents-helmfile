@@ -199,7 +199,9 @@ class _Api:
                     self._send(200, json.dumps({"scripts": [script], "status": init}))
                 else:
                     status = {"cache": {"key": key, "restore": {"state": restore}, "save": None}}
-                    self._send(200, json.dumps({"id": m[1], "spec": sess["spec"], "status": status}))
+                    self._send(
+                        200, json.dumps({"id": m[1], "spec": sess["spec"], "status": status})
+                    )
                 return True
 
             def _cache_create(self, created):
@@ -213,7 +215,9 @@ class _Api:
                     self._send(404, "{}")
                     return
                 sess["deleted"] = True
-                write = re.search(r"printf '%s\\n' \"(\w+)\" > cache-marker", sess["spec"]["init_scripts"][0])
+                write = re.search(
+                    r"printf '%s\\n' \"(\w+)\" > cache-marker", sess["spec"]["init_scripts"][0]
+                )
                 if write and api.cache_carries:
                     api.cache_store[sess["spec"]["cache"]["key"]] = write[1]
                 self._send(202, json.dumps({"desired": "deleting"}))
@@ -1015,7 +1019,9 @@ def test_schedule_port_forward_to_api_container(api, fakebin):
 
 
 def _cache_posts(api):
-    return [json.loads(b) for m, p, b in api.requests if m == "POST" and p == "/api/v1/sessions"][1:]
+    return [json.loads(b) for m, p, b in api.requests if m == "POST" and p == "/api/v1/sessions"][
+        1:
+    ]
 
 
 def test_workspace_cache_round_trip_passes(api, fakebin):
@@ -1025,7 +1031,9 @@ def test_workspace_cache_round_trip_passes(api, fakebin):
     a, b = _cache_posts(api)
     assert a["spec"]["cache"] == {"key": "smoke-workspace-cache"} == b["spec"]["cache"]
     assert a["spec"]["replicas"] == 1 == b["spec"]["replicas"]
-    assert re.fullmatch(r"printf '%s\\n' \"[0-9a-f]+\" > cache-marker", a["spec"]["init_scripts"][0])
+    assert re.fullmatch(
+        r"printf '%s\\n' \"[0-9a-f]+\" > cache-marker", a["spec"]["init_scripts"][0]
+    )
     assert re.fullmatch(r'grep -qx "[0-9a-f]+" cache-marker', b["spec"]["init_scripts"][0])
     assert ("DELETE", "/api/v1/sessions/sid-cache-a") in api.methods()
     assert ("DELETE", "/api/v1/sessions/sid-cache-b") in api.methods()
