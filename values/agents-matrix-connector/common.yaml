@@ -1,0 +1,55 @@
+image:
+  repository: harbor.szymonrichert.pl/containers/agents-matrix-connector
+  # CI-published sha7 tag, equal to the chart appVersion.
+  tag: 038b4f9
+
+# Connection URI from the CNPG app Secret made by the agents-matrix-connector-db release.
+postgres:
+  existingSecret: agents-matrix-connector-db-cluster-app
+  existingSecretKey: uri
+
+# The service token (orchestrator.token) comes from default.secrets.yaml (SOPS).
+orchestrator:
+  url: http://agents-orchestrator-services:8002
+
+# The bot logs in as the Hermes Matrix user (Hermes is scaled to 0); the access token
+# (matrix.accessToken) comes from default.secrets.yaml (SOPS).
+matrix:
+  homeserverUrl: http://matrix-synapse.messaging.svc.cluster.local:8008
+  userId: "@hermes:szymonrichert.pl"
+  deviceId: hermes-agent
+  selfIdentities:
+    - "@facebook_61594633049360:szymonrichert.pl"
+  bridgeBots:
+    - "@facebookbot:szymonrichert.pl"
+
+policy:
+  default: deny
+
+# SSO (oauth2-proxy admission webhook) on the api pod only, as for agents-webhook; the bot has
+# no inbound traffic.
+components:
+  api:
+    podAnnotations:
+      oauth2-proxy-admission/enable: "true"
+      oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
+      oauth2-proxy-admission/secret-name: agents-orchestrator-proxy
+      oauth2-proxy-admission/secret-namespace: agents
+  bot:
+    podAnnotations: {}
+
+# Shares the lab host and its certificate with agents-orchestrator (agents-orchestrator-tls, owned
+# by that release's cert-manager annotation), so no cert-manager annotation here.
+ingress:
+  enabled: true
+  className: nginx
+  host: lab.szymonrichert.pl
+  tls:
+    secretName: agents-orchestrator-tls
+  # Cluster node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
+  denySourceRanges:
+    - 192.168.1.26/32
+    - 192.168.1.27/32
+    - 192.168.1.28/32
+    - 192.168.1.29/32
+    - 192.168.1.65/32

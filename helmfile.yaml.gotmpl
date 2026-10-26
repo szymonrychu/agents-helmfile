@@ -81,6 +81,7 @@ releases:
     - values/agents-orchestrator/default.secrets.yaml
     - values/agents-orchestrator/service-token-agents-webhook.secrets.yaml
     - values/agents-orchestrator/service-token-agents-schedule.secrets.yaml
+    - values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml
 
   - name: agents-webhook-db
     namespace: agents
@@ -91,6 +92,17 @@ releases:
     labels:
       purpose: agents
       application: agents-webhook
+    <<: *default
+
+  - name: agents-matrix-connector-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-matrix-connector
     <<: *default
 
   - name: agents-schedule-db
@@ -128,6 +140,19 @@ releases:
     labels:
       purpose: agents
       application: agents-schedule
+    <<: *default
+
+  - name: agents-matrix-connector
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-matrix-connector
+    version: 0.1.0-main.038b4f9
+    timeout: 600
+    needs:
+      - agents/agents-matrix-connector-db
+      - agents/agents-orchestrator
+    labels:
+      purpose: agents
+      application: agents-matrix-connector
     <<: *default
 
   - name: agents-web

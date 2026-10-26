@@ -1,0 +1,47 @@
+version:
+  # renovate: image=ghcr.io/cloudnative-pg/postgresql
+  postgresql: "16"
+
+cluster:
+  enablePDB: false
+  instances: 1
+  storage:
+    size: 5Gi
+    storageClass: rook-ceph
+
+  walStorage:
+    enabled: true
+    size: 2Gi
+    storageClass: rook-ceph
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  monitoring:
+    enabled: false
+
+  # CNPG generates the agents-matrix-connector-db-cluster-app Secret (uri, host, port,
+  # dbname, user, password); the agents-orchestrator release reads it.
+  initdb:
+    database: agents_matrix_connector
+    owner: agents_matrix_connector
+
+backups:
+  enabled: true
+  provider: s3
+  s3:
+    region: eu-central-1
+    bucket: database-backup-szymonrychu
+    path: /agents-matrix-connector-db/
+    # accessKey / secretKey come from default.secrets.yaml (SOPS)
+  retentionPolicy: "30d"
+  scheduledBackups:
+    - name: daily-backup
+      schedule: "0 0 3 * * *"
+      backupOwnerReference: self
+      method: barmanObjectStore
