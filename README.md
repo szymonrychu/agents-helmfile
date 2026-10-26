@@ -74,8 +74,10 @@ Applies are manual and local, run from this directory.
   backend, that the host routes `/` to agents-web and `/api` to `agents-orchestrator`, that a fresh session lists `any-mcp`, that the
   session is created with wrapper settings, `leader_lease_seconds` and `autoclose_after_seconds` (3600) and its view echoes them with `closes_at` equal to `created_at` plus 3600 s and a `leader_since` once led (the trap discards it long before the autoclose), that the
   session's init scripts ran once and succeeded (`GET /api/v1/sessions/{id}/init-scripts`), that an agent pod reaches `/agent/v1/me`
-  with `X-Orch-Session` from `ORCH_SESSION_ID`, then scales a 1-replica session (cap 2) to 2 and back to 1
-  through `POST /api/v1/sessions/{id}/scale`, failing on a non-202 answer, a timeout or a restarted pod-0.
+  with `X-Orch-Session` from `ORCH_SESSION_ID`, then scales a 1-replica session (cap 2) to 2,
+  makes pod-1's agent the leader (`POST /api/v1/sessions/{id}/leader`, 202) and scales back to 1 through `POST /api/v1/sessions/{id}/scale`:
+  a scale-down below the leader must hand leadership to pod-0 (`leader_reason` `scale_down`) before pod-1 goes. It fails on a non-202 answer,
+  a timeout, a leader that does not move with that reason or a restarted pod-0.
   `RELEASE` (default `agents-orchestrator`) names the orchestrator release.
   Without `HOST` it port-forwards to `deploy/agents-orchestrator-api` and to `deploy/agents-web` (bypassing their SSO sidecars) (the public host needs SSO).
   It also checks the webhook service (see `## agents-webhook`) without starting a session, and deletes its temporary endpoint on every exit.

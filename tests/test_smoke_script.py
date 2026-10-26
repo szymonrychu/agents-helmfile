@@ -35,6 +35,11 @@ class _Api:
     def __init__(self):
         self.requests: list[tuple[str, str, bytes]] = []
         self.leader: str | None = "agent-uuid-0"
+        self.leader_reason: str = "start"
+        self.slug: str | None = None
+        # After the scale to 1 the fake moves the leader to pod-0 with this reason (None: it never moves).
+        self.scale_down_leader_reason: str | None = "scale_down"
+        self.leader_post_status = 202
         self.init_status: dict = {
             "state": "succeeded",
             "exit_code": 0,
@@ -176,13 +181,26 @@ class _Api:
                         "created_at": "2026-10-25T10:00:00.123456Z",
                         "leader_agent_id": leader,
                         "leader_since": "2026-10-25T10:00:30Z" if leader else None,
-                        "leader_reason": "start" if leader else None,
+                        "leader_reason": api.leader_reason if leader else None,
                     }
                     if api.closes_at_offset is not None:
                         view["closes_at"] = (
                             f"2026-10-25T{10 + api.closes_at_offset // 3600}:00:00.123456Z"
                         )
                     self._send(200, json.dumps(view))
+                elif self.path == "/api/v1/sessions/sid-1/agents":
+                    agents = [
+                        {
+                            "id": f"agent-uuid-{i}",
+                            "ordinal": i,
+                            "pod_name": f"agent-{api.slug}-{i}",
+                            "ready": True,
+                            "leader": api.leader == f"agent-uuid-{i}",
+                            "gone": False,
+                        }
+                        for i in range(2 if (api.state_dir / "pod1").exists() else 1)
+                    ]
+                    self._send(200, json.dumps(agents))
                 elif self.path == "/api/v1/sessions/sid-1/init-scripts":
                     body = {"scripts": api.init_scripts, "status": api.init_status}
                     self._send(200, json.dumps(body))
@@ -267,9 +285,20 @@ class _Api:
                     pod1.touch()
                 else:
                     pod1.unlink(missing_ok=True)
+                    if api.scale_down_leader_reason is not None and api.leader == "agent-uuid-1":
+                        api.leader = "agent-uuid-0"
+                        api.leader_reason = api.scale_down_leader_reason
                 if api.restart_pod0:
                     (api.state_dir / "uid0").write_text("uid-pod-0-restarted")
                 self._send(202, json.dumps({"id": "sid-1", "replicas": n}))
+
+            def _leader_post(self):
+                if api.leader_post_status != 202:
+                    self._send(api.leader_post_status, json.dumps({"detail": "refused"}))
+                    return
+                api.leader = json.loads(api.requests[-1][2])["agent_id"]
+                api.leader_reason = "user"
+                self._send(202, json.dumps({"agent_id": api.leader}))
 
             def _webhook_post(self):
                 if self.path == "/webhooks/api/v1/endpoints":
@@ -345,6 +374,9 @@ class _Api:
                 if self.path == "/api/v1/sessions/sid-1/scale":
                     self._scale()
                     return
+                if self.path == "/api/v1/sessions/sid-1/leader":
+                    self._leader_post()
+                    return
                 if self.path != "/api/v1/sessions":
                     self._send(404, "{}")
                     return
@@ -354,6 +386,7 @@ class _Api:
                     return
                 api.spec = created.get("spec") or {}
                 slug = created["slug"]
+                api.slug = slug
                 self._send(201, json.dumps({"id": "sid-1", "slug": slug}))
 
             def do_PUT(self):
@@ -525,6 +558,12 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
     }
     scales = [json.loads(b) for m, p, b in api.requests if p == "/api/v1/sessions/sid-1/scale"]
     assert scales == [{"replicas": 2}, {"replicas": 1}]
+    leaders = [json.loads(b) for m, p, b in api.requests if p == "/api/v1/sessions/sid-1/leader"]
+    assert leaders == [{"agent_id": "agent-uuid-1"}]
+    assert "leader did not move" not in r.stderr
+    assert re.search(r"scale down: leader is agent-uuid-0 with reason scale_down", r.stdout), (
+        r.stdout
+    )
     assert ("GET", "/api/v1/sessions/sid-1/init-scripts") in methods
     assert not [p for _, p in methods if p.startswith("/api/v1/clusters")]
     log = (fakebin / "kubectl.log").read_text()
@@ -563,6 +602,31 @@ def test_scale_refused_fails(api, fakebin):
     assert r.returncode != 0
     assert "scale" in r.stdout + r.stderr
     assert "409" in r.stdout + r.stderr
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+
+
+def test_scale_down_leader_not_moved_fails(api, fakebin):
+    api.scale_down_leader_reason = None
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
+    assert r.returncode != 0
+    assert "scale down: leader did not move to pod-0 with reason scale_down" in r.stderr
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+
+
+def test_scale_down_wrong_reason_fails(api, fakebin):
+    api.scale_down_leader_reason = "leader_lost"
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
+    assert r.returncode != 0
+    assert "scale down: leader did not move to pod-0 with reason scale_down" in r.stderr
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+
+
+def test_make_leader_refused_fails(api, fakebin):
+    api.leader_post_status = 409
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0
+    assert "leader" in r.stderr
+    assert "409" in r.stderr
     assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
 
 
