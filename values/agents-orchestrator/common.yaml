@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: ea1fac7
+  tag: ab37f1e
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
