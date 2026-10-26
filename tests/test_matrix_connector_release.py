@@ -10,7 +10,7 @@ import yaml
 
 REL = "agents-matrix-connector"
 DB_REL = "agents-matrix-connector-db"
-SHA = "038b4f9"
+SHA = "98b0803"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
     "192.168.1.26/32",
