@@ -1,0 +1,17 @@
+# Workspace cache bucket (rook-ceph). Applied by .hook.sh at presync.
+# Rook creates the Secret and ConfigMap `agents-workspace-cache` (AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY) that the agents-orchestrator release reads via cache.s3.existingSecret.
+# WARNING: the StorageClass rook-ceph-bucket has reclaimPolicy Delete, so deleting this claim
+# deletes the bucket and every cache in it.
+# additionalConfig is the bucket total quota (rook 1.21 maxSize / maxObjects); edit here to resize.
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: agents-workspace-cache
+  namespace: agents
+spec:
+  bucketName: agents-workspace-cache
+  storageClassName: rook-ceph-bucket
+  additionalConfig:
+    maxSize: 100Gi
+    maxObjects: "100000"

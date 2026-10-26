@@ -79,3 +79,14 @@ ingress:
     - secretName: agents-orchestrator-tls
       hosts:
         - lab.szymonrichert.pl
+
+# Workspace cache on rook-ceph. The bucket and the Secret (AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY) come from the ObjectBucketClaim agents-workspace-cache in
+# raw/workspace-cache-bucket.pre.yaml; no key in plain values.
+cache:
+  s3:
+    endpoint: http://rook-ceph-rgw-ceph-objectstore.rook-ceph.svc:80
+    region: us-east-1
+    bucket: agents-workspace-cache
+    pathStyle: true
+    existingSecret: agents-workspace-cache
