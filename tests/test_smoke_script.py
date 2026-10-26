@@ -26,9 +26,42 @@ WH_ENDPOINT = "/webhooks/api/v1/endpoints/7"
 SCHED = "/schedules/api/v1"
 MATRIX = "/matrix/api/v1"
 MATRIX_USER = "@hermes:szymonrichert.pl"
+MESSAGE_ID = 42
+AGENT_TOKEN = "agent-token-SECRET-value-789"
 DEFAULT_ROUTES = (
     "lab.szymonrichert.pl / agents-web\nlab.szymonrichert.pl /api agents-orchestrator\n"
 )
+
+
+# Stands in for `kubectl exec <pod> -c ccw -- python3 -c <script> <method> <path> [body]` against the
+# agent API: argv carries the pod, the method, the path and the body; the pod's token is never seen.
+FAKE_AGENT_HELPER = r"""
+import json, os, re, sys
+
+args = sys.argv[1:]
+pod = next(a for a in args if a.startswith("pod/"))
+who = re.search(r"smoke-msg-([ab])-(\d+)-0", pod)
+side, ts = who[1], who[2]
+method, path = args[-2:] if args[-2] in ("GET", "POST") else args[-3:-1]
+env = os.environ
+hive = f"smoke-{ts}"
+a, b = f"smoke-msg-a-{ts}", f"smoke-msg-b-{ts}"
+if method == "GET":
+    slugs = {
+        "a": [] if env.get("FAKE_A_HIDES_B") else [b],
+        "b": [a] + ([hive] if env.get("FAKE_B_LISTS_HIVE") else []),
+    }[side]
+    if side == "a":
+        slugs.append(hive)
+    print(200, json.dumps({"sessions": [{"slug": s} for s in slugs]}))
+elif side == "a":
+    assert path == f"/agent/v1/sessions/{b}/messages", path
+    print(env.get("FAKE_SEND_STATUS", "202"), json.dumps({"message_id": MESSAGE_ID}))
+else:
+    assert path == f"/agent/v1/sessions/{hive}/messages", path
+    code = env.get("FAKE_B_SEND_CODE", "target_not_superleader")
+    print(env.get("FAKE_B_SEND_STATUS", "403"), json.dumps({"error": {"code": code}}))
+""".replace("MESSAGE_ID", str(42))
 
 
 class _Api:
@@ -90,6 +123,12 @@ class _Api:
         self.matrix_rooms_status = 200
         self.matrix_rules: dict[int, dict] = {}
         self.matrix_list_hides_rule = False
+        # session option fakes (kube access and cross-session messaging, same server)
+        self.kube_available = True
+        self.option_specs: dict[str, dict] = {}
+        self.option_deleted: set[str] = set()
+        self.message_status = "sent"
+        self.frame_in_events = True
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -205,8 +244,15 @@ class _Api:
                     body = {"scripts": api.init_scripts, "status": api.init_status}
                     self._send(200, json.dumps(body))
                 elif self.path == "/api/v1/meta":
-                    meta = {"cache": {"available": api.cache_available, "max_bytes": 5368709120}}
+                    meta = {
+                        "cache": {"available": api.cache_available, "max_bytes": 5368709120},
+                        "kube_access": {"available": api.kube_available},
+                    }
                     self._send(200, json.dumps(meta))
+                elif path == f"/api/v1/messages/{MESSAGE_ID}":
+                    self._send(200, json.dumps({"id": MESSAGE_ID, "status": api.message_status}))
+                elif path == "/api/v1/sessions/sid-msg-b/events":
+                    self._send(200, json.dumps(api.b_events()))
                 elif self._cache_get():
                     pass
                 else:
@@ -381,6 +427,11 @@ class _Api:
                     self._send(404, "{}")
                     return
                 created = json.loads(api.requests[-1][2])
+                option = re.match(r"smoke-(kube|msg-a|msg-b)-\d+$", created["slug"])
+                if option:
+                    api.option_specs[option[1]] = created
+                    self._send(201, json.dumps({"id": f"sid-{option[1]}", "slug": created["slug"]}))
+                    return
                 if "cache" in (created.get("spec") or {}):
                     self._cache_create(created)
                     return
@@ -423,6 +474,10 @@ class _Api:
                 if self.path == "/api/v1/sessions/sid-sched":
                     self._send(202, json.dumps({"id": "sid-sched", "desired": "deleting"}))
                     return
+                if self.path in (f"/api/v1/sessions/sid-{k}" for k in ("kube", "msg-a", "msg-b")):
+                    api.option_deleted.add(self.path.rsplit("/", 1)[1])
+                    self._send(202, json.dumps({"desired": "deleting"}))
+                    return
                 if self.path.startswith("/api/v1/sessions/sid-cache-"):
                     self._cache_delete()
                     return
@@ -437,6 +492,18 @@ class _Api:
 
     def methods(self):
         return [(m, p) for m, p, _ in self.requests]
+
+    def b_events(self):
+        a_slug = self.option_specs["msg-a"]["slug"]
+        texts = ["unrelated"]
+        if self.frame_in_events:
+            texts.append(
+                f'<session-message from="{a_slug}" id="{MESSAGE_ID}">\nsmoke ping\n</session-message>'
+            )
+        events = [
+            {"id": i, "type": "user_message", "data": {"text": t}} for i, t in enumerate(texts, 1)
+        ]
+        return {"events": events, "has_more_before": False, "next_after_id": len(events)}
 
 
 @pytest.fixture
@@ -463,6 +530,9 @@ def fakebin(tmp_path):
         ' echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_AGENTS_PORT-8001}"; exit 0 ;;\n'
         '  *"get ingress"*) [ -z "${FAKE_INGRESS_FAIL-}" ] || exit 1;'
         ' printf "%s" "$FAKE_INGRESS_ROUTES"; exit 0 ;;\n'
+        '  *"get pod/agent-smoke-kube-"*serviceAccountName*) printf "%s" "${FAKE_KUBE_SA-agents-orchestrator-kube-access}"; exit 0 ;;\n'
+        '  *"get pod/agent-smoke-kube-"*automountServiceAccountToken*) printf "%s" "${FAKE_KUBE_AUTOMOUNT-true}"; exit 0 ;;\n'
+        '  *"get pod/agent-"*automountServiceAccountToken*) printf "%s" "${FAKE_HIVE_AUTOMOUNT-false}"; exit 0 ;;\n'
         '  *"get pod/agent-"*) cat "$FAKE_STATE_DIR/uid0"; exit 0 ;;\n'
         '  *"get pod"*) echo "$*" >> "$FAKE_KUBECTL_LOG";'
         ' slug=$(echo "$*" | sed -n "s|.*agents.szymonrichert.pl/session=\\([^ ]*\\).*|\\1|p");'
@@ -475,6 +545,9 @@ def fakebin(tmp_path):
         'case "$*" in\n'
         '  *"/api/v1/presets"*) cat > /dev/null;'
         ' printf "%s %s\\n" "${FAKE_SVC_WITH-200}" "${FAKE_SVC_WITHOUT-401}"; exit 0 ;;\n'
+        '  *"SelfSubjectAccessReview"*) printf "%s\\n" "${FAKE_KUBE_PROBE-true 200}"; exit 0 ;;\n'
+        '  *"test ! -e"*) exit "${FAKE_HIVE_TOKEN_PRESENT-0}" ;;\n'
+        '  *" exec "*"/agent/v1/sessions"*) exec python3 "$FAKE_AGENT_HELPER" "$@" ;;\n'
         '  *"/agent/v1/me"*) echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s\\n" "${FAKE_ME_STATUS-200}"; exit 0 ;;\n'
         '  *"ls -d /sessions"*) printf "%s\\n" "$FAKE_SESSION_CFG"; exit 0 ;;\n'
         '  *"any-mcp --version"*) printf "%s\\n" "$FAKE_VERSION"; exit 0 ;;\n'
@@ -484,6 +557,7 @@ def fakebin(tmp_path):
         "esac\n"
     )
     k.chmod(0o755)
+    (b / "fake_agent.py").write_text(FAKE_AGENT_HELPER)
     return b
 
 
@@ -520,6 +594,8 @@ def _run(
         **target,
         "SMOKE_TIMEOUT_S": smoke_timeout,
         "FAKE_ME_STATUS": me_status,
+        "FAKE_AGENT_HELPER": str(fakebin / "fake_agent.py"),
+        "FAKE_POD_AGENT_TOKEN": AGENT_TOKEN,
         "FAKE_MCP_LIST": mcp_list,
         "FAKE_VERSION": version,
         "FAKE_SESSION_CFG": session_cfg,
@@ -1128,9 +1204,8 @@ def test_schedule_port_forward_to_api_container(api, fakebin):
 
 
 def _cache_posts(api):
-    return [json.loads(b) for m, p, b in api.requests if m == "POST" and p == "/api/v1/sessions"][
-        1:
-    ]
+    posts = [json.loads(b) for m, p, b in api.requests if m == "POST" and p == "/api/v1/sessions"]
+    return [c for c in posts if "cache" in c["spec"]]
 
 
 def test_workspace_cache_round_trip_passes(api, fakebin):
@@ -1253,3 +1328,134 @@ def test_matrix_smoke_sends_nothing(api, fakebin):
     assert "homeserver" not in text.lower()
     assert "matrix-synapse" not in text
     assert "/send" not in text
+
+
+def _option_log(fakebin):
+    return (fakebin / "kubectl.log").read_text()
+
+
+def test_kube_access_step(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    kube = api.option_specs["kube"]
+    assert re.fullmatch(r"smoke-kube-\d+", kube["slug"])
+    assert kube["spec"] == {"replicas": 1, "kube_access": True}
+    log = _option_log(fakebin)
+    assert re.search(r"exec pod/agent-smoke-kube-\d+-0 -c ccw -- sh -c", log), log
+    for needle in (
+        "/var/run/secrets/kubernetes.io/serviceaccount/token",
+        "--cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+        "https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}",
+        "SelfSubjectAccessReview",
+        '\\"verb\\":\\"*\\",\\"group\\":\\"*\\",\\"resource\\":\\"*\\"',
+        "/api/v1/namespaces",
+        "test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token",
+    ):
+        assert needle in log, needle
+    assert "kubectl" not in log.split("SelfSubjectAccessReview")[0].split("-c ccw")[-1]
+    assert "meta reports kube_access.available" in r.stdout
+    assert "full Kubernetes access" in r.stdout
+
+
+@pytest.mark.parametrize(
+    ("name", "setup", "extra_env", "needle"),
+    [
+        ("meta-unavailable", {"kube_available": False}, None, "kube_access.available"),
+        (
+            "wrong-service-account",
+            None,
+            {"FAKE_KUBE_SA": "agents-orchestrator-agent"},
+            "-kube-access",
+        ),
+        (
+            "token-not-mounted",
+            None,
+            {"FAKE_KUBE_AUTOMOUNT": "false"},
+            "automountServiceAccountToken",
+        ),
+        ("not-allowed", None, {"FAKE_KUBE_PROBE": "false 200"}, "SelfSubjectAccessReview"),
+        ("namespaces-forbidden", None, {"FAKE_KUBE_PROBE": "true 403"}, "/api/v1/namespaces"),
+        ("hive-token-mounted", None, {"FAKE_HIVE_AUTOMOUNT": "true"}, "hive pod"),
+        ("hive-token-file-present", None, {"FAKE_HIVE_TOKEN_PRESENT": "1"}, "hive pod"),
+    ],
+)
+def test_kube_access_step_failures(api, fakebin, name, setup, extra_env, needle):
+    for key, value in (setup or {}).items():
+        setattr(api, key, value)
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=extra_env)
+    assert r.returncode != 0, f"{name}: smoke passed\n{r.stdout}"
+    assert "kube access:" in r.stderr and needle in r.stderr, f"{name}: {r.stderr}"
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+    assert ("kube" in api.option_specs) is ("sid-kube" in api.option_deleted)
+
+
+def test_session_messaging_step(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    a, b = api.option_specs["msg-a"], api.option_specs["msg-b"]
+    assert re.fullmatch(r"smoke-msg-a-\d+", a["slug"])
+    assert re.fullmatch(r"smoke-msg-b-\d+", b["slug"])
+    assert a["spec"] == {"replicas": 1, "session_messaging": True}
+    assert b["spec"] == {"replicas": 1}
+    ts = a["slug"].rsplit("-", 1)[1]
+    log = _option_log(fakebin)
+    assert re.search(
+        r"exec pod/agent-smoke-msg-a-\d+-0 -c ccw -- python3 -c .* GET /agent/v1/sessions",
+        log,
+        re.DOTALL,
+    )
+    assert f"POST /agent/v1/sessions/smoke-msg-b-{ts}/messages " in log
+    assert f'{{"text":"smoke ping {ts}"}}' in log
+    assert f"POST /agent/v1/sessions/smoke-{ts}/messages " in log
+    assert ("GET", f"/api/v1/messages/{MESSAGE_ID}") in api.methods()
+    assert (
+        "GET",
+        "/api/v1/sessions/sid-msg-b/events?types=user_message&limit=200",
+    ) in api.methods()
+    assert f"message {MESSAGE_ID} reached sent" in r.stdout
+    assert "403 target_not_superleader" in r.stdout
+
+
+@pytest.mark.parametrize(
+    ("name", "setup", "extra_env", "needle"),
+    [
+        ("a-does-not-list-b", None, {"FAKE_A_HIDES_B": "1"}, "lists"),
+        ("send-not-accepted", None, {"FAKE_SEND_STATUS": "429"}, "202"),
+        ("never-sent", {"message_status": "queued"}, None, "sent"),
+        ("failed-message", {"message_status": "failed"}, None, "failed"),
+        ("no-frame-in-events", {"frame_in_events": False}, None, "user_message"),
+        ("b-lists-hive", None, {"FAKE_B_LISTS_HIVE": "1"}, "hive"),
+        ("b-send-allowed", None, {"FAKE_B_SEND_STATUS": "202"}, "target_not_superleader"),
+        ("b-send-wrong-code", None, {"FAKE_B_SEND_CODE": "not_leader"}, "target_not_superleader"),
+    ],
+)
+def test_session_messaging_step_failures(api, fakebin, name, setup, extra_env, needle):
+    for key, value in (setup or {}).items():
+        setattr(api, key, value)
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=extra_env, smoke_timeout="6")
+    assert r.returncode != 0, f"{name}: smoke passed\n{r.stdout}"
+    assert "messaging:" in r.stderr and needle in r.stderr, f"{name}: {r.stderr}"
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_session_option_sessions_cleaned_up(api, fakebin, fail):
+    api.message_status = "queued" if fail else "sent"
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6" if fail else "20")
+    assert (r.returncode != 0) is fail, r.stdout + r.stderr
+    assert api.option_deleted == {"sid-kube", "sid-msg-a", "sid-msg-b"}
+    assert not r.stderr.count("cleanup failed")
+    for kind in ("kube", "msg-a", "msg-b"):
+        assert ("DELETE", f"/api/v1/sessions/sid-{kind}") in api.methods()
+
+
+def test_session_option_steps_print_no_token(api, fakebin):
+    for message_status in ("sent", "queued"):
+        api.message_status = message_status
+        api.requests.clear()
+        r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
+        out = r.stdout + r.stderr + _option_log(fakebin)
+        assert AGENT_TOKEN not in out
+        assert "ORCH_AGENT_TOKEN" not in r.stdout + r.stderr
+    src = [line for line in SCRIPT.read_text().splitlines() if not line.lstrip().startswith("#")]
+    assert not [line for line in src if re.search(r"echo.*TOKEN|set -x|printf.*\$tok", line)]

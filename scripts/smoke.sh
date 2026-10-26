@@ -29,6 +29,14 @@
 # {list: deny, kind: user, value: @smoke-<random>:invalid.example} is created (POST /rules), listed (GET /rules) and deleted
 # (DELETE /rules/{id}, the trap deletes it on failure); GET /rooms answers 200; the UI config.json lists the matrix backend.
 # Extra env: MATRIX_RELEASE, SMOKE_MATRIX_API_LOCAL_PORT.
+# Session option steps (after the workspace cache steps): GET /api/v1/meta reports kube_access.available; a session smoke-kube-<ts> with
+# kube_access true gets a Ready pod running as a ServiceAccount ending -kube-access with its token mounted, and from inside it (curl with the
+# mounted token and CA against KUBERNETES_SERVICE_HOST/PORT, no kubectl in the pod) a SelfSubjectAccessReview for verb, group and resource *
+# answers allowed true and GET /api/v1/namespaces answers 200, which is full Kubernetes access; the hive session's pod has no mounted token.
+# Cross-session messaging: superleader smoke-msg-a-<ts> (session_messaging true) and plain smoke-msg-b-<ts> get Ready pods; from A's pod
+# (its own ORCH_AGENT_* env, never printed) GET /agent/v1/sessions lists B and the hive session, a send to B answers 202 with a message_id,
+# the message reaches sent and B's events carry a user_message framed <session-message from="<A slug>"; from B's pod the list shows A and
+# not the hive session and a send to the hive session answers 403 target_not_superleader. The trap deletes all three sessions.
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
@@ -58,6 +66,7 @@ SCHED_RUN_ID=""
 SCHED_SESSION_ID=""
 CACHE_KEY="smoke-workspace-cache"
 CACHE_SESSION_IDS=""
+OPTION_SESSION_IDS=""
 if [ -z "${HOST:-}" ]; then
   HOST="127.0.0.1:${SMOKE_LOCAL_PORT:-18000}"
   WEB_HOST="127.0.0.1:${SMOKE_WEB_LOCAL_PORT:-18080}"
@@ -94,6 +103,13 @@ cleanup() {
       echo "smoke: cleanup failed, API unreachable; delete session '${SLUG}' (id ${SESSION_ID}) manually" >&2
     fi
   fi
+  for oid in $OPTION_SESSION_IDS; do
+    if curl -fsS --max-time 20 -X DELETE -o /dev/null "${BASE}/api/v1/sessions/${oid}"; then
+      log "discarded session ${oid}"
+    else
+      echo "smoke: cleanup failed, API unreachable; delete option session id ${oid} manually" >&2
+    fi
+  done
   for cid in $CACHE_SESSION_IDS; do
     if curl -fsS --max-time 20 -X DELETE -o /dev/null "${BASE}/api/v1/sessions/${cid}"; then
       log "discarded cache session ${cid}"
@@ -679,4 +695,152 @@ cache_b=$CACHE_NEW_ID
 cache_wait "$cache_b" "restored"
 log "cache session B restored the workspace and found the marker"
 cache_discard "$cache_b"
+
+# 11. Session options: full Kubernetes access and cross-session messaging. Sessions are raw specs; the trap deletes them.
+TS=${SLUG#smoke-}
+SA_DIR=/var/run/secrets/kubernetes.io/serviceaccount
+
+# option_create <slug> <spec json>: creates the session and sets OPT_NEW_ID.
+option_create() {
+  local body resp
+  body=$(jq -cn --arg slug "$1" --argjson spec "$2" '{slug: $slug, spec: $spec}')
+  resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/sessions") ||
+    fail "$3: create of session $1 failed"
+  OPT_NEW_ID=$(echo "$resp" | jq -er '.id') || fail "$3: create response of $1 carries no id"
+  OPTION_SESSION_IDS="$OPTION_SESSION_IDS $OPT_NEW_ID"
+  log "created session $1 (${OPT_NEW_ID})"
+}
+
+# option_pod <slug> <check name>: waits for the session's agent pod to exist and be Ready; sets OPT_POD.
+option_pod() {
+  local deadline remaining
+  deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+  OPT_POD=""
+  while [ -z "$OPT_POD" ]; do
+    OPT_POD=$(kubectl -n "$NAMESPACE" get pods -l "agents.szymonrichert.pl/session=$1" -o name 2> /dev/null | grep -Fx "pod/agent-$1-0" || true)
+    [ -n "$OPT_POD" ] && break
+    [ "$(date +%s)" -ge "$deadline" ] && fail "$2: no agent pod of $1 within ${SMOKE_TIMEOUT_S}s"
+    sleep 5
+  done
+  remaining=$((deadline - $(date +%s)))
+  [ "$remaining" -lt 1 ] && remaining=1
+  kubectl -n "$NAMESPACE" wait --for=condition=Ready "$OPT_POD" --timeout="${remaining}s" > /dev/null ||
+    fail "$2: ${OPT_POD} not Ready within ${SMOKE_TIMEOUT_S}s"
+  log "pod ${OPT_POD} is Ready"
+}
+
+# 11a. Kubernetes access. No kubectl in the pod: curl with the mounted token and CA; the token is read inside the pod and never printed.
+kube_access_available=$(curl -fsS --max-time 20 "${BASE}/api/v1/meta" | jq -r '.kube_access.available // false') ||
+  fail "kube access: GET /api/v1/meta failed"
+[ "$kube_access_available" = "true" ] || fail "kube access: GET /api/v1/meta kube_access.available is '${kube_access_available}', expected true"
+log "meta reports kube_access.available"
+KUBE_SLUG="smoke-kube-${TS}"
+option_create "$KUBE_SLUG" '{"replicas": 1, "kube_access": true}' "kube access"
+option_pod "$KUBE_SLUG" "kube access"
+kube_pod=$OPT_POD
+kube_sa=$(kubectl -n "$NAMESPACE" get "$kube_pod" -o 'jsonpath={.spec.serviceAccountName}') || fail "kube access: cannot read the ServiceAccount of ${kube_pod}"
+case "$kube_sa" in
+  *-kube-access) ;;
+  *) fail "kube access: ${kube_pod} runs as ServiceAccount '${kube_sa}', expected one ending -kube-access" ;;
+esac
+kube_mount=$(kubectl -n "$NAMESPACE" get "$kube_pod" -o 'jsonpath={.spec.automountServiceAccountToken}') ||
+  fail "kube access: cannot read automountServiceAccountToken of ${kube_pod}"
+[ "$kube_mount" = "true" ] || fail "kube access: ${kube_pod} automountServiceAccountToken is '${kube_mount}', expected true"
+log "${kube_pod} runs as ${kube_sa} with its token mounted"
+# shellcheck disable=SC2016  # runs in the pod's shell
+kube_sh='tok=$(cat '"$SA_DIR"'/token) || exit 1
+api="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
+review=$(curl -sS --max-time 15 --cacert '"$SA_DIR"'/ca.crt -H "Authorization: Bearer $tok" -H "Content-Type: application/json" -d "{\"apiVersion\":\"authorization.k8s.io/v1\",\"kind\":\"SelfSubjectAccessReview\",\"spec\":{\"resourceAttributes\":{\"verb\":\"*\",\"group\":\"*\",\"resource\":\"*\"}}}" "$api/apis/authorization.k8s.io/v1/selfsubjectaccessreviews")
+allowed=$(printf "%s" "$review" | tr -d " \n" | grep -o "\"allowed\":[a-z]*" | head -n1 | cut -d: -f2)
+code=$(curl -sS --max-time 15 --cacert '"$SA_DIR"'/ca.crt -H "Authorization: Bearer $tok" -o /dev/null -w "%{http_code}" "$api/api/v1/namespaces")
+echo "${allowed:-none} ${code}"'
+kube_probe=$(kubectl -n "$NAMESPACE" exec "$kube_pod" -c ccw -- sh -c "$kube_sh" 2> /dev/null | tail -n1) || kube_probe=""
+[ "${kube_probe%% *}" = "true" ] ||
+  fail "kube access: SelfSubjectAccessReview for * on * from ${kube_pod} answered allowed '${kube_probe%% *}', expected true"
+[ "${kube_probe#* }" = "200" ] || fail "kube access: GET /api/v1/namespaces from ${kube_pod} answered '${kube_probe#* }', expected 200"
+log "full Kubernetes access from ${kube_pod}: SelfSubjectAccessReview for * on * allowed, GET /api/v1/namespaces 200"
+hive_mount=$(kubectl -n "$NAMESPACE" get "$pod" -o 'jsonpath={.spec.automountServiceAccountToken}') ||
+  fail "kube access: cannot read automountServiceAccountToken of the hive pod ${pod}"
+[ "$hive_mount" = "false" ] || fail "kube access: hive pod ${pod} automountServiceAccountToken is '${hive_mount}', expected false"
+kubectl -n "$NAMESPACE" exec "$pod" -- test ! -e "$SA_DIR/token" ||
+  fail "kube access: hive pod ${pod} has a ServiceAccount token file at ${SA_DIR}/token"
+log "hive pod ${pod} has no ServiceAccount token"
+
+# 11b. Cross-session messaging (superleader model): A is a superleader, B is a plain session, the hive session is plain.
+A_SLUG="smoke-msg-a-${TS}"
+B_SLUG="smoke-msg-b-${TS}"
+option_create "$A_SLUG" '{"replicas": 1, "session_messaging": true}' "messaging"
+option_create "$B_SLUG" '{"replicas": 1}' "messaging"
+B_ID=$OPT_NEW_ID
+option_pod "$A_SLUG" "messaging"
+a_pod=$OPT_POD
+option_pod "$B_SLUG" "messaging"
+b_pod=$OPT_POD
+# agent_call <pod> <method> <path> [json body]: from inside the pod with its own ORCH_AGENT_URL, ORCH_AGENT_TOKEN and ORCH_SESSION_ID
+# (never echoed); prints "<status> <body>".
+agent_py='import os, sys, urllib.request, urllib.error
+method, path = sys.argv[1], sys.argv[2]
+data = sys.argv[3].encode() if len(sys.argv) > 3 else None
+headers = {"Authorization": "Bearer " + os.environ["ORCH_AGENT_TOKEN"], "X-Orch-Session": os.environ["ORCH_SESSION_ID"]}
+if data:
+    headers["Content-Type"] = "application/json"
+req = urllib.request.Request(os.environ["ORCH_AGENT_URL"].rstrip("/") + path, data=data, method=method, headers=headers)
+try:
+    resp = urllib.request.urlopen(req, timeout=15)
+    status, body = resp.status, resp.read()
+except urllib.error.HTTPError as e:
+    status, body = e.code, e.read()
+print(status, " ".join(body.decode().split()))'
+agent_call() {
+  local pod_name=$1
+  shift
+  kubectl -n "$NAMESPACE" exec "$pod_name" -c ccw -- python3 -c "$agent_py" "$@" 2> /dev/null | tail -n1 || true
+}
+
+a_list=$(agent_call "$a_pod" GET /agent/v1/sessions)
+[ "${a_list%% *}" = "200" ] || fail "messaging: GET /agent/v1/sessions from ${a_pod} answered '${a_list%% *}', expected 200"
+echo "${a_list#* }" | jq -e --arg b "$B_SLUG" --arg hive "$SLUG" '[.sessions[].slug] | (index($b) != null) and (index($hive) != null)' > /dev/null ||
+  fail "messaging: superleader ${A_SLUG} lists ${B_SLUG} and ${SLUG}: not both in $(echo "${a_list#* }" | jq -c '[.sessions[]?.slug]' 2> /dev/null)"
+log "superleader ${A_SLUG} lists ${B_SLUG} and ${SLUG}"
+
+ping_text="smoke ping ${TS}"
+send_body=$(jq -cn --arg text "$ping_text" '{text: $text}')
+sent=$(agent_call "$a_pod" POST "/agent/v1/sessions/${B_SLUG}/messages" "$send_body")
+[ "${sent%% *}" = "202" ] || fail "messaging: send from ${A_SLUG} to ${B_SLUG} answered '${sent%% *}', expected 202: ${sent#* }"
+msg_id=$(echo "${sent#* }" | jq -er '.message_id') || fail "messaging: the 202 send answer carries no message_id: ${sent#* }"
+log "send from ${A_SLUG} to ${B_SLUG} accepted (202), message ${msg_id}"
+
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+while :; do
+  msg_status=$(curl -fsS --max-time 20 "${BASE}/api/v1/messages/${msg_id}" | jq -r '.status // empty' 2> /dev/null) || msg_status=""
+  case "$msg_status" in
+    sent) break ;;
+    failed | cancelled) fail "messaging: message ${msg_id} is ${msg_status}, expected sent" ;;
+  esac
+  [ "$(date +%s)" -ge "$deadline" ] && fail "messaging: message ${msg_id} not sent within ${SMOKE_TIMEOUT_S}s (status '${msg_status}')"
+  sleep 3
+done
+log "message ${msg_id} reached sent"
+
+frame_prefix="<session-message from=\"${A_SLUG}\""
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+while :; do
+  b_events=$(curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${B_ID}/events?types=user_message&limit=200") || b_events=""
+  echo "$b_events" | jq -e --arg prefix "$frame_prefix" 'any(.events[]?; .type == "user_message" and ((.data.text // "") | startswith($prefix)))' > /dev/null 2>&1 && break
+  [ "$(date +%s)" -ge "$deadline" ] &&
+    fail "messaging: ${B_SLUG} has no user_message starting ${frame_prefix} within ${SMOKE_TIMEOUT_S}s"
+  sleep 3
+done
+log "${B_SLUG} received a user_message framed from ${A_SLUG}"
+
+b_list=$(agent_call "$b_pod" GET /agent/v1/sessions)
+[ "${b_list%% *}" = "200" ] || fail "messaging: GET /agent/v1/sessions from ${b_pod} answered '${b_list%% *}', expected 200"
+echo "${b_list#* }" | jq -e --arg a "$A_SLUG" --arg hive "$SLUG" '[.sessions[].slug] | (index($a) != null) and (index($hive) == null)' > /dev/null ||
+  fail "messaging: plain ${B_SLUG} must list ${A_SLUG} and not the hive session ${SLUG}: $(echo "${b_list#* }" | jq -c '[.sessions[]?.slug]' 2> /dev/null)"
+log "plain ${B_SLUG} lists ${A_SLUG} and not the hive session"
+denied=$(agent_call "$b_pod" POST "/agent/v1/sessions/${SLUG}/messages" "$send_body")
+if [ "${denied%% *}" != "403" ] || ! echo "${denied#* }" | jq -e '.error.code == "target_not_superleader"' > /dev/null 2>&1; then
+  fail "messaging: send from ${B_SLUG} to the hive session ${SLUG} answered '${denied%% *}', expected 403 target_not_superleader: ${denied#* }"
+fi
+log "send from ${B_SLUG} to the hive session refused: 403 target_not_superleader"
 log "OK"
