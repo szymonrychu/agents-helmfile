@@ -51,5 +51,8 @@ def test_no_cache_credentials_in_values(repo_root):
     ]
     for path in plain:
         text = path.read_text()
-        assert not re.search(r"(?i)(accessKey|secretKey|secret_access_key)\s*:\s*\S", text), path
+        assert not re.search(
+            r"(?im)^\s*(accessKey|secretKey|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|accessKeyId|secretAccessKey)\s*:\s*\S",
+            text,
+        ), path
         assert not re.search(r"AKIA[0-9A-Z]{12,}", text), path
