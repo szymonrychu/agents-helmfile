@@ -33,7 +33,7 @@ def test_web_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"[0-9a-f]{7}", tag)
     assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
-    assert tag == "d8769b1"
+    assert tag == "9302d1d"
 
 
 def test_web_behind_oauth2_proxy_with_orchestrator_secret(layered_values):
