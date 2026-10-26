@@ -73,6 +73,11 @@ class _Api:
         # After the scale to 1 the fake moves the leader to pod-0 with this reason (None: it never moves).
         self.scale_down_leader_reason: str | None = "scale_down"
         self.leader_post_status = 202
+        # pod-1's agent is listed ready false for this many /agents GETs; a /leader POST before that is counted as early.
+        self.pod1_not_ready_polls = 0
+        self.early_leader_posts = 0
+        # The first N /leader POSTs answer 202 but leave the leader unchanged (the orchestrator rejected target_not_ready).
+        self.leader_posts_ignored = 0
         self.init_status: dict = {
             "state": "succeeded",
             "exit_code": 0,
@@ -228,12 +233,15 @@ class _Api:
                         )
                     self._send(200, json.dumps(view))
                 elif self.path == "/api/v1/sessions/sid-1/agents":
+                    not_ready = api.pod1_not_ready_polls
+                    if (api.state_dir / "pod1").exists() and not_ready > 0:
+                        api.pod1_not_ready_polls -= 1
                     agents = [
                         {
                             "id": f"agent-uuid-{i}",
                             "ordinal": i,
                             "pod_name": f"agent-{api.slug}-{i}",
-                            "ready": True,
+                            "ready": not (i == 1 and not_ready > 0),
                             "leader": api.leader == f"agent-uuid-{i}",
                             "gone": False,
                         }
@@ -341,6 +349,12 @@ class _Api:
             def _leader_post(self):
                 if api.leader_post_status != 202:
                     self._send(api.leader_post_status, json.dumps({"detail": "refused"}))
+                    return
+                if api.pod1_not_ready_polls > 0:
+                    api.early_leader_posts += 1
+                if api.leader_posts_ignored > 0:
+                    api.leader_posts_ignored -= 1
+                    self._send(202, json.dumps({"agent_id": None}))
                     return
                 api.leader = json.loads(api.requests[-1][2])["agent_id"]
                 api.leader_reason = "user"
@@ -695,6 +709,25 @@ def test_scale_down_wrong_reason_fails(api, fakebin):
     assert r.returncode != 0
     assert "scale down: leader did not move to pod-0 with reason scale_down" in r.stderr
     assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+
+
+def _leader_posts(api):
+    return [p for m, p, b in api.requests if m == "POST" and p == "/api/v1/sessions/sid-1/leader"]
+
+
+def test_make_leader_waits_for_agent_ready(api, fakebin):
+    api.pod1_not_ready_polls = 4
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stderr
+    assert api.early_leader_posts == 0
+    assert len(_leader_posts(api)) == 1
+
+
+def test_make_leader_retries_rejected_request(api, fakebin):
+    api.leader_posts_ignored = 1
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env={"SMOKE_LEADER_RETRY_S": "1"})
+    assert r.returncode == 0, r.stderr
+    assert len(_leader_posts(api)) == 2
 
 
 def test_make_leader_refused_fails(api, fakebin):

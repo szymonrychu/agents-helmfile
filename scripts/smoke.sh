@@ -527,22 +527,32 @@ log "scaled up: ${pod1} is Ready"
 session_leader() { curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${SESSION_ID}" | jq -r '(.leader_agent_id // "") + " " + (.leader_reason // "")'; }
 agent_of() {
   curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${SESSION_ID}/agents" |
-    jq -r --arg pod "$1" '[.[] | select(.pod_name == $pod and (.gone | not))][0].id // empty'
+    jq -r --arg pod "$1" '[.[] | select(.pod_name == $pod and .ready == true and (.gone | not))][0].id // empty'
 }
 agent0=$(agent_of "${pod#pod/}") || agent0=""
-[ -n "$agent0" ] || fail "scale down: no agent for ${pod} in the session agents list"
+[ -n "$agent0" ] || fail "scale down: no ready agent for ${pod} in the session agents list"
 agent1=""
 while [ -z "$agent1" ]; do
   agent1=$(agent_of "${pod1#pod/}") || agent1=""
   [ -n "$agent1" ] && break
-  [ "$(date +%s)" -ge "$deadline" ] && fail "scale down: no agent for ${pod1} in the session agents list within ${SMOKE_TIMEOUT_S}s"
+  [ "$(date +%s)" -ge "$deadline" ] && fail "scale down: no ready agent for ${pod1} in the session agents list within ${SMOKE_TIMEOUT_S}s"
   sleep 3
 done
-code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
-  -d "{\"agent_id\": \"${agent1}\"}" "${BASE}/api/v1/sessions/${SESSION_ID}/leader") || fail "make ${pod1} leader: request failed"
-[ "$code" = "202" ] || fail "make ${pod1} leader answered ${code}, expected 202"
+# The orchestrator rejects a /leader request for a not-ready target without retrying it, so re-POST until the leader moves.
+make_leader() {
+  local code
+  code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+    -d "{\"agent_id\": \"${agent1}\"}" "${BASE}/api/v1/sessions/${SESSION_ID}/leader") || fail "make ${pod1} leader: request failed"
+  [ "$code" = "202" ] || fail "make ${pod1} leader answered ${code}, expected 202"
+}
+make_leader
+posted_at=$(date +%s)
 while [ "$(session_leader | cut -d' ' -f1)" != "$agent1" ]; do
   [ "$(date +%s)" -ge "$deadline" ] && fail "scale down: leader did not become ${pod1} (${agent1}) within ${SMOKE_TIMEOUT_S}s"
+  if [ "$(($(date +%s) - posted_at))" -ge "${SMOKE_LEADER_RETRY_S:-30}" ]; then
+    make_leader
+    posted_at=$(date +%s)
+  fi
   sleep 3
 done
 log "scale down: ${pod1} (${agent1}) is the leader"
