@@ -19,6 +19,8 @@ WH = "values/agents-webhook/default.secrets.yaml"
 WH_TOKEN = "values/agents-orchestrator/service-token-agents-webhook.secrets.yaml"
 SCH = "values/agents-schedule/default.secrets.yaml"
 SCH_TOKEN = "values/agents-orchestrator/service-token-agents-schedule.secrets.yaml"
+MX = "values/agents-matrix-connector/default.secrets.yaml"
+MX_TOKEN = "values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml"
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -102,13 +104,13 @@ def _run(tmp_path: Path, bindir: Path) -> subprocess.CompletedProcess:
 
 def test_script_does_not_overwrite_existing(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN):
+    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN, MX, MX_TOKEN):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
     r = _run(tmp_path, bindir)
     assert r.returncode == 0, r.stderr
-    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN):
+    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN, MX, MX_TOKEN):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
 
@@ -145,7 +147,7 @@ def test_webhook_token_hash_matches():
 
 def test_webhook_secrets_never_rotate(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB, SCH, SCH_TOKEN):
+    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -186,7 +188,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
     (bindir / "sops").write_text(
         '#!/bin/sh\ncat > "$(mktemp "' + str(tmp_path) + "/plain.XXXXXX\")\"\necho 'sops: stub'\n"
     )
-    for rel in (ORCH, DB, SCH, SCH_TOKEN):
+    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -229,7 +231,7 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
         f'cat > "{plain}/$name"\n'
         "echo 'sops: stub'\n"
     )
-    for rel in (ORCH, DB, WH, WH_TOKEN):
+    for rel in (ORCH, DB, WH, WH_TOKEN, MX, MX_TOKEN):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -286,3 +288,108 @@ def test_schedule_service_token_not_printed(tmp_path):
     for stream in (r.stdout, r.stderr):
         assert token not in stream
         assert digest not in stream
+
+
+def test_matrix_connector_secrets_encrypted_with_expected_keys():
+    for rel, keys in (
+        (MX, {"orchestrator.token", "matrix.accessToken"}),
+        (MX_TOKEN, {"serviceApi.tokenHashes.agents-matrix-connector"}),
+    ):
+        doc = _load(rel)
+        assert doc["sops"]["pgp"], "no pgp recipient"
+        found = dict(_leaves({k: v for k, v in doc.items() if k != "sops"}))
+        assert set(found) == keys
+        for path, leaf in found.items():
+            assert str(leaf).startswith("ENC["), f"{rel}:{path} is not encrypted"
+
+
+def test_matrix_connector_token_hash_matches():
+    token = _decrypt(MX)["orchestrator"]["token"]
+    digest = _decrypt(MX_TOKEN)["serviceApi"]["tokenHashes"]["agents-matrix-connector"]
+    assert digest == hashlib.sha256(token.encode()).hexdigest()
+
+
+MATRIX_TOKEN = "syt_matrix_access_token_value"
+
+
+def _matrix_sandbox(tmp_path: Path) -> Path:
+    bindir = _schedule_sandbox(tmp_path)
+    for rel in (SCH, SCH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    for rel in (MX, MX_TOKEN):
+        (tmp_path / rel).unlink(missing_ok=True)
+    return bindir
+
+
+def _run_matrix(tmp_path: Path, bindir: Path, token_file: Path | None):
+    env = {k: v for k, v in os.environ.items() if k not in ("BASH_ENV", "ENV")}
+    env["PATH"] = f"{bindir}:/usr/bin:/bin"
+    env.pop("MATRIX_CONNECTOR_TOKEN_FILE", None)
+    if token_file is not None:
+        env["MATRIX_CONNECTOR_TOKEN_FILE"] = str(token_file)
+    return subprocess.run(
+        ["bash", str(tmp_path / "scripts" / "bootstrap-secrets.sh")],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_matrix_connector_secrets_never_rotate(tmp_path):
+    bindir = _matrix_sandbox(tmp_path)
+    tf = tmp_path / "token"
+    tf.write_text(MATRIX_TOKEN + "\n")
+    r = _run_matrix(tmp_path, bindir, tf)
+    assert r.returncode == 0, r.stderr
+    mx = _plain(tmp_path, MX)
+    assert set(mx) == {"orchestrator", "matrix"}
+    assert mx["matrix"] == {"accessToken": MATRIX_TOKEN}
+    svc = mx["orchestrator"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", svc)
+    assert _plain(tmp_path, MX_TOKEN) == {
+        "serviceApi": {
+            "tokenHashes": {"agents-matrix-connector": hashlib.sha256(svc.encode()).hexdigest()}
+        }
+    }
+    # both present: nothing rotates, token file no longer needed
+    first = {rel: _plain(tmp_path, rel) for rel in (MX, MX_TOKEN)}
+    r = _run_matrix(tmp_path, bindir, None)
+    assert r.returncode == 0, r.stderr
+    assert {rel: _plain(tmp_path, rel) for rel in (MX, MX_TOKEN)} == first
+    # exactly one present: exit 1 naming both, survivor untouched
+    for present, absent in ((MX, MX_TOKEN), (MX_TOKEN, MX)):
+        (tmp_path / absent).unlink()
+        (tmp_path / present).write_text("sentinel: keep\n")
+        r = _run_matrix(tmp_path, bindir, tf)
+        assert r.returncode == 1
+        assert MX in r.stderr and MX_TOKEN in r.stderr
+        assert not (tmp_path / absent).exists()
+        assert (tmp_path / present).read_text() == "sentinel: keep\n"
+        (tmp_path / absent).write_text("sentinel: keep\n")
+    # missing or empty token file: exit 1 naming the variable, nothing written
+    for rel in (MX, MX_TOKEN):
+        (tmp_path / rel).unlink()
+    empty = tmp_path / "empty"
+    empty.write_text("")
+    for tfile in (None, tmp_path / "absent", empty):
+        r = _run_matrix(tmp_path, bindir, tfile)
+        assert r.returncode == 1
+        assert "MATRIX_CONNECTOR_TOKEN_FILE" in r.stderr
+        assert not (tmp_path / MX).exists() and not (tmp_path / MX_TOKEN).exists()
+
+
+def test_matrix_connector_never_prints_values(tmp_path):
+    bindir = _matrix_sandbox(tmp_path)
+    tf = tmp_path / "token"
+    tf.write_text(MATRIX_TOKEN)
+    r = _run_matrix(tmp_path, bindir, tf)
+    assert r.returncode == 0, r.stderr
+    svc = _plain(tmp_path, MX)["orchestrator"]["token"]
+    digest = hashlib.sha256(svc.encode()).hexdigest()
+    for stream in (r.stdout, r.stderr):
+        for value in (MATRIX_TOKEN, svc, digest):
+            assert value not in stream
