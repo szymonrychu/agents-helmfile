@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: 915207c
+  tag: de16c14
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
@@ -29,7 +29,7 @@ env:
   ORCH_ALLOWED_ORIGINS: https://lab.szymonrichert.pl
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
   ORCH_ANY_MCP_REPO: https://github.com/szymonrychu/any-mcp
-  ORCH_ANY_MCP_REF: v0.3.0
+  ORCH_ANY_MCP_REF: v0.4.0
 
 # Keycloak SSO via the oauth2-proxy admission webhook (same shape as the infrastructure
 # helmfile's searxng/comfyui). The agents-orchestrator-proxy Secret is created by the
@@ -90,3 +90,7 @@ cache:
     bucket: agents-workspace-cache
     pathStyle: true
     existingSecret: agents-workspace-cache
+
+# Sessions with kube_access get full Kubernetes access through the chart's kube-access ServiceAccount.
+kubeAccess:
+  enabled: true

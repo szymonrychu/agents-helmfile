@@ -742,7 +742,7 @@ def test_wrong_any_mcp_version_fails(api, fakebin):
 
 
 def test_any_mcp_version_is_the_orchestrator_values_ref(api, fakebin):
-    assert ANY_MCP_VERSION == "0.3.0"
+    assert ANY_MCP_VERSION == "0.4.0"
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode == 0, r.stdout + r.stderr
     assert f"any-mcp version {ANY_MCP_VERSION}" in r.stdout
