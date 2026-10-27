@@ -557,6 +557,8 @@ agent_of() {
 }
 agent0=$(agent_of "${pod#pod/}") || agent0=""
 [ -n "$agent0" ] || fail "scale down: no ready agent for ${pod} in the session agents list"
+# Every wait below starts its own SMOKE_TIMEOUT_S window, so a slow pod-1 Ready cannot starve the waits after it.
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
 agent1=""
 while [ -z "$agent1" ]; do
   agent1=$(agent_of "${pod1#pod/}") || agent1=""
@@ -571,6 +573,7 @@ make_leader() {
     -d "{\"agent_id\": \"${agent1}\"}" "${BASE}/api/v1/sessions/${SESSION_ID}/leader") || fail "make ${pod1} leader: request failed"
   [ "$code" = "202" ] || fail "make ${pod1} leader answered ${code}, expected 202"
 }
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
 make_leader
 posted_at=$(date +%s)
 while [ "$(session_leader | cut -d' ' -f1)" != "$agent1" ]; do
