@@ -19,6 +19,14 @@ ORCH_VALUES = ROOT / "values" / "agents-orchestrator" / "common.yaml"
 ANY_MCP_VERSION = re.search(
     r"^\s*ORCH_ANY_MCP_REF:\s*v(\S+)", ORCH_VALUES.read_text(), re.MULTILINE
 )[1]
+PLUGINS_REF = re.search(
+    r"^\s*ORCH_ANY_MCP_PLUGINS_REF:\s*(\S+)", ORCH_VALUES.read_text(), re.MULTILINE
+)[1]
+PLUGINS_SOURCE = f"any-mcp-tatara-plugins//orchestration/orchestrator?ref={PLUGINS_REF}"
+POD_CONFIG = (
+    "plugins:\n  orchestrator:\n    source: "
+    f"git::https://github.com/szymonrychu/{PLUGINS_SOURCE}\n    config:\n      token: ${{ORCH_AGENT_TOKEN}}\n"
+)
 WH_USER = "wh-user-smoke"
 WH_PASSWORD = "wh-pass-SECRET-value-123"
 WH_TOKEN = "orch-token-SECRET-value-456"
@@ -441,7 +449,7 @@ class _Api:
                     self._send(404, "{}")
                     return
                 created = json.loads(api.requests[-1][2])
-                option = re.match(r"smoke-(kube|msg-a|msg-b)-\d+$", created["slug"])
+                option = re.match(r"smoke-(kube|msg-a|msg-b|src)-\d+$", created["slug"])
                 if option:
                     api.option_specs[option[1]] = created
                     self._send(201, json.dumps({"id": f"sid-{option[1]}", "slug": created["slug"]}))
@@ -488,7 +496,9 @@ class _Api:
                 if self.path == "/api/v1/sessions/sid-sched":
                     self._send(202, json.dumps({"id": "sid-sched", "desired": "deleting"}))
                     return
-                if self.path in (f"/api/v1/sessions/sid-{k}" for k in ("kube", "msg-a", "msg-b")):
+                if self.path in (
+                    f"/api/v1/sessions/sid-{k}" for k in ("kube", "msg-a", "msg-b", "src")
+                ):
                     api.option_deleted.add(self.path.rsplit("/", 1)[1])
                     self._send(202, json.dumps({"desired": "deleting"}))
                     return
@@ -563,6 +573,11 @@ def fakebin(tmp_path):
         '  *"test ! -e"*) exit "${FAKE_HIVE_TOKEN_PRESENT-0}" ;;\n'
         '  *" exec "*"/agent/v1/sessions"*) exec python3 "$FAKE_AGENT_HELPER" "$@" ;;\n'
         '  *"/agent/v1/me"*) echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s\\n" "${FAKE_ME_STATUS-200}"; exit 0 ;;\n'
+        '  *"pip show any-mcp-tatara-orchestrator"*) [ -z "${FAKE_PIP_FAIL-}" ] || exit 1;'
+        ' echo "Name: any-mcp-tatara-orchestrator"; exit 0 ;;\n'
+        '  *"cat /opt/any-mcp/etc/any-mcp.yaml"*) printf "%s" "$FAKE_POD_CONFIG"; exit 0 ;;\n'
+        '  *"pod/agent-smoke-src-"*"--list-tools"*) printf "%s\\n" "$FAKE_SRC_TOOLS"; exit 0 ;;\n'
+        '  *"--list-tools"*) printf "%s\\n" "$FAKE_TOOLS"; exit 0 ;;\n'
         '  *"ls -d /sessions"*) printf "%s\\n" "$FAKE_SESSION_CFG"; exit 0 ;;\n'
         '  *"any-mcp --version"*) printf "%s\\n" "$FAKE_VERSION"; exit 0 ;;\n'
         '  *" exec "*) printf "%s\\n" "$FAKE_MCP_LIST"; exit 0 ;;\n'
@@ -620,6 +635,9 @@ def _run(
         "FAKE_KUBECTL_LOG": str(fakebin / "kubectl.log"),
         "FAKE_WH_TOKEN_B64": base64.b64encode(WH_TOKEN.encode()).decode(),
         "SMOKE_PUBLIC_URL": f"http://127.0.0.1:{api.port}",
+        "FAKE_POD_CONFIG": POD_CONFIG,
+        "FAKE_TOOLS": "orchestrator_sessions_list\norchestrator_sessions_get",
+        "FAKE_SRC_TOOLS": "petstore_list_pets\npetstore_get_pet",
         **(extra_env or {}),
     }
     return subprocess.run(
@@ -775,7 +793,7 @@ def test_wrong_any_mcp_version_fails(api, fakebin):
 
 
 def test_any_mcp_version_is_the_orchestrator_values_ref(api, fakebin):
-    assert ANY_MCP_VERSION == "0.4.0"
+    assert ANY_MCP_VERSION == "0.5.0"
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode == 0, r.stdout + r.stderr
     assert f"any-mcp version {ANY_MCP_VERSION}" in r.stdout
@@ -787,7 +805,7 @@ def _tree_with_any_mcp_ref(tmp_path, line):
     shutil.copy(SCRIPT, tree / "scripts" / "smoke.sh")
     values = tree / "values" / "agents-orchestrator"
     values.mkdir(parents=True)
-    (values / "common.yaml").write_text(f"env:\n{line}")
+    (values / "common.yaml").write_text(f"env:\n{line}  ORCH_ANY_MCP_PLUGINS_REF: {PLUGINS_REF}\n")
     return tree / "scripts" / "smoke.sh"
 
 
@@ -806,6 +824,16 @@ def test_missing_any_mcp_ref_fails_before_any_change(api, fakebin, tmp_path):
     r = _run(api, fakebin, "any-mcp: x - Connected", script=script)
     assert r.returncode != 0
     assert "ORCH_ANY_MCP_REF" in r.stderr
+    assert not [m for m, _ in api.methods() if m == "POST"]
+
+
+def test_missing_plugins_ref_fails_before_any_change(api, fakebin, tmp_path):
+    script = _tree_with_any_mcp_ref(tmp_path, "  ORCH_ANY_MCP_REF: v9.8.7\n")
+    values = script.parent.parent / "values" / "agents-orchestrator" / "common.yaml"
+    values.write_text("env:\n  ORCH_ANY_MCP_REF: v9.8.7\n")
+    r = _run(api, fakebin, "any-mcp: x - Connected", script=script)
+    assert r.returncode != 0
+    assert "ORCH_ANY_MCP_PLUGINS_REF" in r.stderr
     assert not [m for m, _ in api.methods() if m == "POST"]
 
 
@@ -1476,7 +1504,7 @@ def test_session_option_sessions_cleaned_up(api, fakebin, fail):
     api.message_status = "queued" if fail else "sent"
     r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6" if fail else "20")
     assert (r.returncode != 0) is fail, r.stdout + r.stderr
-    assert api.option_deleted == {"sid-kube", "sid-msg-a", "sid-msg-b"}
+    assert api.option_deleted == {"sid-kube", "sid-msg-a", "sid-msg-b", "sid-src"}
     assert not r.stderr.count("cleanup failed")
     for kind in ("kube", "msg-a", "msg-b"):
         assert ("DELETE", f"/api/v1/sessions/sid-{kind}") in api.methods()
@@ -1492,3 +1520,92 @@ def test_session_option_steps_print_no_token(api, fakebin):
         assert "ORCH_AGENT_TOKEN" not in r.stdout + r.stderr
     src = [line for line in SCRIPT.read_text().splitlines() if not line.lstrip().startswith("#")]
     assert not [line for line in src if re.search(r"echo.*TOKEN|set -x|printf.*\$tok", line)]
+
+
+PLUGIN_SOURCE_URL = (
+    f"git::https://github.com/szymonrychu/any-mcp//examples/petstore?ref=v{ANY_MCP_VERSION}"
+)
+
+
+def test_orchestrator_plugin_from_plugins_repo(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = _option_log(fakebin)
+    assert re.search(
+        r"exec pod/agent-smoke-\d+-0 -c ccw -- /opt/any-mcp/bin/pip show any-mcp-tatara-orchestrator",
+        log,
+    ), log
+    assert re.search(
+        r"exec pod/agent-smoke-\d+-0 -c ccw -- cat /opt/any-mcp/etc/any-mcp.yaml", log
+    ), log
+    assert re.search(
+        r"exec pod/agent-smoke-\d+-0 -c ccw -- /opt/any-mcp/bin/any-mcp --config /opt/any-mcp/etc/any-mcp.yaml --list-tools",
+        log,
+    ), log
+    assert "orchestrator_sessions_list" in r.stdout
+
+
+@pytest.mark.parametrize(
+    ("name", "env", "needle"),
+    [
+        ("pip-show", {"FAKE_PIP_FAIL": "1"}, "any-mcp-tatara-orchestrator is not installed"),
+        (
+            "wrong-ref",
+            {"FAKE_POD_CONFIG": POD_CONFIG.replace(PLUGINS_REF, "v9.9.9")},
+            f"names no {PLUGINS_SOURCE}",
+        ),
+        (
+            "old-source",
+            {"FAKE_POD_CONFIG": "plugins:\n  orchestrator:\n    source: x\n"},
+            "names no",
+        ),
+        ("no-tool", {"FAKE_TOOLS": "orchestrator_sessions_get"}, "orchestrator_sessions_list"),
+    ],
+)
+def test_orchestrator_plugin_check_failures(api, fakebin, name, env, needle):
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=env)
+    assert r.returncode != 0, f"{name}: smoke passed\n{r.stdout}"
+    assert "smoke: FAIL: plugin tools:" in r.stderr and needle in r.stderr, f"{name}: {r.stderr}"
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+
+
+def test_extra_plugin_source_step(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    src = api.option_specs["src"]
+    assert re.fullmatch(r"smoke-src-\d+", src["slug"])
+    assert src["spec"] == {"replicas": 1, "any_mcp_sources": [PLUGIN_SOURCE_URL]}
+    assert re.search(
+        r"exec pod/agent-smoke-src-\d+-0 -c ccw -- /opt/any-mcp/bin/any-mcp --config /opt/any-mcp/etc/any-mcp.yaml --list-tools",
+        _option_log(fakebin),
+    )
+    assert "petstore_ tools" in r.stdout
+
+
+def test_extra_plugin_source_without_petstore_tool_fails(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env={"FAKE_SRC_TOOLS": "other_tool"})
+    assert r.returncode != 0, r.stdout
+    assert "smoke: FAIL: extra source:" in r.stderr and "petstore_" in r.stderr, r.stderr
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_plugin_source_session_cleaned_up(api, fakebin, fail):
+    env = {"FAKE_SRC_TOOLS": "other_tool"} if fail else None
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=env)
+    assert (r.returncode != 0) is fail, r.stdout + r.stderr
+    assert "sid-src" in api.option_deleted
+    assert not r.stderr.count("cleanup failed")
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_plugin_steps_print_no_token(api, fakebin, fail):
+    env = {
+        "FAKE_POD_AGENT_TOKEN": AGENT_TOKEN,
+        "FAKE_TOOLS": f"orchestrator_sessions_list\nleak {AGENT_TOKEN}",
+        "FAKE_SRC_TOOLS": f"other_tool {AGENT_TOKEN}" if fail else f"petstore_x {AGENT_TOKEN}",
+        "FAKE_POD_CONFIG": POD_CONFIG + f"leak: {AGENT_TOKEN}\n",
+    }
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=env)
+    assert (r.returncode != 0) is fail, r.stdout + r.stderr
+    assert AGENT_TOKEN not in r.stdout + r.stderr
+    assert "ORCH_AGENT_TOKEN" not in r.stdout + r.stderr
