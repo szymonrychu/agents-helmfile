@@ -174,7 +174,9 @@ def test_any_mcp_configured_for_new_sessions(layered_values):
     env = layered_values(REL)["env"]
     assert env["ORCH_ANY_MCP_REPO"] == "https://github.com/szymonrychu/any-mcp"
     assert env["ORCH_ANY_MCP_REF"] == "v0.5.0"
-    assert env["ORCH_ANY_MCP_PLUGINS_REPO"] == "https://github.com/szymonrychu/any-mcp-tatara-plugins"
+    assert (
+        env["ORCH_ANY_MCP_PLUGINS_REPO"] == "https://github.com/szymonrychu/any-mcp-tatara-plugins"
+    )
     assert env["ORCH_ANY_MCP_PLUGINS_REF"] == "v0.1.0"
 
 
