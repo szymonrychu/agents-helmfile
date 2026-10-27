@@ -22,7 +22,9 @@ Postgres (`agents-orchestrator-db`), the `agents-orchestrator` Helm chart, the
 - URL layout of the host: `/` is the `agents-web` Ingress, `/api` is the `agents-orchestrator`
   Ingress. Both share the `agents-orchestrator-tls` secret; only the orchestrator Ingress carries
   the cert-manager annotations.
-- Every new agent session starts with `any-mcp` preinstalled.
+- Every new agent session starts with `any-mcp` preinstalled (`ORCH_ANY_MCP_REF`); its orchestrator
+  tools come from the orchestrator plugin, installed from
+  https://github.com/szymonrychu/any-mcp-tatara-plugins at `ORCH_ANY_MCP_PLUGINS_REF`.
 
 ## Tooling
 

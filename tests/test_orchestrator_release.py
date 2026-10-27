@@ -11,7 +11,7 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "de16c14"
+PIN = "b3a2975"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -173,7 +173,9 @@ def _has_secret_key(node) -> bool:
 def test_any_mcp_configured_for_new_sessions(layered_values):
     env = layered_values(REL)["env"]
     assert env["ORCH_ANY_MCP_REPO"] == "https://github.com/szymonrychu/any-mcp"
-    assert env["ORCH_ANY_MCP_REF"] == "v0.4.0"
+    assert env["ORCH_ANY_MCP_REF"] == "v0.5.0"
+    assert env["ORCH_ANY_MCP_PLUGINS_REPO"] == "https://github.com/szymonrychu/any-mcp-tatara-plugins"
+    assert env["ORCH_ANY_MCP_PLUGINS_REF"] == "v0.1.0"
 
 
 def test_kube_access_enabled(layered_values):
