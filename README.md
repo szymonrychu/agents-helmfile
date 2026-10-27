@@ -115,6 +115,12 @@ Applies are manual and local, run from this directory.
   `GET /agent/v1/sessions` lists B and the hive session, `POST /agent/v1/sessions/<B>/messages` answers 202 with a `message_id`, the
   message reaches `sent` and B's events carry a `user_message` starting `<session-message from="<A>"`; from B's pod the list shows A and
   not the hive session and a send to the hive session answers 403 `target_not_superleader`. The three sessions are deleted on every exit.
+  Last, session continuity: session `smoke-cont-<ts>` (1 replica) gets a Ready pod and one completed turn (a message that reaches `sent`
+  and a stored `turn_completed`); the smoke reads the agent's `wrapper_session_id` from `GET /api/v1/sessions/{id}/events?agent_id=...`,
+  deletes that pod and only that pod (`kubectl delete pod/agent-smoke-cont-<ts>-0`, refused unless the name is a smoke-cont pod), and
+  requires a new pod uid and Ready, an agent view state that is not `dead`, a second message that reaches `sent`, and stored events after
+  the restart that carry the same `wrapper_session_id`. Each of those waits has its own `SMOKE_TIMEOUT_S` window; message text, events and
+  uids are matched, never printed. The session is deleted on every exit. The deployed orchestrator must carry the ingester re-attach fix.
 - `mise run kube-context` - guard used by diff and apply: fails unless a kube
   context is set and the API answers; prints only the context name.
 - `mise run fmt` - format code.

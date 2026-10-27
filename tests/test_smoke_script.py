@@ -7,8 +7,10 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -46,6 +48,10 @@ MATRIX = "/matrix/api/v1"
 MATRIX_USER = "@hermes:szymonrichert.pl"
 MESSAGE_ID = 42
 AGENT_TOKEN = "agent-token-SECRET-value-789"
+CONT_WRAPPER = "wrap-1"
+CONT_AGENT = "agent-cont-0"
+CONT_MESSAGE_IDS = (51, 52)
+CONT_MESSAGES = "/api/v1/sessions/sid-cont/messages"
 DEFAULT_ROUTES = (
     "lab.szymonrichert.pl / agents-web\nlab.szymonrichert.pl /api agents-orchestrator\n"
 )
@@ -152,6 +158,12 @@ class _Api:
         self.option_deleted: set[str] = set()
         self.message_status = "sent"
         self.frame_in_events = True
+        # session continuity fakes (smoke-cont-<ts>, same server): the fake kubectl marks the restart in the state dir
+        self.cont_state_after_restart = "idle"
+        self.cont_wrapper_after_restart = CONT_WRAPPER
+        self.cont_second_status = "sent"
+        self.cont_events_after_restart = True
+        self.cont_message_ids: list[int] = []
         api = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -279,10 +291,44 @@ class _Api:
                     self._send(200, json.dumps({"id": MESSAGE_ID, "status": api.message_status}))
                 elif path == "/api/v1/sessions/sid-msg-b/events":
                     self._send(200, json.dumps(api.b_events()))
-                elif self._cache_get():
+                elif self._cache_get() or self._cont_get():
                     pass
                 else:
                     self._send(404, "{}")
+
+            def _cont_get(self):
+                path, _, query = self.path.partition("?")
+                restarted = (api.state_dir / "cont_restarted").exists()
+                if path == "/api/v1/sessions/sid-cont/agents":
+                    state = api.cont_state_after_restart if restarted else "idle"
+                    agent = {
+                        "id": CONT_AGENT,
+                        "ordinal": 0,
+                        "pod_name": f"agent-{api.option_specs['cont']['slug']}-0",
+                        "ready": True,
+                        "state": state,
+                        "leader": False,
+                        "gone": False,
+                    }
+                    self._send(200, json.dumps([agent]))
+                elif path == "/api/v1/sessions/sid-cont/events":
+                    params = parse_qs(query)
+                    events = api.cont_events(restarted)
+                    if "agent_id" in params:
+                        events = [e for e in events if e["agent_id"] == params["agent_id"][0]]
+                    if "types" in params:
+                        events = [e for e in events if e["type"] in params["types"][0].split(",")]
+                    if "after_id" in params:
+                        events = [e for e in events if e["id"] > int(params["after_id"][0])]
+                    page = {"events": events, "has_more_before": False, "next_after_id": None}
+                    self._send(200, json.dumps(page))
+                elif path in (f"/api/v1/messages/{i}" for i in CONT_MESSAGE_IDS):
+                    mid = int(path.rsplit("/", 1)[1])
+                    status = "sent" if mid == CONT_MESSAGE_IDS[0] else api.cont_second_status
+                    self._send(200, json.dumps({"id": mid, "status": status}))
+                else:
+                    return False
+                return True
 
             def _matrix_get(self, path):
                 if path == f"{MATRIX}/meta":
@@ -449,6 +495,10 @@ class _Api:
                 if self.path.startswith(("/webhook", "/webhooks")):
                     self._webhook_post()
                     return
+                if self.path == CONT_MESSAGES:
+                    api.cont_message_ids.append(CONT_MESSAGE_IDS[len(api.cont_message_ids)])
+                    self._send(202, json.dumps({"message_id": api.cont_message_ids[-1]}))
+                    return
                 if self.path == "/api/v1/sessions/sid-1/scale":
                     self._scale()
                     return
@@ -459,7 +509,7 @@ class _Api:
                     self._send(404, "{}")
                     return
                 created = json.loads(api.requests[-1][2])
-                option = re.match(r"smoke-(kube|msg-a|msg-b|src)-\d+$", created["slug"])
+                option = re.match(r"smoke-(kube|msg-a|msg-b|src|cont)-\d+$", created["slug"])
                 if option:
                     api.option_specs[option[1]] = created
                     self._send(201, json.dumps({"id": f"sid-{option[1]}", "slug": created["slug"]}))
@@ -507,7 +557,7 @@ class _Api:
                     self._send(202, json.dumps({"id": "sid-sched", "desired": "deleting"}))
                     return
                 if self.path in (
-                    f"/api/v1/sessions/sid-{k}" for k in ("kube", "msg-a", "msg-b", "src")
+                    f"/api/v1/sessions/sid-{k}" for k in ("kube", "msg-a", "msg-b", "src", "cont")
                 ):
                     api.option_deleted.add(self.path.rsplit("/", 1)[1])
                     self._send(202, json.dumps({"desired": "deleting"}))
@@ -526,6 +576,29 @@ class _Api:
 
     def methods(self):
         return [(m, p) for m, p, _ in self.requests]
+
+    def cont_events(self, restarted):
+        """The stored events of the continuity agent: one finished turn, plus the second turn once the pod restarted."""
+
+        def event(i, type_, wrapper):
+            return {
+                "id": i,
+                "agent_id": CONT_AGENT,
+                "wrapper_session_id": wrapper,
+                "seq": i,
+                "type": type_,
+                "data": {},
+            }
+
+        events = [
+            event(1, "user_message", CONT_WRAPPER),
+            event(2, "assistant_text", CONT_WRAPPER),
+            event(3, "turn_completed", CONT_WRAPPER),
+        ]
+        if restarted and len(self.cont_message_ids) > 1 and self.cont_events_after_restart:
+            wrapper = self.cont_wrapper_after_restart
+            events += [event(4, "user_message", wrapper), event(5, "turn_completed", wrapper)]
+        return events
 
     def b_events(self):
         a_slug = self.option_specs["msg-a"]["slug"]
@@ -546,6 +619,7 @@ def api(tmp_path):
     a.state_dir = tmp_path / "state"
     a.state_dir.mkdir()
     (a.state_dir / "uid0").write_text("uid-pod-0")
+    (a.state_dir / "uid_cont").write_text("uid-cont-old")
     yield a
     a.server.shutdown()
 
@@ -566,6 +640,10 @@ def fakebin(tmp_path):
         ' echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_AGENTS_PORT-8001}"; exit 0 ;;\n'
         '  *"get ingress"*) [ -z "${FAKE_INGRESS_FAIL-}" ] || exit 1;'
         ' printf "%s" "$FAKE_INGRESS_ROUTES"; exit 0 ;;\n'
+        '  *" delete "*) echo "$*" >> "$FAKE_KUBECTL_LOG";'
+        ' case "$*" in *"pod/agent-smoke-cont-"*) touch "$FAKE_STATE_DIR/cont_restarted";'
+        ' [ -n "${FAKE_CONT_KEEP_UID-}" ] || echo uid-cont-new > "$FAKE_STATE_DIR/uid_cont" ;; esac; exit 0 ;;\n'
+        '  *"get pod/agent-smoke-cont-"*) cat "$FAKE_STATE_DIR/uid_cont"; exit 0 ;;\n'
         '  *"get pod/agent-smoke-kube-"*serviceAccountName*) printf "%s" "${FAKE_KUBE_SA-agents-orchestrator-kube-access}"; exit 0 ;;\n'
         '  *"get pod/agent-smoke-kube-"*automountServiceAccountToken*) printf "%s" "${FAKE_KUBE_AUTOMOUNT-true}"; exit 0 ;;\n'
         '  *"get pod/agent-"*automountServiceAccountToken*) printf "%s" "${FAKE_HIVE_AUTOMOUNT-false}"; exit 0 ;;\n'
@@ -1542,7 +1620,8 @@ def test_session_option_sessions_cleaned_up(api, fakebin, fail):
     api.message_status = "queued" if fail else "sent"
     r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6" if fail else "20")
     assert (r.returncode != 0) is fail, r.stdout + r.stderr
-    assert api.option_deleted == {"sid-kube", "sid-msg-a", "sid-msg-b", "sid-src"}
+    expected = {"sid-kube", "sid-msg-a", "sid-msg-b", "sid-src"}
+    assert api.option_deleted == (expected if fail else expected | {"sid-cont"})
     assert not r.stderr.count("cleanup failed")
     for kind in ("kube", "msg-a", "msg-b"):
         assert ("DELETE", f"/api/v1/sessions/sid-{kind}") in api.methods()
@@ -1679,3 +1758,112 @@ def test_petstore_name_only_in_a_description_does_not_count(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected", extra_env={"FAKE_SRC_TOOLS": src})
     assert r.returncode != 0, r.stdout
     assert "smoke: FAIL: extra source:" in r.stderr, r.stderr
+
+
+def _cont_posts(api):
+    return [json.loads(b) for m, p, b in api.requests if (m, p) == ("POST", CONT_MESSAGES)]
+
+
+def _deletes(fakebin):
+    log = (fakebin / "kubectl.log").read_text()
+    return [line for line in log.splitlines() if " delete " in line]
+
+
+def test_session_continuity_after_pod_restart(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    cont = api.option_specs["cont"]
+    assert re.fullmatch(r"smoke-cont-\d+", cont["slug"])
+    assert cont["spec"] == {"replicas": 1}
+    # a real turn first, then the restart of that session's pod, then a second message
+    posts = _cont_posts(api)
+    assert len(posts) == 2 and all(p["text"] for p in posts)
+    methods = api.methods()
+    first_wait = methods.index(("GET", f"/api/v1/messages/{CONT_MESSAGE_IDS[0]}"))
+    second_wait = methods.index(("GET", f"/api/v1/messages/{CONT_MESSAGE_IDS[1]}"))
+    assert first_wait < second_wait
+    events = f"/api/v1/sessions/sid-cont/events?agent_id={CONT_AGENT}"
+    assert ("GET", f"{events}&limit=200") in methods
+    assert ("GET", f"{events}&after_id=3&limit=200") in methods
+    deletes = _deletes(fakebin)
+    assert len(deletes) == 1
+    assert re.search(rf"delete pod/agent-{cont['slug']}-0 --wait=false$", deletes[0]), deletes
+    log = (fakebin / "kubectl.log").read_text()
+    ready = f"wait --for=condition=Ready pod/agent-{cont['slug']}-0 "
+    assert ready in log.split(deletes[0])[1]
+    assert ("DELETE", "/api/v1/sessions/sid-cont") in methods
+    out = r.stdout
+    assert re.search(
+        r"continuity: pod agent-smoke-cont-\d+-0 returned Ready with a new uid", out
+    ), out
+    assert f"continuity: agent {CONT_AGENT} is not dead after the restart" in out
+    assert "continuity: message 52 reached sent after the restart" in out
+    assert f"continuity: wrapper session id {CONT_WRAPPER} unchanged after the restart" in out
+    assert "uid-cont-old" not in out and "uid-cont-new" not in out
+
+
+def test_continuity_new_wrapper_session_fails(api, fakebin):
+    api.cont_wrapper_after_restart = "wrap-2"
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode != 0, r.stdout
+    assert "smoke: FAIL: continuity: wrapper session id changed" in r.stderr, r.stderr
+    assert "wrap-2" in r.stderr
+    assert ("DELETE", "/api/v1/sessions/sid-cont") in api.methods()
+
+
+def test_continuity_no_events_after_restart_fails(api, fakebin):
+    api.cont_events_after_restart = False
+    started = time.monotonic()
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
+    assert r.returncode != 0, r.stdout
+    assert "smoke: FAIL: continuity: no event from the agent after the restart" in r.stderr, (
+        r.stderr
+    )
+    assert time.monotonic() - started < 50
+    assert ("DELETE", "/api/v1/sessions/sid-cont") in api.methods()
+
+
+def test_continuity_dead_agent_fails(api, fakebin):
+    api.cont_state_after_restart = "dead"
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
+    assert r.returncode != 0, r.stdout
+    assert re.search(
+        r"smoke: FAIL: continuity: agent .* still dead 6s after the pod restart", r.stderr
+    ), r.stderr
+    assert len(_cont_posts(api)) == 1, "no second message goes to a dead agent"
+    assert ("DELETE", "/api/v1/sessions/sid-cont") in api.methods()
+
+
+def test_continuity_message_not_delivered_fails(api, fakebin):
+    api.cont_second_status = "queued"
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6")
+    assert r.returncode != 0, r.stdout
+    assert re.search(
+        r"smoke: FAIL: continuity: message 52 not sent within 6s after the restart \(status 'queued'\)",
+        r.stderr,
+    ), r.stderr
+    assert ("DELETE", "/api/v1/sessions/sid-cont") in api.methods()
+
+
+def test_continuity_pod_not_recreated_fails(api, fakebin):
+    env = {"FAKE_CONT_KEEP_UID": "1"}
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6", extra_env=env)
+    assert r.returncode != 0, r.stdout
+    assert re.search(r"smoke: FAIL: continuity: .* has no new uid within 6s", r.stderr), r.stderr
+    assert len(_cont_posts(api)) == 1
+    assert ("DELETE", "/api/v1/sessions/sid-cont") in api.methods()
+
+
+def test_continuity_deletes_only_smoke_pod(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    slug = api.option_specs["cont"]["slug"]
+    (line,) = _deletes(fakebin)
+    assert line.split()[-3:] == ["delete", f"pod/agent-{slug}-0", "--wait=false"], line
+    # the hive session's pod and every other smoke session's pod are never deleted
+    assert not re.search(r"pod/agent-smoke-(\d+|kube|msg|src)", line)
+    # the only kubectl delete in the script targets the continuity pod, guarded by the smoke-cont name
+    src = [x for x in SCRIPT.read_text().splitlines() if not x.lstrip().startswith("#")]
+    deletes = [x for x in src if re.search(r"\bkubectl\b.*\bdelete\b", x)]
+    assert len(deletes) == 1 and "$cont_pod" in deletes[0], deletes
+    assert any(re.search(r'"pod/agent-smoke-cont-"\*"-0"\)', x) for x in src)
