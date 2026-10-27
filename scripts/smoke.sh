@@ -40,7 +40,7 @@
 # Plugin tools steps: in the hive session's pod (container ccw) the any-mcp-tatara-orchestrator distribution is installed (pip show), the
 # rendered /opt/any-mcp/etc/any-mcp.yaml names any-mcp-tatara-plugins//orchestration/orchestrator at the pinned ORCH_ANY_MCP_PLUGINS_REF and
 # `any-mcp --list-tools` lists orchestrator_sessions_list; a session smoke-src-<ts> created with any_mcp_sources holding the petstore example at
-# the pinned any-mcp tag gets a Ready pod whose --list-tools lists a petstore_ tool. The trap deletes smoke-src-<ts>; outputs are only matched.
+# the pinned any-mcp tag gets a Ready pod whose --list-tools lists a petstore_ tool. The trap deletes smoke-src-<ts>; outputs (a JSON array of tools) are only matched by tool name.
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
@@ -300,7 +300,7 @@ case "$pod_cfg" in
   *) fail "plugin tools: ${ANY_MCP_CFG} in ${pod} names no ${plugin_source}" ;;
 esac
 pod_tools=$(kubectl -n "$NAMESPACE" exec "$pod" -c ccw -- /opt/any-mcp/bin/any-mcp --config "$ANY_MCP_CFG" --list-tools 2> /dev/null) || pod_tools=""
-echo "$pod_tools" | grep -q 'orchestrator_sessions_list' ||
+echo "$pod_tools" | jq -e 'any(.[]?; .name == "orchestrator_sessions_list")' > /dev/null 2>&1 ||
   fail "plugin tools: any-mcp --list-tools in ${pod} lists no orchestrator_sessions_list"
 log "orchestrator plugin installed from ${plugin_source}; --list-tools lists orchestrator_sessions_list"
 
@@ -771,7 +771,7 @@ SRC_SOURCE="git::https://github.com/szymonrychu/any-mcp//examples/petstore?ref=v
 option_create "$SRC_SLUG" "$(jq -cn --arg src "$SRC_SOURCE" '{replicas: 1, any_mcp_sources: [$src]}')" "extra source"
 option_pod "$SRC_SLUG" "extra source"
 src_tools=$(kubectl -n "$NAMESPACE" exec "$OPT_POD" -c ccw -- /opt/any-mcp/bin/any-mcp --config "$ANY_MCP_CFG" --list-tools 2> /dev/null) || src_tools=""
-echo "$src_tools" | grep -q '^petstore_' || fail "extra source: any-mcp --list-tools in ${OPT_POD} lists no petstore_ tool"
+echo "$src_tools" | jq -e 'any(.[]?; (.name // "") | startswith("petstore_"))' > /dev/null 2>&1 || fail "extra source: any-mcp --list-tools in ${OPT_POD} lists no petstore_ tool"
 log "extra source ${SRC_SOURCE} installed in ${OPT_POD}; --list-tools lists petstore_ tools"
 
 # 11a. Kubernetes access. No kubectl in the pod: curl with the mounted token and CA; the token is read inside the pod and never printed.
