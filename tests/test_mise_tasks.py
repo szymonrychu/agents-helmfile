@@ -114,3 +114,12 @@ def test_tools_pinned():
     hooks = "\n".join(mise["hooks"]["postinstall"])
     diff_line = next(line for line in hooks.splitlines() if "helm-diff" in line)
     assert re.search(r"--version v?\d+\.\d+\.\d+", diff_line), diff_line
+
+
+def test_apply_depends_on_check_pins(tasks):
+    assert "check-pins" in tasks["apply"]["depends"]
+    check = tasks["check-pins"]
+    assert _run(check) == "uv run scripts/check_pins.py"
+    assert "check runs" in check["description"]
+    for name in ("agents-orchestrator", "agents-web", "agents-webhook", "agents-schedule"):
+        assert name in check["description"], name

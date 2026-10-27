@@ -69,8 +69,17 @@ Applies are manual and local, run from this directory.
 - `mise run diff` - `helmfile diff --detailed-exitcode --suppress-secrets`.
   Exit code 2 means there are changes (passed through, not an error); 0 means
   none.
+- `mise run check-pins` - `uv run scripts/check_pins.py`: for every pinned main-built commit (the
+  `agents-orchestrator`, `agents-web`, `agents-webhook`, `agents-schedule` and `agents-matrix-connector`
+  chart versions, the orchestrator and web `image.tag`, and the claude-code-wrapper `agentImage` and
+  `ORCH_AGENT_IMAGES`) it resolves the commit (`0.1.0-main.<sha7>` or an image sha7 is that commit, a
+  release `X.Y.Z` goes through tag `vX.Y.Z`) and lists its check runs with `gh api` (paginated). A pin
+  passes only when at least one check run exists and every one is completed with conclusion `success`,
+  `neutral` or `skipped`. It prints `pin <release> <version> <commit>: ok|refused (<reasons>)` per pin
+  and exits non-zero naming each refused pin; a missing or unparsable pin is refused. No flag or
+  environment variable skips it. Needs `gh` logged in (`gh auth status`).
 - `mise run apply` - `helmfile apply --suppress-secrets`. Depends on `lint`,
-  `test` and `kube-context`, so a broken tree cannot be applied. Failed upgrades
+  `test`, `check-pins` and `kube-context`, so a broken tree or a red build cannot be applied. Failed upgrades
   roll back (`helmDefaults`); the hook creates the regcred and raw manifests.
 - `mise run smoke` - proves the UI on agents-web answers with the agents-web index and a `config.json` listing the orchestrator
   backend, that the host routes `/` to agents-web and `/api` to `agents-orchestrator`, that a fresh session lists `any-mcp`, that the
