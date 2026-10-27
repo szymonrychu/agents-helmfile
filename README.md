@@ -92,6 +92,11 @@ Applies are manual and local, run from this directory.
   writes a random marker in its init script and is discarded (its save runs in the discard), then session B on the same key must
   restore and its init must find the marker, else the smoke fails with "workspace cache did not carry the marker". The object
   `workspace-cache/smoke-workspace-cache.tar.zst` stays and is overwritten on each run; both sessions are deleted on any failure.
+  Plugin tools: in the hive session's pod (`kubectl exec -c ccw`) `/opt/any-mcp/bin/pip show any-mcp-tatara-orchestrator` must succeed,
+  `/opt/any-mcp/etc/any-mcp.yaml` must name `any-mcp-tatara-plugins//orchestration/orchestrator?ref=<ORCH_ANY_MCP_PLUGINS_REF>` and
+  `any-mcp --config /opt/any-mcp/etc/any-mcp.yaml --list-tools` must list `orchestrator_sessions_list`. Extra source: session
+  `smoke-src-<ts>` (`any_mcp_sources` holding the `examples/petstore` source at the pinned any-mcp tag) gets a Ready pod whose
+  `--list-tools` lists a `petstore_` tool; the trap deletes it on every exit. Neither step prints the pod config or tool lists.
   Then the session options. Kubernetes access: `GET /api/v1/meta` must report `kube_access.available`; session `smoke-kube-<ts>`
   (`kube_access` true) gets a Ready pod running as a ServiceAccount ending `-kube-access` with its token mounted, and from inside it
   (`kubectl exec -c ccw`, curl with the mounted token and CA against `KUBERNETES_SERVICE_HOST`/`PORT`, no kubectl in the pod) a

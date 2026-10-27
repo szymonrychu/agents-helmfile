@@ -37,6 +37,10 @@
 # (its own ORCH_AGENT_* env, never printed) GET /agent/v1/sessions lists B and the hive session, a send to B answers 202 with a message_id,
 # the message reaches sent and B's events carry a user_message framed <session-message from="<A slug>"; from B's pod the list shows A and
 # not the hive session and a send to the hive session answers 403 target_not_superleader. The trap deletes all three sessions.
+# Plugin tools steps: in the hive session's pod (container ccw) the any-mcp-tatara-orchestrator distribution is installed (pip show), the
+# rendered /opt/any-mcp/etc/any-mcp.yaml names any-mcp-tatara-plugins//orchestration/orchestrator at the pinned ORCH_ANY_MCP_PLUGINS_REF and
+# `any-mcp --list-tools` lists orchestrator_sessions_list; a session smoke-src-<ts> created with any_mcp_sources holding the petstore example at
+# the pinned any-mcp tag gets a Ready pod whose --list-tools lists a petstore_ tool. The trap deletes smoke-src-<ts>; outputs are only matched.
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
@@ -45,6 +49,13 @@ ORCH_VALUES="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/values/agents-orch
 ANY_MCP_VERSION=$(sed -n 's/^[[:space:]]*ORCH_ANY_MCP_REF:[[:space:]]*v\{0,1\}\([^[:space:]#]*\).*/\1/p' "$ORCH_VALUES" 2> /dev/null | head -n1)
 if [ -z "$ANY_MCP_VERSION" ]; then
   echo "smoke: FAIL: no ORCH_ANY_MCP_REF in ${ORCH_VALUES}" >&2
+  exit 1
+fi
+
+# The plugins repo ref the sessions install the orchestrator plugin from (kept with its leading v, as in the pod config).
+PLUGINS_REF=$(sed -n 's/^[[:space:]]*ORCH_ANY_MCP_PLUGINS_REF:[[:space:]]*\([^[:space:]#]*\).*/\1/p' "$ORCH_VALUES" 2> /dev/null | head -n1)
+if [ -z "$PLUGINS_REF" ]; then
+  echo "smoke: FAIL: no ORCH_ANY_MCP_PLUGINS_REF in ${ORCH_VALUES}" >&2
   exit 1
 fi
 
@@ -277,6 +288,21 @@ case "$ver" in
   *" ${ANY_MCP_VERSION}" | "${ANY_MCP_VERSION}") log "any-mcp version ${ANY_MCP_VERSION}" ;;
   *) fail "any-mcp --version is not ${ANY_MCP_VERSION}: ${ver}" ;;
 esac
+
+# 4a. The orchestrator tools come from the plugins repo. Outputs are only matched, never printed (the config and tool list may carry env names).
+ANY_MCP_CFG=/opt/any-mcp/etc/any-mcp.yaml
+kubectl -n "$NAMESPACE" exec "$pod" -c ccw -- /opt/any-mcp/bin/pip show any-mcp-tatara-orchestrator > /dev/null 2>&1 ||
+  fail "plugin tools: any-mcp-tatara-orchestrator is not installed in ${pod}"
+pod_cfg=$(kubectl -n "$NAMESPACE" exec "$pod" -c ccw -- cat "$ANY_MCP_CFG" 2> /dev/null) || pod_cfg=""
+plugin_source="any-mcp-tatara-plugins//orchestration/orchestrator?ref=${PLUGINS_REF}"
+case "$pod_cfg" in
+  *"$plugin_source"*) ;;
+  *) fail "plugin tools: ${ANY_MCP_CFG} in ${pod} names no ${plugin_source}" ;;
+esac
+pod_tools=$(kubectl -n "$NAMESPACE" exec "$pod" -c ccw -- /opt/any-mcp/bin/any-mcp --config "$ANY_MCP_CFG" --list-tools 2> /dev/null) || pod_tools=""
+echo "$pod_tools" | grep -q 'orchestrator_sessions_list' ||
+  fail "plugin tools: any-mcp --list-tools in ${pod} lists no orchestrator_sessions_list"
+log "orchestrator plugin installed from ${plugin_source}; --list-tools lists orchestrator_sessions_list"
 
 # 4b. The init scripts ran once and succeeded, and are visible through the public API.
 init_json=""
@@ -738,6 +764,15 @@ option_pod() {
     fail "$2: ${OPT_POD} not Ready within ${SMOKE_TIMEOUT_S}s"
   log "pod ${OPT_POD} is Ready"
 }
+
+# 10b. Extra plugin source: a session with the petstore example source at the pinned any-mcp tag; its pod lists petstore_ tools.
+SRC_SLUG="smoke-src-${TS}"
+SRC_SOURCE="git::https://github.com/szymonrychu/any-mcp//examples/petstore?ref=v${ANY_MCP_VERSION}"
+option_create "$SRC_SLUG" "$(jq -cn --arg src "$SRC_SOURCE" '{replicas: 1, any_mcp_sources: [$src]}')" "extra source"
+option_pod "$SRC_SLUG" "extra source"
+src_tools=$(kubectl -n "$NAMESPACE" exec "$OPT_POD" -c ccw -- /opt/any-mcp/bin/any-mcp --config "$ANY_MCP_CFG" --list-tools 2> /dev/null) || src_tools=""
+echo "$src_tools" | grep -q '^petstore_' || fail "extra source: any-mcp --list-tools in ${OPT_POD} lists no petstore_ tool"
+log "extra source ${SRC_SOURCE} installed in ${OPT_POD}; --list-tools lists petstore_ tools"
 
 # 11a. Kubernetes access. No kubectl in the pod: curl with the mounted token and CA; the token is read inside the pod and never printed.
 kube_access_available=$(curl -fsS --max-time 20 "${BASE}/api/v1/meta" | jq -r '.kube_access.available // false') ||
