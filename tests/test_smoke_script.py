@@ -558,7 +558,9 @@ def fakebin(tmp_path):
     k.write_text(
         "#!/bin/sh\n"
         'case "$*" in\n'
-        '  *" wait "*) echo "$*" >> "$FAKE_KUBECTL_LOG"; case "$*" in *"${FAKE_WAIT_FAIL:-@none@}"*) exit 1 ;; esac; exit 0 ;;\n'
+        '  *" wait "*) echo "$*" >> "$FAKE_KUBECTL_LOG";'
+        ' case "$*" in *"Ready pod/agent-"*"-1 "*) sleep "${FAKE_POD1_READY_SLEEP_S:-0}" ;; esac;'
+        ' case "$*" in *"${FAKE_WAIT_FAIL:-@none@}"*) exit 1 ;; esac; exit 0 ;;\n'
         '  *"get secret"*) printf "%s" "$FAKE_WH_TOKEN_B64"; exit 0 ;;\n'
         '  *"get service"*) [ -n "${FAKE_AGENTS_PORT-8001}" ] || exit 1;'
         ' echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_AGENTS_PORT-8001}"; exit 0 ;;\n'
@@ -755,6 +757,32 @@ def test_make_leader_retries_rejected_request(api, fakebin):
     api.leader_posts_ignored = 1
     r = _run(api, fakebin, "any-mcp: x - Connected", extra_env={"SMOKE_LEADER_RETRY_S": "1"})
     assert r.returncode == 0, r.stderr
+    assert len(_leader_posts(api)) == 2
+
+
+# pod-1 Ready uses 6 of the 8 seconds of SMOKE_TIMEOUT_S; the waits after it must start their own window.
+SLOW_POD1 = {"FAKE_POD1_READY_SLEEP_S": "6"}
+
+
+def test_agent_lookup_gets_own_deadline_after_slow_pod1_ready(api, fakebin):
+    api.pod1_not_ready_polls = 3
+    r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="8", extra_env=SLOW_POD1)
+    assert r.returncode == 0, r.stderr
+    assert "no ready agent for" not in r.stderr
+    assert len(_leader_posts(api)) == 1
+
+
+def test_make_leader_wait_gets_own_deadline_after_slow_pod1_ready(api, fakebin):
+    api.leader_posts_ignored = 1
+    r = _run(
+        api,
+        fakebin,
+        "any-mcp: x - Connected",
+        smoke_timeout="8",
+        extra_env={**SLOW_POD1, "SMOKE_LEADER_RETRY_S": "4"},
+    )
+    assert r.returncode == 0, r.stderr
+    assert "leader did not become" not in r.stderr
     assert len(_leader_posts(api)) == 2
 
 
