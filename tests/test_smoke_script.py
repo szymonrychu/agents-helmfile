@@ -27,6 +27,16 @@ POD_CONFIG = (
     "plugins:\n  orchestrator:\n    source: "
     f"git::https://github.com/szymonrychu/{PLUGINS_SOURCE}\n    config:\n      token: ${{ORCH_AGENT_TOKEN}}\n"
 )
+
+
+def tools_json(*names, description="a tool"):
+    """The shape of `any-mcp --list-tools`: a JSON array of {name, description, inputSchema}."""
+    return json.dumps(
+        [{"name": n, "description": description, "inputSchema": {"type": "object"}} for n in names],
+        indent=2,
+    )
+
+
 WH_USER = "wh-user-smoke"
 WH_PASSWORD = "wh-pass-SECRET-value-123"
 WH_TOKEN = "orch-token-SECRET-value-456"
@@ -636,8 +646,8 @@ def _run(
         "FAKE_WH_TOKEN_B64": base64.b64encode(WH_TOKEN.encode()).decode(),
         "SMOKE_PUBLIC_URL": f"http://127.0.0.1:{api.port}",
         "FAKE_POD_CONFIG": POD_CONFIG,
-        "FAKE_TOOLS": "orchestrator_sessions_list\norchestrator_sessions_get",
-        "FAKE_SRC_TOOLS": "petstore_list_pets\npetstore_get_pet",
+        "FAKE_TOOLS": tools_json("orchestrator_sessions_list", "orchestrator_sessions_get"),
+        "FAKE_SRC_TOOLS": tools_json("petstore_list_pets", "petstore_get_pet"),
         **(extra_env or {}),
     }
     return subprocess.run(
@@ -1559,7 +1569,25 @@ def test_orchestrator_plugin_from_plugins_repo(api, fakebin):
             {"FAKE_POD_CONFIG": "plugins:\n  orchestrator:\n    source: x\n"},
             "names no",
         ),
-        ("no-tool", {"FAKE_TOOLS": "orchestrator_sessions_get"}, "orchestrator_sessions_list"),
+        (
+            "no-tool",
+            {"FAKE_TOOLS": tools_json("orchestrator_sessions_get")},
+            "orchestrator_sessions_list",
+        ),
+        (
+            "name-only-in-description",
+            {
+                "FAKE_TOOLS": tools_json(
+                    "orchestrator_sessions_get", description="like orchestrator_sessions_list"
+                )
+            },
+            "orchestrator_sessions_list",
+        ),
+        (
+            "name-is-a-prefix-match",
+            {"FAKE_TOOLS": tools_json("orchestrator_sessions_list_all")},
+            "orchestrator_sessions_list",
+        ),
     ],
 )
 def test_orchestrator_plugin_check_failures(api, fakebin, name, env, needle):
@@ -1583,14 +1611,19 @@ def test_extra_plugin_source_step(api, fakebin):
 
 
 def test_extra_plugin_source_without_petstore_tool_fails(api, fakebin):
-    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env={"FAKE_SRC_TOOLS": "other_tool"})
+    r = _run(
+        api,
+        fakebin,
+        "any-mcp: x - Connected",
+        extra_env={"FAKE_SRC_TOOLS": tools_json("other_tool")},
+    )
     assert r.returncode != 0, r.stdout
     assert "smoke: FAIL: extra source:" in r.stderr and "petstore_" in r.stderr, r.stderr
 
 
 @pytest.mark.parametrize("fail", [False, True])
 def test_plugin_source_session_cleaned_up(api, fakebin, fail):
-    env = {"FAKE_SRC_TOOLS": "other_tool"} if fail else None
+    env = {"FAKE_SRC_TOOLS": tools_json("other_tool")} if fail else None
     r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=env)
     assert (r.returncode != 0) is fail, r.stdout + r.stderr
     assert "sid-src" in api.option_deleted
@@ -1601,11 +1634,20 @@ def test_plugin_source_session_cleaned_up(api, fakebin, fail):
 def test_plugin_steps_print_no_token(api, fakebin, fail):
     env = {
         "FAKE_POD_AGENT_TOKEN": AGENT_TOKEN,
-        "FAKE_TOOLS": f"orchestrator_sessions_list\nleak {AGENT_TOKEN}",
-        "FAKE_SRC_TOOLS": f"other_tool {AGENT_TOKEN}" if fail else f"petstore_x {AGENT_TOKEN}",
+        "FAKE_TOOLS": tools_json("orchestrator_sessions_list", description=AGENT_TOKEN),
+        "FAKE_SRC_TOOLS": tools_json(
+            "other_tool" if fail else "petstore_x", description=AGENT_TOKEN
+        ),
         "FAKE_POD_CONFIG": POD_CONFIG + f"leak: {AGENT_TOKEN}\n",
     }
     r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=env)
     assert (r.returncode != 0) is fail, r.stdout + r.stderr
     assert AGENT_TOKEN not in r.stdout + r.stderr
     assert "ORCH_AGENT_TOKEN" not in r.stdout + r.stderr
+
+
+def test_petstore_name_only_in_a_description_does_not_count(api, fakebin):
+    src = tools_json("other_tool", description="petstore_list_pets lives elsewhere")
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env={"FAKE_SRC_TOOLS": src})
+    assert r.returncode != 0, r.stdout
+    assert "smoke: FAIL: extra source:" in r.stderr, r.stderr
