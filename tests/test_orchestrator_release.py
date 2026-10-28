@@ -263,6 +263,7 @@ def test_values_dir_moved(repo_root):
     assert tracked(f"values/{OLD_REL}") == []
     assert not (repo_root / "values" / OLD_REL).exists()
     assert sorted(tracked(f"values/{REL}")) == [
+        f"values/{REL}/chat-token.secrets.yaml",
         f"values/{REL}/common.yaml",
         f"values/{REL}/default.secrets.yaml",
         f"values/{REL}/service-token-agents-matrix-connector.secrets.yaml",
