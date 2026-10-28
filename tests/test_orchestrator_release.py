@@ -180,6 +180,49 @@ def test_any_mcp_configured_for_new_sessions(layered_values):
     assert env["ORCH_ANY_MCP_PLUGINS_REF"] == "v0.2.0"
 
 
+CHAT_URL = "http://agents-matrix-connector-api-agents:8001"
+
+
+def test_chat_upstream_wired(repo_root, layered_values):
+    v = layered_values(REL)
+    assert v["chat"]["url"] == CHAT_URL
+    # The connector listens on its agentApi port (chart default 8001 when the values do not set it).
+    port = layered_values("agents-matrix-connector").get("agentApi", {}).get("port", 8001)
+    assert CHAT_URL.endswith(f":{port}")
+    # The bearer never sits in plain values: it comes from the encrypted chat-token file.
+    assert not v["chat"].get("token")
+    assert not v["chat"].get("existingSecret")
+    assert f"- values/{REL}/chat-token.secrets.yaml" in _release_block(repo_root, REL)
+    enc = yaml.safe_load((repo_root / "values" / REL / "chat-token.secrets.yaml").read_text())
+    assert str(enc["chat"]["token"]).startswith("ENC[")
+
+
+def test_chat_url_and_token_render_together(repo_root):
+    """The chart fails the render for a chat token without chat.url, so a render is the guard."""
+    if shutil.which("helmfile") is None:
+        pytest.fail("helmfile is not on PATH (run under `mise exec`/`mise run`)")
+    proc = subprocess.run(  # noqa: PLW1510
+        ["helmfile", "-f", "helmfile.yaml.gotmpl", "-l", f"name={REL}", "template"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "KUBECONFIG": "/dev/null"},
+    )
+    assert proc.returncode == 0, f"helmfile template failed:\n{proc.stderr}"
+    docs = [d for d in yaml.safe_load_all(proc.stdout) if isinstance(d, dict)]
+    settings = [
+        d for d in docs if d.get("kind") == "ConfigMap" and "ORCH_CHAT_URL" in d.get("data", {})
+    ]
+    assert [d["data"]["ORCH_CHAT_URL"] for d in settings] == [CHAT_URL]
+    secrets = [
+        d for d in docs if d.get("kind") == "Secret" and d["metadata"]["name"].endswith("-chat")
+    ]
+    assert len(secrets) == 1
+    assert secrets[0].get("data", {}).get("chat-token") or secrets[0].get("stringData", {}).get(
+        "chat-token"
+    )
+
+
 def test_kube_access_enabled(layered_values):
     assert layered_values(REL)["kubeAccess"]["enabled"] is True
 
