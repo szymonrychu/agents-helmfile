@@ -223,7 +223,7 @@ def test_agent_image_pins_agree(layered_values):
     repo, _, tag = v["agentImage"].rpartition(":")
     assert repo == "harbor.szymonrichert.pl/containers/claude-code-wrapper"
     # Release tag, not a sha7: Harbor prunes the sha7 tags.
-    assert tag == "0.3.2"
+    assert tag == "0.3.3"
 
 
 def test_allowed_origins_is_ingress_host(layered_values):
