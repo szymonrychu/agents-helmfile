@@ -11,6 +11,13 @@ szymonrychu. `0.1.0-main.<sha7>` and an image sha7 resolve to that commit, a rel
 `X.Y.Z` through tag `vX.Y.Z`. A pin passes only when its commit has at least one check run and
 every one is completed with conclusion success, neutral or skipped. A missing or unparsable
 pin is a refusal.
+
+A re-run of a published build can fail for a harmless reason (the chart-publish guard refuses to
+re-push an already published chart version), and the check run of the latest attempt then reads
+red although the build was published. So a check run that is not green still counts as green when
+the job of the same name succeeded in an earlier attempt of the same workflow run (the run id is
+read from the check run's Actions URL, the attempts from the run's per-attempt jobs). A job that
+never succeeded in any attempt, or a check run that is not an Actions job, refuses the pin.
 """
 
 from __future__ import annotations
@@ -39,6 +46,7 @@ GREEN = frozenset({"success", "neutral", "skipped"})
 MAIN_BUILD = re.compile(r"\d+\.\d+\.\d+-main\.([0-9a-f]{7,40})")
 RELEASE = re.compile(r"\d+\.\d+\.\d+")
 SHA = re.compile(r"[0-9a-f]{7,40}")
+ACTIONS_JOB = re.compile(r"https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)/job/\d+")
 
 
 class Refused(Exception):
@@ -171,7 +179,36 @@ def _commit(repo: str, ref: str) -> str:
     return sha
 
 
-def _not_green(repo: str, sha: str) -> list[str]:
+def _succeeded_jobs(repo: str, run_id: str, cache: dict) -> set[str]:
+    """Names of the jobs that concluded success in an attempt before the latest of one run."""
+    key = (repo, run_id)
+    if key not in cache:
+        base = f"repos/{OWNER}/{repo}/actions/runs/{run_id}"
+        latest = _gh(base, "--jq", ".run_attempt").strip()
+        if not latest.isdigit():
+            raise Refused(f"run {run_id} has no attempt number: {latest!r}")
+        names: set[str] = set()
+        for attempt in range(1, int(latest)):
+            out = _gh("--paginate", "--slurp", f"{base}/attempts/{attempt}/jobs?per_page=100")
+            try:
+                jobs = [job for page in json.loads(out) for job in page["jobs"]]
+            except (ValueError, TypeError, KeyError) as exc:
+                raise Refused(f"unparsable jobs response for run {run_id}: {exc}") from exc
+            names |= {
+                job.get("name")
+                for job in jobs
+                if job.get("status") == "completed" and job.get("conclusion") == "success"
+            }
+        cache[key] = names
+    return cache[key]
+
+
+def _green_in_earlier_attempt(repo: str, run: dict, cache: dict) -> bool:
+    match = ACTIONS_JOB.fullmatch(run.get("html_url") or "")
+    return bool(match) and run.get("name") in _succeeded_jobs(repo, match[1], cache)
+
+
+def _not_green(repo: str, sha: str, attempts: dict) -> list[str]:
     out = _gh(
         "--paginate", "--slurp", f"repos/{OWNER}/{repo}/commits/{sha}/check-runs?per_page=100"
     )
@@ -185,14 +222,17 @@ def _not_green(repo: str, sha: str) -> list[str]:
     bad = []
     for run in runs:
         status, conclusion = run.get("status"), run.get("conclusion")
-        if status != "completed":
-            bad.append(f"{run.get('name')} {status}")
-        elif conclusion not in GREEN:
-            bad.append(f"{run.get('name')} {status}/{conclusion}")
+        if status == "completed" and conclusion in GREEN:
+            continue
+        if _green_in_earlier_attempt(repo, run, attempts):
+            continue
+        bad.append(
+            f"{run.get('name')} {status}" + (f"/{conclusion}" if status == "completed" else "")
+        )
     return bad
 
 
-def _verdict(pin: Pin, cache: dict) -> tuple[str, str | None]:
+def _verdict(pin: Pin, cache: dict, attempts: dict) -> tuple[str, str | None]:
     """Return (commit, None) for a green pin, else (commit or '-', reason)."""
     if pin.problem:
         return "-", pin.problem
@@ -204,7 +244,7 @@ def _verdict(pin: Pin, cache: dict) -> tuple[str, str | None]:
         try:
             ref = _ref(pin.version)
             sha = _commit(pin.repo, ref)
-            bad = _not_green(pin.repo, sha)
+            bad = _not_green(pin.repo, sha, attempts)
             cache[key] = (sha, f"{repo}: {', '.join(bad)}" if bad else None)
         except Refused as exc:
             cache[key] = (sha, f"{repo}: {exc}")
@@ -219,9 +259,10 @@ def main(argv: list[str]) -> int:
         )
         return 2
     cache: dict = {}
+    attempts: dict = {}
     refused = []
     for pin in [*_chart_pins(), *_values_pins()]:
-        commit, reason = _verdict(pin, cache)
+        commit, reason = _verdict(pin, cache, attempts)
         version = pin.version or "-"
         if reason is None:
             print(f"pin {pin.label} {version} {commit}: ok")

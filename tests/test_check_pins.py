@@ -51,6 +51,22 @@ with open(os.environ["FAKE_GH_LOG"], "a") as log:
 if args[:1] != ["api"]:
     sys.exit("fake gh: only `gh api` is served")
 path = next(a for a in args[1:] if a.startswith("repos/")).split("?")[0]
+m = re.fullmatch(r"repos/([^/]+/[^/]+)/actions/runs/(\d+)", path)
+if m:
+    assert args[-2:] == ["--jq", ".run_attempt"], args
+    print(state.get("attempts", {}).get(m[2], {}).get("latest", 1))
+    sys.exit(0)
+m = re.fullmatch(r"repos/([^/]+/[^/]+)/actions/runs/(\d+)/attempts/(\d+)/jobs", path)
+if m:
+    assert "--paginate" in args and "--slurp" in args, args
+    jobs = state.get("attempts", {}).get(m[2], {}).get("jobs", {}).get(m[3])
+    if jobs is None:
+        print(f"gh: Not Found (HTTP 404)", file=sys.stderr)
+        sys.exit(1)
+    size = state.get("jobs_per_page", 100)
+    chunks = [jobs[i : i + size] for i in range(0, len(jobs), size)] or [[]]
+    print(json.dumps([{"total_count": len(jobs), "jobs": c} for c in chunks]))
+    sys.exit(0)
 m = re.fullmatch(r"repos/([^/]+/[^/]+)/commits/([^/]+)/check-runs", path)
 if m:
     assert "--paginate" in args and "--slurp" in args, args
@@ -88,6 +104,18 @@ def pages_of(sha: str, *runs: tuple[str, str, str | None], per_page: int = 100) 
     built = [run_of(n, s, c, sha) for n, s, c in runs]
     chunks = [built[i : i + per_page] for i in range(0, len(built), per_page)] or [[]]
     return [{"total_count": len(built), "check_runs": chunk} for chunk in chunks]
+
+
+ACTIONS_RUN = "40565058706"
+
+
+def attempts_of(latest: int, **by_attempt: list[tuple[str, str, str | None]]) -> dict:
+    """The fake's view of one workflow run: its latest attempt and each attempt's jobs."""
+    jobs = {
+        n.removeprefix("a"): [{"name": jn, "status": st, "conclusion": c} for jn, st, c in js]
+        for n, js in by_attempt.items()
+    }
+    return {ACTIONS_RUN: {"latest": latest, "jobs": jobs}}
 
 
 def fake_sha(repo: str, ref: str) -> str:
@@ -302,6 +330,134 @@ def test_real_captured_runs_refused(tree):
         f"pin agents-orchestrator 0.1.0-main.96e46f3 {REAL_SHA}: refused "
         "(szymonrychu/agents-orchestrator: e2e completed/failure)"
     ), line
+
+
+def rerun_state(attempts: dict, runs=(("e2e", "completed", "failure"),)) -> dict:
+    """agents-orchestrator 0.1.0-main.96e46f3 whose check runs are the latest attempt's."""
+    sha = "96e46f3" + "0" * 33
+    green_rest = [r for r in GREEN if r[0] != "e2e"]
+    state = green_state()
+    state["commits"] = {"szymonrychu/agents-orchestrator@96e46f3": sha}
+    state["runs"] = {sha: pages_of(sha, *green_rest, *runs)}
+    state["attempts"] = attempts
+    return state
+
+
+def test_earlier_green_attempt_accepts_pin(tree):
+    pin_chart(tree, "agents-orchestrator", "0.1.0-main.96e46f3")
+    state = rerun_state(
+        attempts_of(
+            2,
+            a1=[("e2e", "completed", "success"), ("chart-publish", "completed", "success")],
+            a2=[("e2e", "completed", "success"), ("chart-publish", "completed", "failure")],
+        ),
+        runs=(("e2e", "completed", "success"), ("chart-publish", "completed", "failure")),
+    )
+    proc, calls = check(tree, state)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    sha = "96e46f3" + "0" * 33
+    assert pin_lines(proc.stdout)["agents-orchestrator"] == (
+        f"pin agents-orchestrator 0.1.0-main.96e46f3 {sha}: ok"
+    )
+    assert "refused" not in proc.stdout + proc.stderr
+    paths = [next(a for a in c if a.startswith("repos/")).split("?")[0] for c in calls]
+    prefix = f"repos/szymonrychu/agents-orchestrator/actions/runs/{ACTIONS_RUN}"
+    assert prefix in paths and f"{prefix}/attempts/1/jobs" in paths
+
+
+def test_earlier_green_attempt_accepts_pin_on_a_later_jobs_page(tree):
+    pin_chart(tree, "agents-orchestrator", "0.1.0-main.96e46f3")
+    filler = [(f"job-{i}", "completed", "success") for i in range(5)]
+    state = rerun_state(
+        attempts_of(
+            2,
+            a1=[*filler, ("chart-publish", "completed", "success")],
+            a2=[("chart-publish", "completed", "failure")],
+        ),
+        runs=(("chart-publish", "completed", "failure"),),
+    )
+    state["jobs_per_page"] = 2
+    proc, _ = check(tree, state)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_red_in_every_attempt_refuses_pin(tree):
+    pin_chart(tree, "agents-orchestrator", "0.1.0-main.96e46f3")
+    state = rerun_state(
+        attempts_of(
+            3,
+            a1=[("e2e", "completed", "failure")],
+            a2=[("e2e", "completed", "cancelled")],
+            a3=[("e2e", "completed", "failure")],
+        )
+    )
+    proc, _ = check(tree, state)
+    assert proc.returncode != 0
+    line = pin_lines(proc.stdout)["agents-orchestrator"]
+    assert line.endswith("(szymonrychu/agents-orchestrator: e2e completed/failure)"), line
+    assert "refused" in line
+
+
+@pytest.mark.parametrize(
+    "earlier",
+    [
+        [("lint", "completed", "success")],
+        [("e2e", "completed", "failure")],
+        [("e2e", "in_progress", None)],
+        [("e2e", "completed", "neutral")],
+        [],
+    ],
+    ids=["other-job-green", "same-job-red", "same-job-running", "neutral-is-not-success", "absent"],
+)
+def test_only_a_success_of_the_same_job_counts(tree, earlier):
+    pin_chart(tree, "agents-orchestrator", "0.1.0-main.96e46f3")
+    proc, _ = check(
+        tree,
+        rerun_state(
+            attempts_of(2, a1=earlier, a2=[("e2e", "completed", "failure")]),
+        ),
+    )
+    assert proc.returncode != 0
+    assert "e2e completed/failure" in pin_lines(proc.stdout)["agents-orchestrator"]
+
+
+def test_green_in_earlier_attempt_does_not_hide_another_red_job(tree):
+    pin_chart(tree, "agents-orchestrator", "0.1.0-main.96e46f3")
+    state = rerun_state(
+        attempts_of(
+            2,
+            a1=[("e2e", "completed", "success"), ("test", "completed", "success")],
+            a2=[("e2e", "completed", "failure")],
+        ),
+        runs=(("e2e", "completed", "failure"), ("never-green", "completed", "failure")),
+    )
+    proc, _ = check(tree, state)
+    assert proc.returncode != 0
+    line = pin_lines(proc.stdout)["agents-orchestrator"]
+    assert "never-green completed/failure" in line and "e2e" not in line, line
+
+
+def test_unreadable_attempt_refuses_pin(tree):
+    pin_chart(tree, "agents-orchestrator", "0.1.0-main.96e46f3")
+    # Attempt 1 is not served (404): the pin cannot be shown green, so it is refused.
+    state = rerun_state(attempts_of(2, a2=[("e2e", "completed", "failure")]))
+    proc, _ = check(tree, state)
+    assert proc.returncode != 0
+    assert "refused" in pin_lines(proc.stdout)["agents-orchestrator"]
+
+
+def test_check_run_without_a_workflow_run_stays_refused(tree):
+    pin_chart(tree, "agents-orchestrator", "0.1.0-main.96e46f3")
+    sha = "96e46f3" + "0" * 33
+    state = rerun_state(attempts_of(2, a1=[("e2e", "completed", "success")]))
+    external = run_of("e2e", "completed", "failure", sha)
+    external["html_url"] = external["details_url"] = "https://ci.example.org/builds/7"
+    state["runs"] = {
+        sha: [{"total_count": 1, "check_runs": [external]}],
+    }
+    proc, _ = check(tree, state)
+    assert proc.returncode != 0
+    assert "e2e completed/failure" in pin_lines(proc.stdout)["agents-orchestrator"]
 
 
 def test_red_check_on_a_later_page_refused(tree):
