@@ -41,6 +41,14 @@ SOPS-encrypted under `values/<release>/default.secrets.yaml` and
 `scripts/bootstrap-secrets.sh`, which pipes values straight into SOPS
 encryption. The mise tasks never call it and never decrypt to disk.
 
+The chat token of the agent chat relay is one token in two files, both created by
+`bootstrap_chat_token` in the same script: `values/agents-orchestrator/chat-token.secrets.yaml`
+(`chat.token`, the bearer the orchestrator sends to the connector's agent listener) and
+`values/agents-matrix-connector/agent-token.secrets.yaml` (`agentApi.tokenSha256`, its sha256,
+which is all the connector holds). The script writes both or neither, refuses when exactly one
+exists, never rotates an existing pair and never prints either value. Each file is listed on its
+release in `helmfile.yaml.gotmpl`, after that release's `default.secrets.yaml`.
+
 The `agents-orchestrator` chart renders them as the Secrets `agents-orchestrator-claude`,
 `agents-orchestrator-master-key` and `agents-orchestrator-services` (the service token hashes);
 the database URI comes from the CNPG Secret `agents-orchestrator-db-cluster-app`.

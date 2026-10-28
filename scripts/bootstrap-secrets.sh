@@ -5,6 +5,8 @@
 # nothing is echoed, traced or written to disk unencrypted.
 # A target that already exists is never touched, so re-running never rotates.
 set -euo pipefail
+# Off even when the caller turned xtrace on, so no value reaches a trace.
+set +x
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -17,6 +19,8 @@ SCH_FILE="values/agents-schedule/default.secrets.yaml"
 SCH_TOKEN_FILE="values/agents-orchestrator/service-token-agents-schedule.secrets.yaml"
 MX_FILE="values/agents-matrix-connector/default.secrets.yaml"
 MX_TOKEN_FILE="values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml"
+CHAT_FILE="values/agents-orchestrator/chat-token.secrets.yaml"
+CHAT_HASH_FILE="values/agents-matrix-connector/agent-token.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
@@ -126,9 +130,29 @@ bootstrap_matrix_connector() {
   fi
 }
 
+# bootstrap_chat_token: both files or neither. The chat token the orchestrator sends to the
+# connector's agent listener; the connector gets only its sha256. Never rotates, never half-writes.
+bootstrap_chat_token() {
+  local chat digest
+  if [[ -e "$CHAT_FILE" && -e "$CHAT_HASH_FILE" ]]; then return 0; fi
+  if [[ -e "$CHAT_FILE" || -e "$CHAT_HASH_FILE" ]]; then
+    die "exactly one of $CHAT_FILE and $CHAT_HASH_FILE exists; refusing to rotate or half-write"
+  fi
+  chat="$(openssl rand -hex 32)"
+  digest="$(printf '%s' "$chat" | openssl dgst -sha256 -r | cut -d' ' -f1)"
+  CHAT="$chat" jq -n '{chat: {token: $ENV.CHAT}}' |
+    encrypt_to "$CHAT_FILE"
+  if ! DIGEST="$digest" jq -n '{agentApi: {tokenSha256: $ENV.DIGEST}}' |
+    encrypt_to "$CHAT_HASH_FILE"; then
+    rm -f "$CHAT_FILE"
+    die "writing $CHAT_HASH_FILE failed; removed $CHAT_FILE"
+  fi
+}
+
 bootstrap_orchestrator
 bootstrap_database
 bootstrap_service_token agents-webhook "$WH_FILE" "$WH_TOKEN_FILE"
 bootstrap_service_token agents-schedule "$SCH_FILE" "$SCH_TOKEN_FILE"
 bootstrap_matrix_connector
+bootstrap_chat_token
 echo "secrets bootstrap done (existing files left untouched)" >&2

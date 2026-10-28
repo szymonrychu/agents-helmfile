@@ -76,12 +76,13 @@ releases:
       purpose: agents
       application: agents-orchestrator
     <<: *default
-    # Overrides the default anchor's list: the service token hash file comes after default.
+    # Overrides the default anchor's list: the service and chat token files come after default.
     secrets:
     - values/agents-orchestrator/default.secrets.yaml
     - values/agents-orchestrator/service-token-agents-webhook.secrets.yaml
     - values/agents-orchestrator/service-token-agents-schedule.secrets.yaml
     - values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml
+    - values/agents-orchestrator/chat-token.secrets.yaml
 
   - name: agents-webhook-db
     namespace: agents
@@ -154,6 +155,10 @@ releases:
       purpose: agents
       application: agents-matrix-connector
     <<: *default
+    # Overrides the default anchor's list: the agent token hash file comes after default.
+    secrets:
+    - values/agents-matrix-connector/default.secrets.yaml
+    - values/agents-matrix-connector/agent-token.secrets.yaml
 
   - name: agents-web
     namespace: agents
