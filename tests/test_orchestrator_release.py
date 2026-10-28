@@ -11,7 +11,7 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "37edd58"
+PIN = "6b467b7"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -210,10 +210,23 @@ def test_chat_url_and_token_render_together(repo_root):
     )
     assert proc.returncode == 0, f"helmfile template failed:\n{proc.stderr}"
     docs = [d for d in yaml.safe_load_all(proc.stdout) if isinstance(d, dict)]
-    settings = [
+    # The shared settings ConfigMap is loaded by every container, so it must not carry the URL
+    # (the migrate init containers crash-looped on a URL without its token, 2026-10-28).
+    assert not [
         d for d in docs if d.get("kind") == "ConfigMap" and "ORCH_CHAT_URL" in d.get("data", {})
     ]
-    assert [d["data"]["ORCH_CHAT_URL"] for d in settings] == [CHAT_URL]
+    carriers = {}
+    for dep in (d for d in docs if d.get("kind") == "Deployment"):
+        pod = dep["spec"]["template"]["spec"]
+        for ctr in [*pod.get("initContainers", []), *pod["containers"]]:
+            env = {e["name"]: e for e in ctr.get("env", [])}
+            has = {"ORCH_CHAT_URL" in env, "ORCH_CHAT_TOKEN" in env}
+            assert len(has) == 1, (
+                f"{dep['metadata']['name']}/{ctr['name']} has only half the chat pair"
+            )
+            if "ORCH_CHAT_URL" in env:
+                carriers[f"{dep['metadata']['name']}/{ctr['name']}"] = env["ORCH_CHAT_URL"]["value"]
+    assert carriers == {f"{REL}-api/api": CHAT_URL}
     secrets = [
         d for d in docs if d.get("kind") == "Secret" and d["metadata"]["name"].endswith("-chat")
     ]
