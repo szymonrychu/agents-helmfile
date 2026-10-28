@@ -41,6 +41,14 @@ SOPS-encrypted under `values/<release>/default.secrets.yaml` and
 `scripts/bootstrap-secrets.sh`, which pipes values straight into SOPS
 encryption. The mise tasks never call it and never decrypt to disk.
 
+The chat token of the agent chat relay is one token in two files, both created by
+`bootstrap_chat_token` in the same script: `values/agents-orchestrator/chat-token.secrets.yaml`
+(`chat.token`, the bearer the orchestrator sends to the connector's agent listener) and
+`values/agents-matrix-connector/agent-token.secrets.yaml` (`agentApi.tokenSha256`, its sha256,
+which is all the connector holds). The script writes both or neither, refuses when exactly one
+exists, never rotates an existing pair and never prints either value. Each file is listed on its
+release in `helmfile.yaml.gotmpl`, after that release's `default.secrets.yaml`.
+
 The `agents-orchestrator` chart renders them as the Secrets `agents-orchestrator-claude`,
 `agents-orchestrator-master-key` and `agents-orchestrator-services` (the service token hashes);
 the database URI comes from the CNPG Secret `agents-orchestrator-db-cluster-app`.
@@ -121,6 +129,25 @@ Applies are manual and local, run from this directory.
   requires a new pod uid and Ready, an agent view state that is not `dead`, a second message that reaches `sent`, and stored events after
   the restart that carry the same `wrapper_session_id`. Each of those waits has its own `SMOKE_TIMEOUT_S` window; message text, events and
   uids are matched, never printed. The session is deleted on every exit. The deployed orchestrator must carry the ingester re-attach fix.
+- `mise run chat-smoke` - `bash scripts/chat-smoke.sh`, the live chat smoke S1-S4 in the owner DM
+  (`CHAT_SMOKE_ROOM`, default `!iLWrAwaTMYnINJsyNv:szymonrichert.pl`). **It posts real messages to the owner DM from the owner's
+  Facebook account**, so it is never part of `mise run smoke`; run it after the connector and orchestrator applies and after setting
+  `agents_may_initiate` on the owner DM. It reads the DM's `binding` from the connector UI API (`GET /matrix/api/v1/rooms/{room_id}`,
+  port-forward to `deploy/agents-matrix-connector-api` on `SMOKE_MATRIX_API_LOCAL_PORT`, default 18004) and picks its caller (1:1
+  room-session binding): when the DM is bound, the leader pod of the bound session (hive: the pod of `leader_agent_id` in
+  `GET /api/v1/sessions/{id}/agents`; alone: its only agent), using only that pod's own `ORCH_AGENT_*` env, with no message to or
+  change of that session and nothing created or deleted; when it is unbound, a throwaway alone session `chat-smoke-<ts>` (the spec of
+  `CHAT_SMOKE_PRESET`, a preset id or name, else the default preset, with `replicas` and `max_replicas` 1) whose S1 initiates and
+  binds the DM; it is deleted at the end and the script waits until the connector releases the binding. A DM reserved by a first run
+  in progress (a binding without a session) stops it. Before S1 it prints the hours since the DM's newest inbound message. From the
+  caller pod, through the orchestrator agent routes `/agent/v1/chat/*`, the room list must name the DM, then S1 sends a message with no
+  inbound message in the run, S2 replies to S1's `s<n>`, S3 reacts with a thumbs-up to it and S4 with a second, different emoji; each
+  send's status is polled to `sent`, `failed` or `refused` with its own `CHAT_SMOKE_TIMEOUT_S` deadline (default 600 s; a timeout
+  exits 1 naming the step). S1-S3 must end `sent`; S4 is printed with its status and reason (or the api refusal) and never fails the
+  run. It prints the caller (`caller: bound <slug>` or `caller: throwaway <slug>`), the binding before, during (throwaway) and after,
+  and every id, status and reason. It owns its port-forwards (`SMOKE_LOCAL_PORT`, default 18000, to `deploy/agents-orchestrator-api`):
+  a stale `kubectl port-forward` on either port is killed first, and the trap kills its own and deletes the throwaway session (only
+  one it created) on success, failure and interrupt. No token or `ORCH_AGENT_*` value is printed.
 - `mise run kube-context` - guard used by diff and apply: fails unless a kube
   context is set and the API answers; prints only the context name.
 - `mise run fmt` - format code.

@@ -21,6 +21,8 @@ SCH = "values/agents-schedule/default.secrets.yaml"
 SCH_TOKEN = "values/agents-orchestrator/service-token-agents-schedule.secrets.yaml"
 MX = "values/agents-matrix-connector/default.secrets.yaml"
 MX_TOKEN = "values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml"
+CHAT = "values/agents-orchestrator/chat-token.secrets.yaml"
+CHAT_HASH = "values/agents-matrix-connector/agent-token.secrets.yaml"
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -45,6 +47,8 @@ def _load(rel: str) -> dict:
         (WH_TOKEN, {"serviceApi.tokenHashes.agents-webhook"}),
         (SCH, {"orchestrator.token"}),
         (SCH_TOKEN, {"serviceApi.tokenHashes.agents-schedule"}),
+        (CHAT, {"chat.token"}),
+        (CHAT_HASH, {"agentApi.tokenSha256"}),
     ],
 )
 def test_secrets_files_encrypted_with_expected_keys(rel, keys):
@@ -88,12 +92,12 @@ def _sandbox(tmp_path: Path) -> Path:
     return bindir
 
 
-def _run(tmp_path: Path, bindir: Path) -> subprocess.CompletedProcess:
+def _run(tmp_path: Path, bindir: Path, *bash_args: str) -> subprocess.CompletedProcess:
     # BASH_ENV would re-prepend the real tool dirs and let the script reach the real cluster.
     env = {k: v for k, v in os.environ.items() if k not in ("BASH_ENV", "ENV")}
     env["PATH"] = f"{bindir}:/usr/bin:/bin"
     return subprocess.run(
-        ["bash", str(tmp_path / "scripts" / "bootstrap-secrets.sh")],
+        ["bash", *bash_args, str(tmp_path / "scripts" / "bootstrap-secrets.sh")],
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -104,13 +108,13 @@ def _run(tmp_path: Path, bindir: Path) -> subprocess.CompletedProcess:
 
 def test_script_does_not_overwrite_existing(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN, MX, MX_TOKEN):
+    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
     r = _run(tmp_path, bindir)
     assert r.returncode == 0, r.stderr
-    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN, MX, MX_TOKEN):
+    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
 
@@ -147,7 +151,7 @@ def test_webhook_token_hash_matches():
 
 def test_webhook_secrets_never_rotate(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN):
+    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -188,7 +192,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
     (bindir / "sops").write_text(
         '#!/bin/sh\ncat > "$(mktemp "' + str(tmp_path) + "/plain.XXXXXX\")\"\necho 'sops: stub'\n"
     )
-    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN):
+    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -231,7 +235,7 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
         f'cat > "{plain}/$name"\n'
         "echo 'sops: stub'\n"
     )
-    for rel in (ORCH, DB, WH, WH_TOKEN, MX, MX_TOKEN):
+    for rel in (ORCH, DB, WH, WH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -393,3 +397,98 @@ def test_matrix_connector_never_prints_values(tmp_path):
     for stream in (r.stdout, r.stderr):
         for value in (MATRIX_TOKEN, svc, digest):
             assert value not in stream
+
+
+def _chat_sandbox(tmp_path: Path) -> Path:
+    """Every target present except the two chat token files."""
+    bindir = _schedule_sandbox(tmp_path)
+    for rel in (SCH, SCH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    for rel in (CHAT, CHAT_HASH):
+        (tmp_path / rel).unlink()
+    return bindir
+
+
+def _encrypted(tmp_path: Path) -> list[str]:
+    return sorted(p.name for p in (tmp_path / "plain").iterdir())
+
+
+def test_chat_token_bootstrapped(tmp_path):
+    bindir = _chat_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == sorted(rel.replace("/", "_") for rel in (CHAT, CHAT_HASH))
+    for rel in (CHAT, CHAT_HASH):
+        assert (tmp_path / rel).read_text() == "sops: stub\n"
+    chat = _plain(tmp_path, CHAT)
+    assert set(chat) == {"chat"}
+    assert set(chat["chat"]) == {"token"}
+    token = chat["chat"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", token)
+    assert _plain(tmp_path, CHAT_HASH) == {
+        "agentApi": {"tokenSha256": hashlib.sha256(token.encode()).hexdigest()}
+    }
+
+
+def test_chat_token_never_rotates(tmp_path):
+    bindir = _chat_sandbox(tmp_path)
+    assert _run(tmp_path, bindir).returncode == 0
+    for f in (tmp_path / "plain").iterdir():
+        f.unlink()
+    # both present: nothing is encrypted again, both files untouched
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+    for rel in (CHAT, CHAT_HASH):
+        assert (tmp_path / rel).read_text() == "sops: stub\n"
+    # exactly one present: exit 1 naming both, the survivor untouched, nothing written
+    for present, absent in ((CHAT, CHAT_HASH), (CHAT_HASH, CHAT)):
+        (tmp_path / absent).unlink()
+        (tmp_path / present).write_text("sentinel: keep\n")
+        r = _run(tmp_path, bindir)
+        assert r.returncode == 1
+        assert CHAT in r.stderr and CHAT_HASH in r.stderr
+        assert not (tmp_path / absent).exists()
+        assert (tmp_path / present).read_text() == "sentinel: keep\n"
+        assert _encrypted(tmp_path) == []
+        (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+def test_chat_token_not_printed(tmp_path):
+    # Plain and traced (bash -x) runs, each in its own sandbox so each mints a token.
+    for name, bash_args in (("plain-run", ()), ("traced-run", ("-x",))):
+        root = tmp_path / name
+        root.mkdir()
+        bindir = _chat_sandbox(root)
+        r = _run(root, bindir, *bash_args)
+        assert r.returncode == 0, r.stderr
+        token = _plain(root, CHAT)["chat"]["token"]
+        digest = _plain(root, CHAT_HASH)["agentApi"]["tokenSha256"]
+        for stream in (r.stdout, r.stderr):
+            assert token not in stream, f"{name}: token printed"
+            assert digest not in stream, f"{name}: hash printed"
+
+
+def _secrets_of(docs: list[dict], release: str) -> list[str]:
+    for doc in docs:
+        for rel in doc.get("releases", []):
+            if rel["name"] == release:
+                return [s if isinstance(s, str) else s.get("path", "") for s in rel["secrets"]]
+    raise AssertionError(f"release {release} not rendered")
+
+
+def test_chat_token_files_listed_on_releases(helmfile_build):
+    docs = helmfile_build()
+    orch = _secrets_of(docs, "agents-orchestrator")
+    assert CHAT in orch and orch.index(CHAT) > orch.index(ORCH)
+    assert CHAT_HASH not in orch
+    assert _secrets_of(docs, "agents-matrix-connector") == [MX, CHAT_HASH]
+
+
+def test_chat_token_hash_matches():
+    token = _decrypt(CHAT)["chat"]["token"]
+    assert _decrypt(CHAT_HASH) == {
+        "agentApi": {"tokenSha256": hashlib.sha256(token.encode()).hexdigest()}
+    }

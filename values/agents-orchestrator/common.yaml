@@ -19,6 +19,11 @@ serviceApi:
 
 # masterKey.value and claude.token come from default.secrets.yaml (SOPS).
 
+# Chat upstream of the agent chat relay: the connector's agent listener Service. The bearer
+# (chat.token) comes from chat-token.secrets.yaml (SOPS); the connector holds only its sha256.
+chat:
+  url: http://agents-matrix-connector-api-agents:8001
+
 env:
   # The oauth2-proxy sidecar (podAnnotations below) is the only way in: it reaches the api over
   # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods

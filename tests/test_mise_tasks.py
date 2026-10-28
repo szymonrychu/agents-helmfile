@@ -123,3 +123,15 @@ def test_apply_depends_on_check_pins(tasks):
     assert "check runs" in check["description"]
     for name in ("agents-orchestrator", "agents-web", "agents-webhook", "agents-schedule"):
         assert name in check["description"], name
+
+
+def test_chat_smoke_task(tasks):
+    chat = tasks["chat-smoke"]
+    assert _run(chat) == "bash scripts/chat-smoke.sh"
+    assert "owner DM" in chat["description"]
+    # The chat smoke posts real messages: never part of `mise run smoke`.
+    assert "chat-smoke" not in _run(tasks["smoke"])
+    assert "chat-smoke" not in str(tasks["smoke"].get("depends", []))
+    readme = (ROOT / "README.md").read_text()
+    assert "mise run chat-smoke" in readme
+    assert "owner DM" in readme
