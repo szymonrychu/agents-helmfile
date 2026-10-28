@@ -11,6 +11,7 @@ kubectl = '1.33.13'
 kubectx = '0.11.0'
 stern = '1.34.0'
 shellcheck = '0.11.0'
+gh = '2.101.0'
 
 [tool_alias]
 kubectl = "aqua:kubernetes/kubernetes/kubectl"
@@ -63,11 +64,15 @@ description = "helmfile diff of namespace agents; exit 2 means changes (passed t
 depends = ["kube-context"]
 run = 'helmfile -f helmfile.yaml.gotmpl diff --detailed-exitcode --suppress-secrets "$@"'
 
+[tasks.check-pins]
+description = "Refuse unless every pinned main-built commit has GitHub check runs that are all completed success, neutral or skipped (gh api check-runs): the agents-orchestrator, agents-web, agents-webhook, agents-schedule and agents-matrix-connector charts, the orchestrator and web image tags, and the claude-code-wrapper agentImage and ORCH_AGENT_IMAGES (X.Y.Z through tag vX.Y.Z). No override"
+run = "uv run scripts/check_pins.py"
+
 [tasks.apply]
-description = "helmfile apply of namespace agents (guarded by lint and test). Extra args: -- --selector name=<release>"
-depends = ["lint", "test", "kube-context"]
+description = "helmfile apply of namespace agents (guarded by lint, test and check-pins). Extra args: -- --selector name=<release>"
+depends = ["lint", "test", "check-pins", "kube-context"]
 run = 'helmfile -f helmfile.yaml.gotmpl apply --suppress-secrets "$@"'
 
 [tasks.smoke]
-description = "Prove the deployed agents-orchestrator: the UI is checked on agents-web (index and config.json) and the host routes / to it and /api to the orchestrator, a 1-replica session gets a Ready pod listing any-mcp, scales to 2 and back on /api/v1/sessions, and the webhook checks pass (env HOST, RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT, WEB_RELEASE, SMOKE_WEB_LOCAL_PORT; port-forwards to the api and agents-web without HOST)"
+description = "Prove the deployed agents-orchestrator: the UI is checked on agents-web (index and config.json) and the host routes / to it and /api to the orchestrator, a 1-replica session gets a Ready pod listing any-mcp, scales to 2 and back on /api/v1/sessions, a smoke-created session keeps its wrapper session id and delivers a message after its own pod is deleted (session continuity), and the webhook checks pass (env HOST, RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT, WEB_RELEASE, SMOKE_WEB_LOCAL_PORT; port-forwards to the api and agents-web without HOST)"
 run = "bash scripts/smoke.sh"

@@ -41,6 +41,10 @@
 # rendered /opt/any-mcp/etc/any-mcp.yaml names any-mcp-tatara-plugins//orchestration/orchestrator at the pinned ORCH_ANY_MCP_PLUGINS_REF and
 # `any-mcp --list-tools` lists orchestrator_sessions_list; a session smoke-src-<ts> created with any_mcp_sources holding the petstore example at
 # the pinned any-mcp tag gets a Ready pod whose --list-tools lists a petstore_ tool. The trap deletes smoke-src-<ts>; outputs (a JSON array of tools) are only matched by tool name.
+# Session continuity (last step): session smoke-cont-<ts> gets a Ready pod and one completed turn; its agent's wrapper_session_id is read from
+# GET /api/v1/sessions/{id}/events?agent_id=..., then only that session's pod is deleted (kubectl delete pod/agent-smoke-cont-<ts>-0): the
+# pod returns Ready with a new uid, the agent view state is not dead, a second message reaches sent and the stored events after the restart
+# carry the same wrapper_session_id. Each wait has its own SMOKE_TIMEOUT_S window; the trap deletes the session.
 # Prints no secrets: only status lines, pod events and the mcp list.
 set -euo pipefail
 
@@ -891,4 +895,119 @@ if [ "${denied%% *}" != "403" ] || ! echo "${denied#* }" | jq -e '.error.code ==
   fail "messaging: send from ${B_SLUG} to the hive session ${SLUG} answered '${denied%% *}', expected 403 target_not_superleader: ${denied#* }"
 fi
 log "send from ${B_SLUG} to the hive session refused: 403 target_not_superleader"
+
+# 12. Session continuity: a session the smoke creates (smoke-cont-<ts>, deleted by the trap) has one real turn, then only its own pod is
+# deleted. The pod must come back Ready with a new uid, the agent must leave (or never enter) `dead`, a second message must reach `sent`
+# and the stored events after the restart must carry the same wrapper session id. Each wait has its own SMOKE_TIMEOUT_S window; message
+# text, events and uids are matched, never printed.
+CONT_SLUG="smoke-cont-${TS}"
+option_create "$CONT_SLUG" '{"replicas": 1}' "continuity"
+CONT_ID=$OPT_NEW_ID
+option_pod "$CONT_SLUG" "continuity"
+cont_pod=$OPT_POD
+case "$cont_pod" in
+  "pod/agent-smoke-cont-"*"-0") ;;
+  *) fail "continuity: refusing to delete ${cont_pod}: not the pod of a smoke-cont session" ;;
+esac
+
+# cont_post <text>: queues a message on the continuity session; sets CONT_MSG_ID.
+cont_post() {
+  local resp
+  resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$(jq -cn --arg text "$1" '{text: $text}')" \
+    "${BASE}/api/v1/sessions/${CONT_ID}/messages") || fail "continuity: posting a message to ${CONT_SLUG} failed"
+  CONT_MSG_ID=$(echo "$resp" | jq -er '.message_id') || fail "continuity: the message answer carries no message_id"
+}
+
+# cont_wait_sent <message id> <when>: waits for the message to reach sent.
+cont_wait_sent() {
+  local deadline status=""
+  deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+  while :; do
+    status=$(curl -fsS --max-time 20 "${BASE}/api/v1/messages/$1" | jq -r '.status // empty' 2> /dev/null) || status=""
+    case "$status" in
+      sent) break ;;
+      failed | cancelled) fail "continuity: message $1 is ${status} $2, expected sent" ;;
+    esac
+    [ "$(date +%s)" -ge "$deadline" ] && fail "continuity: message $1 not sent within ${SMOKE_TIMEOUT_S}s $2 (status '${status}')"
+    sleep 3
+  done
+}
+
+# cont_agent <field>: the continuity agent's field in the session agents view.
+cont_agent() {
+  curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${CONT_ID}/agents" |
+    jq -r --arg pod "${cont_pod#pod/}" --arg f "$1" '[.[] | select(.pod_name == $pod and (.gone | not))][0] | if . == null then empty else .[$f] | tostring end'
+}
+
+cont_events() { curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${CONT_ID}/events?agent_id=${cont_agent_id}$1&limit=200"; }
+
+cont_post "smoke continuity: answer with the single word ok"
+cont_wait_sent "$CONT_MSG_ID" "before the restart"
+log "continuity: message ${CONT_MSG_ID} reached sent before the restart"
+
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+cont_agent_id=""
+while [ -z "$cont_agent_id" ]; do
+  cont_agent_id=$(cont_agent id) || cont_agent_id=""
+  [ -n "$cont_agent_id" ] && break
+  [ "$(date +%s)" -ge "$deadline" ] && fail "continuity: no agent for ${cont_pod} in the session agents list within ${SMOKE_TIMEOUT_S}s"
+  sleep 3
+done
+
+# A transcript exists once the first turn completed; a restart in the middle of a turn would test a crash, not a restart.
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+while :; do
+  cont_events "&types=turn_completed" | jq -e '(.events | length) > 0' > /dev/null 2>&1 && break
+  [ "$(date +%s)" -ge "$deadline" ] && fail "continuity: ${CONT_SLUG} has no completed turn within ${SMOKE_TIMEOUT_S}s"
+  sleep 3
+done
+before=$(cont_events "") || fail "continuity: cannot read the events of ${cont_agent_id}"
+before_wrapper=$(echo "$before" | jq -r '.events | last | .wrapper_session_id // empty')
+before_last_id=$(echo "$before" | jq -r '[.events[].id] | max // empty')
+[ -n "$before_wrapper" ] && [ -n "$before_last_id" ] || fail "continuity: ${cont_agent_id} has no stored events before the restart"
+log "continuity: ${cont_agent_id} has wrapper session id ${before_wrapper} after one turn"
+
+cont_uid() { kubectl -n "$NAMESPACE" get "$cont_pod" -o 'jsonpath={.metadata.uid}' 2> /dev/null || true; }
+cont_uid0=$(cont_uid)
+[ -n "$cont_uid0" ] || fail "continuity: cannot read the uid of ${cont_pod}"
+kubectl -n "$NAMESPACE" delete "$cont_pod" --wait=false > /dev/null || fail "continuity: cannot delete ${cont_pod}"
+log "continuity: deleted ${cont_pod}"
+
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+while :; do
+  cont_uid1=$(cont_uid)
+  [ -n "$cont_uid1" ] && [ "$cont_uid1" != "$cont_uid0" ] && break
+  [ "$(date +%s)" -ge "$deadline" ] && fail "continuity: ${cont_pod} has no new uid within ${SMOKE_TIMEOUT_S}s"
+  sleep 3
+done
+kubectl -n "$NAMESPACE" wait --for=condition=Ready "$cont_pod" --timeout="${SMOKE_TIMEOUT_S}s" > /dev/null ||
+  fail "continuity: ${cont_pod} not Ready within ${SMOKE_TIMEOUT_S}s after the restart"
+log "continuity: pod ${cont_pod#pod/} returned Ready with a new uid"
+
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+while :; do
+  cont_state=$(cont_agent state) || cont_state=""
+  [ -n "$cont_state" ] && [ "$cont_state" != "dead" ] && break
+  [ "$(date +%s)" -ge "$deadline" ] && fail "continuity: agent ${cont_agent_id} still dead ${SMOKE_TIMEOUT_S}s after the pod restart (state '${cont_state}')"
+  sleep 3
+done
+log "continuity: agent ${cont_agent_id} is not dead after the restart"
+
+cont_post "smoke continuity: answer with the single word ok again"
+cont_wait_sent "$CONT_MSG_ID" "after the restart"
+log "continuity: message ${CONT_MSG_ID} reached sent after the restart"
+
+deadline=$(($(date +%s) + SMOKE_TIMEOUT_S))
+while :; do
+  after=$(cont_events "&after_id=${before_last_id}") || after=""
+  if echo "$after" | jq -e '(.events | length) > 0' > /dev/null 2>&1; then
+    echo "$after" | jq -e --arg w "$before_wrapper" 'all(.events[]; .wrapper_session_id == $w)' > /dev/null ||
+      fail "continuity: wrapper session id changed after the restart (before ${before_wrapper}, after $(echo "$after" | jq -r '[.events[].wrapper_session_id] | unique | join(",")'))"
+    break
+  fi
+  [ "$(date +%s)" -ge "$deadline" ] && fail "continuity: no event from the agent after the restart within ${SMOKE_TIMEOUT_S}s"
+  sleep 3
+done
+log "continuity: wrapper session id ${before_wrapper} unchanged after the restart"
+
 log "OK"

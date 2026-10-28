@@ -69,8 +69,17 @@ Applies are manual and local, run from this directory.
 - `mise run diff` - `helmfile diff --detailed-exitcode --suppress-secrets`.
   Exit code 2 means there are changes (passed through, not an error); 0 means
   none.
+- `mise run check-pins` - `uv run scripts/check_pins.py`: for every pinned main-built commit (the
+  `agents-orchestrator`, `agents-web`, `agents-webhook`, `agents-schedule` and `agents-matrix-connector`
+  chart versions, the orchestrator and web `image.tag`, and the claude-code-wrapper `agentImage` and
+  `ORCH_AGENT_IMAGES`) it resolves the commit (`0.1.0-main.<sha7>` or an image sha7 is that commit, a
+  release `X.Y.Z` goes through tag `vX.Y.Z`) and lists its check runs with `gh api` (paginated). A pin
+  passes only when at least one check run exists and every one is completed with conclusion `success`,
+  `neutral` or `skipped`. It prints `pin <release> <version> <commit>: ok|refused (<reasons>)` per pin
+  and exits non-zero naming each refused pin; a missing or unparsable pin is refused. No flag or
+  environment variable skips it. Needs `gh` logged in (`gh auth status`).
 - `mise run apply` - `helmfile apply --suppress-secrets`. Depends on `lint`,
-  `test` and `kube-context`, so a broken tree cannot be applied. Failed upgrades
+  `test`, `check-pins` and `kube-context`, so a broken tree or a red build cannot be applied. Failed upgrades
   roll back (`helmDefaults`); the hook creates the regcred and raw manifests.
 - `mise run smoke` - proves the UI on agents-web answers with the agents-web index and a `config.json` listing the orchestrator
   backend, that the host routes `/` to agents-web and `/api` to `agents-orchestrator`, that a fresh session lists `any-mcp`, that the
@@ -106,6 +115,12 @@ Applies are manual and local, run from this directory.
   `GET /agent/v1/sessions` lists B and the hive session, `POST /agent/v1/sessions/<B>/messages` answers 202 with a `message_id`, the
   message reaches `sent` and B's events carry a `user_message` starting `<session-message from="<A>"`; from B's pod the list shows A and
   not the hive session and a send to the hive session answers 403 `target_not_superleader`. The three sessions are deleted on every exit.
+  Last, session continuity: session `smoke-cont-<ts>` (1 replica) gets a Ready pod and one completed turn (a message that reaches `sent`
+  and a stored `turn_completed`); the smoke reads the agent's `wrapper_session_id` from `GET /api/v1/sessions/{id}/events?agent_id=...`,
+  deletes that pod and only that pod (`kubectl delete pod/agent-smoke-cont-<ts>-0`, refused unless the name is a smoke-cont pod), and
+  requires a new pod uid and Ready, an agent view state that is not `dead`, a second message that reaches `sent`, and stored events after
+  the restart that carry the same `wrapper_session_id`. Each of those waits has its own `SMOKE_TIMEOUT_S` window; message text, events and
+  uids are matched, never printed. The session is deleted on every exit. The deployed orchestrator must carry the ingester re-attach fix.
 - `mise run kube-context` - guard used by diff and apply: fails unless a kube
   context is set and the API answers; prints only the context name.
 - `mise run fmt` - format code.
