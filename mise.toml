@@ -76,3 +76,7 @@ run = 'helmfile -f helmfile.yaml.gotmpl apply --suppress-secrets "$@"'
 [tasks.smoke]
 description = "Prove the deployed agents-orchestrator: the UI is checked on agents-web (index and config.json) and the host routes / to it and /api to the orchestrator, a 1-replica session gets a Ready pod listing any-mcp, scales to 2 and back on /api/v1/sessions, a smoke-created session keeps its wrapper session id and delivers a message after its own pod is deleted (session continuity), and the webhook checks pass (env HOST, RELEASE, NAMESPACE, SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT, WEB_RELEASE, SMOKE_WEB_LOCAL_PORT; port-forwards to the api and agents-web without HOST)"
 run = "bash scripts/smoke.sh"
+
+[tasks.chat-smoke]
+description = "Live chat smoke S1-S4 in the owner DM: POSTS REAL MESSAGES from the owner's Facebook account (never part of smoke). Picks the caller from the DM's binding (bound: that session's leader pod, nothing created or changed; unbound: a throwaway alone session, deleted after, binding release awaited), lists rooms, S1 send with no inbound, S2 quoted reply, S3 thumbs-up, S4 a second reaction (env NAMESPACE, RELEASE, MATRIX_RELEASE, CHAT_SMOKE_ROOM, CHAT_SMOKE_PRESET, CHAT_SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT, SMOKE_MATRIX_API_LOCAL_PORT)"
+run = "bash scripts/chat-smoke.sh"
