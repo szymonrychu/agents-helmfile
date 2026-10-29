@@ -1,0 +1,124 @@
+name: ci
+
+# Trust model (README, section CI). This repository is public:
+# - no privileged pull request trigger (only `pull_request`); secrets go only to push, workflow_dispatch and pull requests
+#   whose head branch lives in this repository (job `ci`). A fork pull request gets `fork-lint`,
+#   which references no secret;
+# - no decrypted value is printed: no xtrace, and the test step keeps every failure detail
+#   (assertion diffs, messages, captured output, warnings) off the log;
+# - the key and the Harbor login leave the runner in a final `if: always()` step;
+# - no Kubernetes API is reachable: no kubeconfig and no in-cluster fallback.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  HARBOR_URL: harbor.szymonrichert.pl
+  # The helmfile prepare hook diffs raw/ (and decrypts raw/*.secrets.yaml) only when
+  # `kubectl cluster-info` answers. An empty kubeconfig alone is not enough: kubectl then
+  # falls back to the in-cluster service account when KUBERNETES_SERVICE_HOST is set.
+  KUBECONFIG: /dev/null
+  KUBERNETES_SERVICE_HOST: ""
+  KUBERNETES_SERVICE_PORT: ""
+
+jobs:
+  ci:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise install
+
+      # The release tests run `helmfile build` and `helmfile template`, which pull the charts
+      # from Harbor and decrypt the SOPS/PGP values files. Neither is skipped: a missing secret
+      # fails the job.
+      - name: Require repository secrets
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          SOPS_PGP_PRIVATE_KEY: ${{ secrets.SOPS_PGP_PRIVATE_KEY }}
+        run: |
+          missing=""
+          for name in HARBOR_USERNAME HARBOR_PASSWORD SOPS_PGP_PRIVATE_KEY; do
+            if [ -z "${!name:-}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secret(s):$missing. Add them under Settings, Secrets and variables, Actions (see README, section CI)."
+            exit 1
+          fi
+
+      - name: Refuse a reachable Kubernetes API
+        run: |
+          if mise exec -- kubectl cluster-info --request-timeout=5s > /dev/null 2>&1; then
+            echo "::error::a Kubernetes API is reachable from this runner; CI never contacts one (README, section CI)."
+            exit 1
+          fi
+
+      # Neither needs a secret, so both run before the key and the Harbor login exist.
+      - run: mise run lint
+      - name: Check pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: mise run check-pins
+
+      - name: Login to Harbor
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: echo "$HARBOR_PASSWORD" | mise exec -- helm registry login "$HARBOR_URL" --username "$HARBOR_USERNAME" --password-stdin
+
+      - name: Import the SOPS PGP key
+        env:
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+          SOPS_PGP_PRIVATE_KEY: ${{ secrets.SOPS_PGP_PRIVATE_KEY }}
+        run: |
+          mkdir -m 700 "$GNUPGHOME"
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          printf '%s\n' "$SOPS_PGP_PRIVATE_KEY" | gpg --batch --quiet --import
+
+      # Decrypted values live only inside the test processes. On a failure pytest would print
+      # them in assertion diffs, messages (helmfile stderr), YAML error snippets, captured output
+      # and warnings, untruncated because CI is set. These flags print only the name and outcome
+      # of each test; `mise run test` on a machine with the key shows the details.
+      - name: Run the tests (failure details stay off the log)
+        run: mise run test -- --tb=no --show-capture=no --disable-warnings -rN -vv
+
+      - name: Remove the key and the Harbor login
+        if: always()
+        env:
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+        run: |
+          rc=0
+          gpgconf --kill gpg-agent || rc=1
+          rm -rf "$GNUPGHOME" || rc=1
+          mise exec -- helm registry logout "$HARBOR_URL" || rc=1
+          exit $rc
+
+  fork-lint:
+    # GitHub gives a fork pull request no secrets, and this job asks for none.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Lint only for a fork pull request
+        run: echo "::notice::Fork pull request, lint only and without any secret. The full suite (SOPS-decrypting tests, Harbor charts, check-pins) runs after a maintainer merges or re-pushes this change from a same-repo branch."
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise install
+      - run: mise run lint

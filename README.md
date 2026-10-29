@@ -68,6 +68,54 @@ The old database release `agent-orchestrator-db` and its values dir `values/agen
 stay declared and, once the smoke is green, are hibernated with the CNPG `cnpg.io/hibernation: "on"`
 annotation: its pods stop, its volumes and backups stay, and it is the rollback point.
 
+## CI
+
+`.github/workflows/ci.yaml` runs on every pull request to main and every push to main (and by hand):
+`mise run lint`, `mise run check-pins` (with the workflow `GITHUB_TOKEN` as `GH_TOKEN`; the pinned repos are public)
+and `mise run test` (the whole suite, including `tests/test_orchestrator_release.py`). Actions are pinned by full
+commit sha, checkout keeps no token in the git config and the token has `contents: read` only. No test is skipped or
+xfailed.
+
+The release tests run `helmfile build` and `helmfile template`, which pull the charts from Harbor and decrypt the
+SOPS/PGP values files (`.sops.yaml`, key `D39E46932A270AA3BA490B9DB9FE928D3E8BCED8`); `tests/test_secrets.py`
+decrypts the token files in-process. A run with an empty `GNUPGHOME` and no Harbor login fails 18 tests, every one
+on SOPS decryption (the chart pull is only reached after it succeeds). The job therefore needs three repository
+secrets and fails first, naming whichever are missing:
+
+- `HARBOR_USERNAME` and `HARBOR_PASSWORD`: a read-only chart-pull robot account of `harbor.szymonrichert.pl`
+  (project `charts`); the job runs `helm registry login` with them.
+- `SOPS_PGP_PRIVATE_KEY`: the ASCII-armoured private key for the SOPS recipient above, imported into a temporary
+  `GNUPGHOME` of the runner (no passphrase). No key is stored in the repository.
+
+User-run step: add these secrets under Settings, Secrets and variables, Actions of the `agents-helmfile` repository.
+
+### Trust model
+
+The repository is public; `tests/test_ci_workflow.py` pins each rule below.
+
+- Which events get secrets. The job `ci`, the only one that references a secret, runs for `push`,
+  `workflow_dispatch` and a `pull_request` whose head repo is this repository (job-level `if` on
+  `github.event.pull_request.head.repo.full_name == github.repository`). A pull request from a fork runs `fork-lint`
+  instead: `mise run lint` only, no secret, and a notice in its log that the full suite runs after a maintainer
+  merges or re-pushes the change from a same-repo branch. `pull_request_target` is never used.
+- Order. Lint and check-pins run before the Harbor login and the key import, so the key is on the runner only for
+  `mise run test`.
+- Cleanup. A final `if: always()` step kills the gpg-agent (`gpgconf --kill gpg-agent`), removes the temporary
+  `GNUPGHOME` (`$RUNNER_TEMP/gnupg`) and runs `helm registry logout` on the Harbor host, also after a failed step.
+- No decrypted value is printed. Decrypted values live only inside the test processes, but pytest prints them on
+  a failure: assertion diffs such as `assert digest == hashlib.sha256(token.encode()).hexdigest()` show the token,
+  failure messages carry the helmfile stderr, YAML errors quote the offending line, and with `CI` set pytest
+  truncates nothing. CI therefore runs `mise run test -- --tb=no --show-capture=no --disable-warnings -rN -vv`: the
+  log names each test and its outcome and nothing else; run `mise run test` with the key locally to see why a test
+  failed. No step uses xtrace, and no step echoes a rendered manifest.
+- No Kubernetes API. Under `helmfile build` and `helmfile template` the `prepare` hook of `.hook.sh` runs, and it
+  diffs raw/ (piping the decrypted `raw/regcred.pre.secrets.yaml` into `kubectl diff`) whenever
+  `kubectl cluster-info` answers. The tests set `KUBECONFIG=/dev/null`, but kubectl then falls back to the
+  in-cluster service account when `KUBERNETES_SERVICE_HOST` is set (a runner in a pod). The workflow sets
+  `KUBECONFIG=/dev/null` and empties `KUBERNETES_SERVICE_HOST` and `KUBERNETES_SERVICE_PORT`, so the hook prints
+  `No reachable cluster during 'prepare'` and skips raw/; a step refuses the run, before any secret is used, if
+  `kubectl cluster-info` still answers. No step runs apply, sync, diff or a smoke.
+
 ## Operating
 
 Applies are manual and local, run from this directory.
