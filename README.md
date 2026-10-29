@@ -68,6 +68,26 @@ The old database release `agent-orchestrator-db` and its values dir `values/agen
 stay declared and, once the smoke is green, are hibernated with the CNPG `cnpg.io/hibernation: "on"`
 annotation: its pods stop, its volumes and backups stay, and it is the rollback point.
 
+## CI
+
+`.github/workflows/ci.yaml` runs on every pull request to main and every push to main (and by hand):
+`mise run lint`, `mise run test` (the whole suite, including `tests/test_orchestrator_release.py`) and
+`mise run check-pins` (with the workflow `GITHUB_TOKEN` as `GH_TOKEN`; the pinned repos are public). Actions are pinned
+by full commit sha and the token has `contents: read` only. No test is skipped or xfailed.
+
+The release tests run `helmfile template`, which pulls the charts from Harbor and decrypts the SOPS/PGP values files
+(`.sops.yaml`, key `D39E46932A270AA3BA490B9DB9FE928D3E8BCED8`). A run with an empty `GNUPGHOME` and no Harbor login fails 18
+tests, every one on SOPS decryption (the chart pull is only reached after it succeeds). The job therefore needs three
+repository secrets and fails first, naming whichever are missing:
+
+- `HARBOR_USERNAME` and `HARBOR_PASSWORD`: a read-only chart-pull robot account of `harbor.szymonrichert.pl`
+  (project `charts`); the job runs `helm registry login` with them.
+- `SOPS_PGP_PRIVATE_KEY`: the ASCII-armoured private key for the SOPS recipient above, imported into a temporary
+  `GNUPGHOME` of the runner (no passphrase). No key is stored in the repository.
+
+User-run step: add these secrets under Settings, Secrets and variables, Actions of the `agents-helmfile` repository.
+Pull requests from forks never receive secrets, so their job fails at that step by design.
+
 ## Operating
 
 Applies are manual and local, run from this directory.
