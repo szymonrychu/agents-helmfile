@@ -37,7 +37,8 @@ PRESET="${CHAT_SMOKE_PRESET:-}"
 TIMEOUT_S="${CHAT_SMOKE_TIMEOUT_S:-600}"
 ORCH_PORT="${SMOKE_LOCAL_PORT:-18000}"
 MX_PORT="${SMOKE_MATRIX_API_LOCAL_PORT:-18004}"
-PROC_DIR="${CHAT_SMOKE_PROC_DIR:-/proc}"
+export PROC_DIR="${CHAT_SMOKE_PROC_DIR:-/proc}"
+export SMOKE_LOG_PREFIX=chat-smoke
 POLL_S=2
 BASE="http://127.0.0.1:${ORCH_PORT}"
 MX="http://127.0.0.1:${MX_PORT}/matrix/api/v1"
@@ -48,11 +49,8 @@ THROWAWAY_ID=""
 THROWAWAY_SLUG=""
 CALLER_POD=""
 
-log() { echo "chat-smoke: $*"; }
-fail() {
-  echo "chat-smoke: FAIL: $*" >&2
-  exit 1
-}
+# shellcheck source=lib/smoke-common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/smoke-common.sh"
 
 # delete_throwaway: deletes the session this script created, if any (never another one).
 delete_throwaway() {
@@ -79,39 +77,6 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-
-now() { date +%s; }
-
-# stale_pids <port>: pids of kubectl port-forward processes holding the local port (from /proc, else `ps`).
-stale_pids() {
-  local port=$1 re d pid args
-  re="(^|[[:space:]/])kubectl[[:space:]](.*[[:space:]])?port-forward[[:space:]](.*[[:space:]])?${port}:[0-9]"
-  if [ -d "$PROC_DIR" ]; then
-    for d in "$PROC_DIR"/[0-9]*; do
-      pid=${d##*/}
-      [ "$pid" = "$$" ] && continue
-      args=$(tr '\0' ' ' < "$d/cmdline" 2> /dev/null) || continue
-      if [[ $args =~ $re ]]; then echo "$pid"; fi
-    done
-  else
-    ps -eo pid=,args= | while read -r pid args; do
-      if [[ $args =~ $re ]]; then echo "$pid"; fi
-    done
-  fi
-}
-
-kill_stale_port_forward() {
-  local port=$1 pid deadline
-  for pid in $(stale_pids "$port"); do
-    kill "$pid" 2> /dev/null || true
-    log "killed stale port-forward ${pid} on port ${port}"
-  done
-  deadline=$(($(now) + 5))
-  while [ -n "$(stale_pids "$port")" ]; do
-    [ "$(now)" -ge "$deadline" ] && fail "a stale port-forward still holds port ${port}"
-    sleep 0.2
-  done
-}
 
 wait_up() { # <url> <what>
   local _
@@ -181,29 +146,10 @@ resolve_leader_pod() {
     fail "caller: ${CALLER_POD} not Ready within ${TIMEOUT_S}s"
 }
 
-# agent_call <method> <path> [json body]: from inside the caller pod with its own ORCH_AGENT_URL, ORCH_AGENT_TOKEN and ORCH_SESSION_ID
-# (never echoed; the pod's stderr is dropped); prints "<status> <body>".
-agent_py='import os, sys, urllib.request, urllib.error
-method, path = sys.argv[1], sys.argv[2]
-data = sys.argv[3].encode() if len(sys.argv) > 3 else None
-headers = {"Authorization": "Bearer " + os.environ["ORCH_AGENT_TOKEN"], "X-Orch-Session": os.environ["ORCH_SESSION_ID"]}
-if data:
-    headers["Content-Type"] = "application/json"
-req = urllib.request.Request(os.environ["ORCH_AGENT_URL"].rstrip("/") + path, data=data, method=method, headers=headers)
-try:
-    resp = urllib.request.urlopen(req, timeout=15)
-    status, body = resp.status, resp.read()
-except urllib.error.HTTPError as e:
-    status, body = e.code, e.read()
-print(status, " ".join(body.decode().split()))'
-agent_call() {
-  kubectl -n "$NAMESPACE" exec "$CALLER_POD" -c ccw -- python3 -c "$agent_py" "$@" 2> /dev/null | tail -n1 || true
-}
-
 # send <step> <path> <json body>: 202 sets SEND_ID; any other answer sets SEND_REFUSAL ("<http status> <error code>") and returns 1.
 send() {
   local out code
-  out=$(agent_call POST "$2" "$3")
+  out=$(agent_call "$CALLER_POD" POST "$2" "$3")
   code=${out%% *}
   if [ "$code" = "202" ]; then
     SEND_ID=$(echo "${out#* }" | jq -er '.id') || fail "$1: the 202 answer carries no id: ${out#* }"
@@ -221,7 +167,7 @@ wait_settled() {
   local deadline out status=""
   deadline=$(($(now) + TIMEOUT_S))
   while :; do
-    out=$(agent_call GET "/agent/v1/chat/messages/$2")
+    out=$(agent_call "$CALLER_POD" GET "/agent/v1/chat/messages/$2")
     if [ "${out%% *}" = "200" ]; then
       status=$(echo "${out#* }" | jq -r '.status // empty')
       case "$status" in
@@ -296,7 +242,7 @@ fi
 log "caller pod ${CALLER_POD}"
 
 # 3. The room must be listed for the caller; nothing is sent otherwise.
-rooms=$(agent_call GET /agent/v1/chat/rooms)
+rooms=$(agent_call "$CALLER_POD" GET /agent/v1/chat/rooms)
 [ "${rooms%% *}" = "200" ] || fail "rooms: GET /agent/v1/chat/rooms from ${CALLER_POD} answered '${rooms%% *}': ${rooms#* }"
 echo "${rooms#* }" | jq -e --arg r "$ROOM" 'any(.rooms[]?; .room_id == $r)' > /dev/null ||
   fail "rooms: room ${ROOM} is not listed for ${CALLER_POD} (listed: $(echo "${rooms#* }" | jq -c '[.rooms[]?.room_id]'))"

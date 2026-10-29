@@ -102,11 +102,9 @@ SCHED_API_BASE="$BASE"
 MATRIX_API_BASE="$BASE"
 PUBLIC_URL="${SMOKE_PUBLIC_URL:-https://lab.szymonrichert.pl}"
 
-log() { echo "smoke: $*"; }
-fail() {
-  echo "smoke: FAIL: $*" >&2
-  exit 1
-}
+export SMOKE_LOG_PREFIX=smoke
+# shellcheck source=lib/smoke-common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/smoke-common.sh"
 
 cleanup() {
   local rc=$?
@@ -828,26 +826,6 @@ option_pod "$A_SLUG" "messaging"
 a_pod=$OPT_POD
 option_pod "$B_SLUG" "messaging"
 b_pod=$OPT_POD
-# agent_call <pod> <method> <path> [json body]: from inside the pod with its own ORCH_AGENT_URL, ORCH_AGENT_TOKEN and ORCH_SESSION_ID
-# (never echoed); prints "<status> <body>".
-agent_py='import os, sys, urllib.request, urllib.error
-method, path = sys.argv[1], sys.argv[2]
-data = sys.argv[3].encode() if len(sys.argv) > 3 else None
-headers = {"Authorization": "Bearer " + os.environ["ORCH_AGENT_TOKEN"], "X-Orch-Session": os.environ["ORCH_SESSION_ID"]}
-if data:
-    headers["Content-Type"] = "application/json"
-req = urllib.request.Request(os.environ["ORCH_AGENT_URL"].rstrip("/") + path, data=data, method=method, headers=headers)
-try:
-    resp = urllib.request.urlopen(req, timeout=15)
-    status, body = resp.status, resp.read()
-except urllib.error.HTTPError as e:
-    status, body = e.code, e.read()
-print(status, " ".join(body.decode().split()))'
-agent_call() {
-  local pod_name=$1
-  shift
-  kubectl -n "$NAMESPACE" exec "$pod_name" -c ccw -- python3 -c "$agent_py" "$@" 2> /dev/null | tail -n1 || true
-}
 
 a_list=$(agent_call "$a_pod" GET /agent/v1/sessions)
 [ "${a_list%% *}" = "200" ] || fail "messaging: GET /agent/v1/sessions from ${a_pod} answered '${a_list%% *}', expected 200"

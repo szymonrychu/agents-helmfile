@@ -919,6 +919,7 @@ def _tree_with_any_mcp_ref(tmp_path, line):
     tree = tmp_path / "tree"
     (tree / "scripts").mkdir(parents=True)
     shutil.copy(SCRIPT, tree / "scripts" / "smoke.sh")
+    shutil.copytree(SCRIPT.parent / "lib", tree / "scripts" / "lib")
     values = tree / "values" / "agents-orchestrator"
     values.mkdir(parents=True)
     (values / "common.yaml").write_text(f"env:\n{line}  ORCH_ANY_MCP_PLUGINS_REF: {PLUGINS_REF}\n")
@@ -1867,3 +1868,21 @@ def test_continuity_deletes_only_smoke_pod(api, fakebin):
     deletes = [x for x in src if re.search(r"\bkubectl\b.*\bdelete\b", x)]
     assert len(deletes) == 1 and "$cont_pod" in deletes[0], deletes
     assert any(re.search(r'"pod/agent-smoke-cont-"\*"-0"\)', x) for x in src)
+
+
+def test_smoke_scripts_share_helpers():
+    # smoke.sh and chat-smoke.sh source one helper file and define no copy of agent_call or agent_py.
+    scripts = ROOT / "scripts"
+    lib = scripts / "lib" / "smoke-common.sh"
+    assert lib.is_file()
+    lib_src = lib.read_text()
+    assert re.search(r"^agent_call\(\) \{", lib_src, re.MULTILINE)
+    assert re.search(r"^agent_py=", lib_src, re.MULTILINE)
+    for name in ("smoke.sh", "chat-smoke.sh"):
+        src = [
+            line
+            for line in (scripts / name).read_text().splitlines()
+            if not line.lstrip().startswith("#")
+        ]
+        assert any(re.match(r"^source .*lib/smoke-common\.sh", line) for line in src), name
+        assert not [line for line in src if re.match(r"^(agent_call\(\)|agent_py=)", line)], name
