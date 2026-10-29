@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  HARBOR_URL: harbor.szymonrichert.pl
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise install
+
+      # The release tests run `helmfile template`, which pulls the charts from Harbor and
+      # decrypts the SOPS/PGP values files. Neither is skipped: a missing secret fails the job.
+      - name: Require repository secrets
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          SOPS_PGP_PRIVATE_KEY: ${{ secrets.SOPS_PGP_PRIVATE_KEY }}
+        run: |
+          missing=""
+          for name in HARBOR_USERNAME HARBOR_PASSWORD SOPS_PGP_PRIVATE_KEY; do
+            if [ -z "${!name:-}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secret(s):$missing. Add them under Settings, Secrets and variables, Actions (see README, section CI). Pull requests from forks never receive secrets."
+            exit 1
+          fi
+
+      - name: Login to Harbor
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: echo "$HARBOR_PASSWORD" | mise exec -- helm registry login "$HARBOR_URL" --username "$HARBOR_USERNAME" --password-stdin
+
+      - name: Import the SOPS PGP key
+        env:
+          SOPS_PGP_PRIVATE_KEY: ${{ secrets.SOPS_PGP_PRIVATE_KEY }}
+        run: |
+          gnupghome="$(mktemp -d)"
+          chmod 700 "$gnupghome"
+          echo "GNUPGHOME=$gnupghome" >> "$GITHUB_ENV"
+          printf '%s\n' "$SOPS_PGP_PRIVATE_KEY" | GNUPGHOME="$gnupghome" gpg --batch --quiet --import
+
+      - run: mise run lint
+      - run: mise run test
+      - name: Check pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: mise run check-pins
