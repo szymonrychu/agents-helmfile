@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-matrix-connector
   # CI-published sha7 tag, equal to the chart appVersion.
-  tag: edfb876
+  tag: c98c501
 
 # Connection URI from the CNPG app Secret made by the agents-matrix-connector-db release.
 postgres:
