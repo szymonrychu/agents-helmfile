@@ -848,3 +848,15 @@ def test_smoke_never_sends_chat():
     body = SMOKE.read_text()
     assert "/agent/v1/chat" not in body
     assert "chat-smoke" not in body
+
+
+def test_stale_scan_silent_for_vanished_pid(make, fakebin, tmp_path):
+    # A process that exits during the scan leaves a /proc/<pid> without a readable cmdline: the
+    # scan must skip it without printing "<dir>/cmdline: No such file or directory" on stderr.
+    fake = make(bound=True)
+    proc = tmp_path / "proc"
+    (proc / "4242").mkdir(parents=True)
+    r = _run(fake, fakebin, extra={"CHAT_SMOKE_PROC_DIR": str(proc)})
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "cmdline" not in r.stderr, r.stderr
+    assert "No such file" not in r.stderr, r.stderr
