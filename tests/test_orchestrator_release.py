@@ -11,7 +11,7 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "98d3c23"
+PIN = "df2b80e"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -177,7 +177,7 @@ def test_any_mcp_configured_for_new_sessions(layered_values):
     assert (
         env["ORCH_ANY_MCP_PLUGINS_REPO"] == "https://github.com/szymonrychu/any-mcp-tatara-plugins"
     )
-    assert env["ORCH_ANY_MCP_PLUGINS_REF"] == "v0.2.0"
+    assert env["ORCH_ANY_MCP_PLUGINS_REF"] == "v0.4.0"
 
 
 CHAT_URL = "http://agents-matrix-connector-api-agents:8001"
