@@ -2,7 +2,8 @@
 # End-to-end smoke of a deployed agents-orchestrator and its UI: the UI (agents-web release) answers with the agents-web index and a
 # config.json listing the orchestrator backend, the host routes / to agents-web and /api to the orchestrator, a 1-replica hive session (cap 2)
 # with an init script yields a Ready pod, a succeeded init and a leader, that pod's `claude mcp list` shows any-mcp,
-# it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives),
+# it reaches /agent/v1/me through the agents Service with 200 (proves the pod source IP survives) and
+# /agent/v1/activity?limit=5 with 200 and a JSON body whose `lines` is an array,
 # the view echoes the wrapper, lease and autoclose settings with closes_at = created_at + 3600s and a leader_since,
 # and the public scale route grows the session to 2 pods, makes pod-1's agent the leader, then scales back to 1: the scale-down below the
 # leader must hand leadership to pod-0 (leader_reason scale_down) before pod-1 goes, and pod-0 never restarts.
@@ -39,7 +40,7 @@
 # not the hive session and a send to the hive session answers 403 target_not_superleader. The trap deletes all three sessions.
 # Plugin tools steps: in the hive session's pod (container ccw) the any-mcp-tatara-orchestrator distribution is installed (pip show), the
 # rendered /opt/any-mcp/etc/any-mcp.yaml names any-mcp-tatara-plugins//orchestration/orchestrator at the pinned ORCH_ANY_MCP_PLUGINS_REF and
-# `any-mcp --list-tools` lists orchestrator_sessions_list; a session smoke-src-<ts> created with any_mcp_sources holding the petstore example at
+# `any-mcp --list-tools` lists orchestrator_sessions_list and orchestrator_activity; a session smoke-src-<ts> created with any_mcp_sources holding the petstore example at
 # the pinned any-mcp tag gets a Ready pod whose --list-tools lists a petstore_ tool. The trap deletes smoke-src-<ts>; outputs (a JSON array of tools) are only matched by tool name.
 # Session continuity (last step): session smoke-cont-<ts> gets a Ready pod and one completed turn; its agent's wrapper_session_id is read from
 # GET /api/v1/sessions/{id}/events?agent_id=..., then only that session's pod is deleted (kubectl delete pod/agent-smoke-cont-<ts>-0): the
@@ -304,7 +305,9 @@ esac
 pod_tools=$(kubectl -n "$NAMESPACE" exec "$pod" -c ccw -- /opt/any-mcp/bin/any-mcp --config "$ANY_MCP_CFG" --list-tools 2> /dev/null) || pod_tools=""
 echo "$pod_tools" | jq -e 'any(.[]?; .name == "orchestrator_sessions_list")' > /dev/null 2>&1 ||
   fail "plugin tools: any-mcp --list-tools in ${pod} lists no orchestrator_sessions_list"
-log "orchestrator plugin installed from ${plugin_source}; --list-tools lists orchestrator_sessions_list"
+echo "$pod_tools" | jq -e 'any(.[]?; .name == "orchestrator_activity")' > /dev/null 2>&1 ||
+  fail "plugin tools: any-mcp --list-tools in ${pod} lists no orchestrator_activity"
+log "orchestrator plugin installed from ${plugin_source}; --list-tools lists orchestrator_sessions_list and orchestrator_activity"
 
 # 4b. The init scripts ran once and succeeded, and are visible through the public API.
 init_json=""
@@ -356,6 +359,24 @@ except urllib.error.HTTPError as e:
 me_status=$(kubectl -n "$NAMESPACE" exec "$pod" -- python3 -c "$me_py" 2>&1 | tail -n1) || true
 [ "$me_status" = "200" ] || fail "GET /agent/v1/me from ${pod} (via ORCH_AGENT_URL, ORCH_AGENT_TOKEN, ORCH_SESSION_ID) answered '${me_status}', expected 200"
 log "GET /agent/v1/me from ${pod} through the agents Service: 200"
+
+# 6a. From the same pod and env, GET /agent/v1/activity?limit=5 (read-only): 200 and a JSON object whose `lines` is an array.
+# The in-pod python prints "<status> <has_lines>" and nothing else; the body is never printed.
+activity_py='import os, json, urllib.request, urllib.error
+req = urllib.request.Request(os.environ["ORCH_AGENT_URL"].rstrip("/") + "/agent/v1/activity?limit=5", headers={"Authorization": "Bearer " + os.environ["ORCH_AGENT_TOKEN"], "X-Orch-Session": os.environ["ORCH_SESSION_ID"]})
+try:
+    resp = urllib.request.urlopen(req, timeout=15)
+    status, raw = resp.status, resp.read()
+except urllib.error.HTTPError as e:
+    status, raw = e.code, b""
+try:
+    body = json.loads(raw)
+except ValueError:
+    body = None
+print(status, isinstance(body, dict) and isinstance(body.get("lines"), list))'
+activity_result=$(kubectl -n "$NAMESPACE" exec "$pod" -- python3 -c "$activity_py" 2>&1 | tail -n1) || true
+[ "$activity_result" = "200 True" ] || fail "GET /agent/v1/activity?limit=5 from ${pod} (via ORCH_AGENT_URL, ORCH_AGENT_TOKEN, ORCH_SESSION_ID) answered '${activity_result}', expected '200 True' (status 200 and a lines array)"
+log "GET /agent/v1/activity from ${pod} through the agents Service: 200 with a lines array"
 
 # 8. The webhook service (agents-webhook release). No session is started: the only side effects are one temporary endpoint
 # (deleted by the trap) and one ignored event row.

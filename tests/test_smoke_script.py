@@ -39,6 +39,32 @@ def tools_json(*names, description="a tool"):
     )
 
 
+# The body of `GET /agent/v1/activity` as the orchestrator README (Agent API) documents it: rendered status lines, oldest first.
+ACTIVITY_BODY = json.dumps(
+    {
+        "lines": [
+            {
+                "id": 1,
+                "agent": "agent-x-0",
+                "text": "agent-x-0 ran: true (ok)",
+                "ts": "2026-10-27T00:00:00+00:00",
+            }
+        ]
+    }
+)
+
+# Stands in for the in-pod python of smoke step 6a: reads the body on stdin and prints what the real script prints after the status.
+FAKE_HAS_LINES = """\
+import json
+import sys
+
+try:
+    body = json.load(sys.stdin)
+except ValueError:
+    body = None
+print(isinstance(body, dict) and isinstance(body.get("lines"), list))
+"""
+
 WH_USER = "wh-user-smoke"
 WH_PASSWORD = "wh-pass-SECRET-value-123"
 WH_TOKEN = "orch-token-SECRET-value-456"
@@ -662,6 +688,9 @@ def fakebin(tmp_path):
         '  *"SelfSubjectAccessReview"*) printf "%s\\n" "${FAKE_KUBE_PROBE-true 200}"; exit 0 ;;\n'
         '  *"test ! -e"*) exit "${FAKE_HIVE_TOKEN_PRESENT-0}" ;;\n'
         '  *" exec "*"/agent/v1/sessions"*) exec python3 "$FAKE_AGENT_HELPER" "$@" ;;\n'
+        '  *"/agent/v1/activity"*)'
+        ' printf "%s %s\\n" "${FAKE_ACTIVITY_STATUS-200}"'
+        ' "$(printf "%s" "$FAKE_ACTIVITY_BODY" | python3 "$FAKE_HAS_LINES_HELPER")"; exit 0 ;;\n'
         '  *"/agent/v1/me"*) echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s\\n" "${FAKE_ME_STATUS-200}"; exit 0 ;;\n'
         '  *"pip show any-mcp-tatara-orchestrator"*) [ -z "${FAKE_PIP_FAIL-}" ] || exit 1;'
         ' echo "Name: any-mcp-tatara-orchestrator"; exit 0 ;;\n'
@@ -677,6 +706,7 @@ def fakebin(tmp_path):
     )
     k.chmod(0o755)
     (b / "fake_agent.py").write_text(FAKE_AGENT_HELPER)
+    (b / "fake_has_lines.py").write_text(FAKE_HAS_LINES)
     return b
 
 
@@ -714,6 +744,8 @@ def _run(
         "SMOKE_TIMEOUT_S": smoke_timeout,
         "FAKE_ME_STATUS": me_status,
         "FAKE_AGENT_HELPER": str(fakebin / "fake_agent.py"),
+        "FAKE_HAS_LINES_HELPER": str(fakebin / "fake_has_lines.py"),
+        "FAKE_ACTIVITY_BODY": ACTIVITY_BODY,
         "FAKE_POD_AGENT_TOKEN": AGENT_TOKEN,
         "FAKE_MCP_LIST": mcp_list,
         "FAKE_VERSION": version,
@@ -726,7 +758,9 @@ def _run(
         "FAKE_WH_TOKEN_B64": base64.b64encode(WH_TOKEN.encode()).decode(),
         "SMOKE_PUBLIC_URL": f"http://127.0.0.1:{api.port}",
         "FAKE_POD_CONFIG": POD_CONFIG,
-        "FAKE_TOOLS": tools_json("orchestrator_sessions_list", "orchestrator_sessions_get"),
+        "FAKE_TOOLS": tools_json(
+            "orchestrator_sessions_list", "orchestrator_sessions_get", "orchestrator_activity"
+        ),
         "FAKE_SRC_TOOLS": tools_json("petstore_list_pets", "petstore_get_pet"),
         **(extra_env or {}),
     }
@@ -1043,6 +1077,59 @@ def test_agent_me_check_runs_in_pod_with_its_own_env(api, fakebin):
     assert "/agent/v1/me" in entry
     for name in ("ORCH_AGENT_URL", "ORCH_AGENT_TOKEN", "ORCH_SESSION_ID", "X-Orch-Session"):
         assert name in entry
+
+
+def _activity_entries(fakebin):
+    """The kubectl calls whose in-pod script names the activity route (each call is logged as `$*`, a script spans lines)."""
+    log = (fakebin / "kubectl.log").read_text()
+    return [c for c in re.split(r"\n(?=-n )", log) if "/agent/v1/activity" in c]
+
+
+def test_agent_activity_check_runs_in_pod_with_its_own_env(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    entries = _activity_entries(fakebin)
+    assert len(entries) == 1, entries
+    entry = entries[0]
+    assert re.search(r"exec pod/agent-smoke-\d+-0 -- python3 -c", entry), entry
+    assert "limit=5" in entry
+    for name in ("ORCH_AGENT_URL", "ORCH_AGENT_TOKEN", "ORCH_SESSION_ID", "X-Orch-Session"):
+        assert name in entry
+    assert "GET /agent/v1/activity" in r.stdout
+    assert AGENT_TOKEN not in r.stdout + r.stderr
+
+
+@pytest.mark.parametrize(
+    ("name", "env", "needle"),
+    [
+        (
+            "forbidden",
+            {"FAKE_ACTIVITY_STATUS": "403", "FAKE_ACTIVITY_BODY": json.dumps({"error": "x"})},
+            "'403 False'",
+        ),
+        ("not-found", {"FAKE_ACTIVITY_STATUS": "404", "FAKE_ACTIVITY_BODY": ""}, "'404 False'"),
+        ("no-lines-key", {"FAKE_ACTIVITY_BODY": json.dumps({"items": []})}, "'200 False'"),
+        ("lines-not-array", {"FAKE_ACTIVITY_BODY": json.dumps({"lines": {}})}, "'200 False'"),
+        ("body-not-json", {"FAKE_ACTIVITY_BODY": "<html>sso</html>"}, "'200 False'"),
+    ],
+)
+def test_agent_activity_check_fails_without_lines(api, fakebin, name, env, needle):
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=env)
+    assert r.returncode != 0, f"{name}: smoke passed\n{r.stdout}"
+    assert "smoke: FAIL: GET /agent/v1/activity" in r.stderr and needle in r.stderr, (
+        f"{name}: {r.stderr}"
+    )
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+
+
+def test_empty_activity_lines_array_passes(api, fakebin):
+    r = _run(
+        api,
+        fakebin,
+        "any-mcp: x - Connected",
+        extra_env={"FAKE_ACTIVITY_BODY": json.dumps({"lines": []})},
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
 
 
 def test_no_leader_fails(api, fakebin):
@@ -1664,6 +1751,30 @@ def test_orchestrator_plugin_from_plugins_repo(api, fakebin):
 
 
 @pytest.mark.parametrize(
+    "tools",
+    [
+        tools_json("orchestrator_sessions_list", "orchestrator_sessions_get"),
+        tools_json("orchestrator_sessions_list", description="like orchestrator_activity"),
+        tools_json("orchestrator_sessions_list", "orchestrator_activity_log"),
+    ],
+    ids=["absent", "name-only-in-a-description", "name-is-a-prefix-match"],
+)
+def test_plugin_tools_require_activity(api, fakebin, tools):
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env={"FAKE_TOOLS": tools})
+    assert r.returncode != 0, r.stdout
+    assert "smoke: FAIL: plugin tools:" in r.stderr and "orchestrator_activity" in r.stderr, (
+        r.stderr
+    )
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+
+
+def test_plugin_tools_list_reports_activity(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "--list-tools lists orchestrator_sessions_list and orchestrator_activity" in r.stdout
+
+
+@pytest.mark.parametrize(
     ("name", "env", "needle"),
     [
         ("pip-show", {"FAKE_PIP_FAIL": "1"}, "any-mcp-tatara-orchestrator is not installed"),
@@ -1742,7 +1853,9 @@ def test_plugin_source_session_cleaned_up(api, fakebin, fail):
 def test_plugin_steps_print_no_token(api, fakebin, fail):
     env = {
         "FAKE_POD_AGENT_TOKEN": AGENT_TOKEN,
-        "FAKE_TOOLS": tools_json("orchestrator_sessions_list", description=AGENT_TOKEN),
+        "FAKE_TOOLS": tools_json(
+            "orchestrator_sessions_list", "orchestrator_activity", description=AGENT_TOKEN
+        ),
         "FAKE_SRC_TOOLS": tools_json(
             "other_tool" if fail else "petstore_x", description=AGENT_TOKEN
         ),
