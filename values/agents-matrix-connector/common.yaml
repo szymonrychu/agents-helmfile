@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-matrix-connector
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.1.0"
+  tag: "0.3.0"
 
 # Connection URI from the CNPG app Secret made by the agents-matrix-connector-db release.
 postgres:
