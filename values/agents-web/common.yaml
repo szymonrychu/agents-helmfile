@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-web
-  # CI-published sha7 tag, equal to the chart appVersion.
-  tag: "ab78d97"
+  # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
+  tag: "0.1.0"
 
 # Same oauth2-proxy admission webhook identity as the orchestrator api pod.
 podAnnotations:

@@ -11,7 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "2d6d722"
+PIN = "0.1.0"
+# The chart of the v0.1.0 release commit 8f92c7a: chart and image from one commit.
+CHART = "0.1.0-main.8f92c7a"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -258,8 +260,8 @@ def _chart_version(repo_root) -> str:
 
 def test_orchestrator_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
-    assert re.fullmatch(r"[0-9a-f]{7}", tag)
-    assert _chart_version(repo_root) == f"0.1.0-main.{tag}"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", tag)
+    assert _chart_version(repo_root) == CHART
     assert tag == PIN
 
 

@@ -808,10 +808,11 @@ def test_stale_port_forward_found_through_ps(make, fakebin):
     ps.write_text(
         "#!/bin/sh\n"
         '[ "$*" = "-eo pid=,args=" ] || exit 2\n'
-        # A killed stale process leaves the listing (its zombie has an empty cmdline until reaped).
-        f"tr -d '\\000' < /proc/{stale.pid}/cmdline | grep -q . &&"
+        # A killed stale process leaves the listing: a zombie (state Z) or a reaped pid is not
+        # listed. The real ps by absolute path, since this fake shadows `ps` on PATH (no /proc).
+        f'case "$(/bin/ps -o stat= -p {stale.pid})" in ""|Z*) ;; *)'
         f' echo "  {stale.pid} /bin/sh {fakebin}/kubectl'
-        f' -n agents port-forward deploy/x {fake.port}:8000"\n'
+        f' -n agents port-forward deploy/x {fake.port}:8000";; esac\n'
         f'echo "  {other.pid} kubectl -n agents port-forward deploy/x 1{fake.port}:8000"\n'
     )
     ps.chmod(0o755)

@@ -14,3 +14,10 @@ Run `mise run test`, `mise run lint` and `mise run fmt` from this directory.
 - Cutover: the retired app release is declared with `installed: false`, the new database imports the old one, and
   the old database release stays declared, hibernated, as the rollback point (README, "Cutover to
   agents-orchestrator").
+
+## Deploy rule
+
+- Deploy only semver-tagged images (X.Y.Z); never a sha tag; a component's main build releases the semver tag before helmfile pins it.
+- Enforced by `tests/test_semver_pins.py` (every harbor.szymonrichert.pl/containers image of every installed
+  release, under `mise run test`) and `mise run check-pins` (an X.Y.Z pin resolves through git tag vX.Y.Z and its
+  checks must be green); both are dependencies of `mise run apply`.
