@@ -86,6 +86,8 @@ OLD_NAME_PHRASES: dict[str, tuple[str, ...]] = {
     ),
     # The old database release is still declared while it is hibernated (D6).
     "tests/test_helmfile_base.py": ('"agent-orchestrator-db"',),
+    # The semver guard lists every installed release, the hibernated old database among them (D6).
+    "tests/test_semver_pins.py": ('"agent-orchestrator-db"',),
     # The retirement test of the old app release (installed: false, D7).
     "tests/test_orchestrator_release.py": (
         "the retired agent-orchestrator",

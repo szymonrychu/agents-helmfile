@@ -10,7 +10,9 @@ import yaml
 
 REL = "agents-matrix-connector"
 DB_REL = "agents-matrix-connector-db"
-SHA = "c98c501"
+# The v0.1.0 release commit: chart and image from one commit.
+SHA = "8130903"
+TAG = "0.1.0"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
     "192.168.1.26/32",
@@ -42,7 +44,7 @@ def test_matrix_connector_pin_and_needs(repo_root, layered_values):
     block = _block(repo_root, REL)
     assert _field(block, "chart") == "oci://harbor.szymonrichert.pl/charts/agents-matrix-connector"
     assert _field(block, "version") == f"0.1.0-main.{SHA}"
-    assert layered_values(REL)["image"]["tag"] == SHA
+    assert layered_values(REL)["image"]["tag"] == TAG
     assert _field(block, "namespace") == "agents"
     assert "- agents/agents-matrix-connector-db" in block
     assert "- agents/agents-orchestrator\n" in block + "\n"

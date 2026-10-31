@@ -133,7 +133,7 @@ releases:
   - name: agents-schedule
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-schedule
-    version: 0.1.0
+    version: 0.1.0-main.1e2e2a8
     timeout: 600
     needs:
       - agents/agents-schedule-db
@@ -146,7 +146,7 @@ releases:
   - name: agents-matrix-connector
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-matrix-connector
-    version: 0.1.0-main.c98c501
+    version: 0.1.0-main.8130903
     timeout: 600
     needs:
       - agents/agents-matrix-connector-db
