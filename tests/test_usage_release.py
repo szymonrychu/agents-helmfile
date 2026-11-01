@@ -11,9 +11,9 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The chart version the agents-usage main build publishes for the v0.1.0 release commit
-# (0.1.0-main.<sha7>); all zeros until that commit exists, so check-pins refuses it until set.
-CHART = "0.1.0-main.0000000"
+# The chart version the agents-usage main build published for the v0.1.0 release commit
+# (0.1.0-main.<sha7>).
+CHART = "0.1.0-main.6b8cca5"
 TAG = "0.1.0"
 
 
