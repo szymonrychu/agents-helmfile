@@ -13,6 +13,15 @@ postgres:
 orchestrator:
   url: http://agents-orchestrator-services:8002
 
+# Token-gated admin listener (port 8001) for the orchestrator's superleader relay. The tokens
+# Secret is values/agents-schedule/raw/admin-tokens.agents-schedule.pre.secrets.yaml (SOPS); the orchestrator holds the
+# same token in its default.secrets.yaml (admin.schedule.token).
+admin:
+  enabled: true
+  tokensSecret:
+    name: agents-schedule-admin-tokens
+    key: tokens
+
 env:
   # Only the oauth2-proxy sidecar (podAnnotations below) reaches the api, over 127.0.0.1.
   # Widening this bypasses SSO.

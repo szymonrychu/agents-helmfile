@@ -14,6 +14,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "bootstrap-secrets.sh"
+ADMIN_WH = "values/agents-webhook/raw/admin-tokens.agents-webhook.pre.secrets.yaml"
+ADMIN_SCH = "values/agents-schedule/raw/admin-tokens.agents-schedule.pre.secrets.yaml"
+SECRET_KEYS = {"apiVersion", "kind", "metadata.name", "type", "stringData.tokens"}
 ORCH = "values/agents-orchestrator/default.secrets.yaml"
 DB = "values/agents-orchestrator-db/default.secrets.yaml"
 WH = "values/agents-webhook/default.secrets.yaml"
@@ -42,7 +45,7 @@ def _load(rel: str) -> dict:
 @pytest.mark.parametrize(
     ("rel", "keys"),
     [
-        (ORCH, {"claude.token", "masterKey.value"}),
+        (ORCH, {"claude.token", "masterKey.value", "admin.webhook.token", "admin.schedule.token"}),
         (DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (WH, {"orchestrator.token", "endpointKey"}),
         (WH_TOKEN, {"serviceApi.tokenHashes.agents-webhook"}),
@@ -50,6 +53,8 @@ def _load(rel: str) -> dict:
         (SCH_TOKEN, {"serviceApi.tokenHashes.agents-schedule"}),
         (CHAT, {"chat.token"}),
         (CHAT_HASH, {"agentApi.tokenSha256"}),
+        (ADMIN_WH, SECRET_KEYS),
+        (ADMIN_SCH, SECRET_KEYS),
     ],
 )
 def test_secrets_files_encrypted_with_expected_keys(rel, keys):

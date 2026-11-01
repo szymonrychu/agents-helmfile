@@ -12,6 +12,15 @@ postgres:
 orchestrator:
   url: http://agents-orchestrator-services:8002
 
+# Token-gated admin listener (port 8001) for the orchestrator's superleader relay. The tokens
+# Secret is values/agents-webhook/raw/admin-tokens.agents-webhook.pre.secrets.yaml (SOPS); the orchestrator holds the
+# same token in its default.secrets.yaml (admin.webhook.token).
+admin:
+  enabled: true
+  tokensSecret:
+    name: agents-webhook-admin-tokens
+    key: tokens
+
 publicBaseUrl: https://lab.szymonrichert.pl
 
 # Reverse proxies whose X-Forwarded-For the ingest trusts. ingress-nginx runs hostNetwork on

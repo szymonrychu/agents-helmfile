@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "2.2.0"
-# The chart of the v2.2.0 release commit 2693f8a: chart and image from one commit.
-CHART = "0.1.0-main.2693f8a"
+PIN = "3.0.0"
+# The chart of the v3.0.0 release commit 8787f71: chart and image from one commit.
+CHART = "0.1.0-main.8787f71"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -281,7 +281,7 @@ def test_agent_image_pins_agree(layered_values):
     repo, _, tag = v["agentImage"].rpartition(":")
     assert repo == "harbor.szymonrichert.pl/containers/claude-code-wrapper"
     # Release tag, not a sha7: Harbor prunes the sha7 tags.
-    assert tag == "0.7.0"
+    assert tag == "0.7.1"
 
 
 def test_allowed_origins_is_ingress_host(layered_values):
