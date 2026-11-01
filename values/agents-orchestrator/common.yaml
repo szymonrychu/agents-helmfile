@@ -1,11 +1,11 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.2.0"
+  tag: "1.0.1"
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
-agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.5.0
+agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.5.1
 
 # Connection URI from the CNPG app Secret made by the agents-orchestrator-db release.
 # No password in plain values.
@@ -29,7 +29,7 @@ env:
   # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods
   # reach the api port only through the sidecar's SSO.
   ORCH_ALLOWED_CIDRS: 127.0.0.1/32
-  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.5.0
+  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.5.1
   # WebSocket upgrades must carry an Origin in this list: the UI origin (the ingress host over https).
   ORCH_ALLOWED_ORIGINS: https://lab.szymonrichert.pl
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
@@ -98,6 +98,17 @@ cache:
     bucket: agents-workspace-cache
     pathStyle: true
     existingSecret: agents-workspace-cache
+    # The api pod reads the same Secret (one S3 identity): without it the archives routes answer 503.
+    api:
+      existingSecret: agents-workspace-cache
+  # Cleanup sweep of stale archives. Starts in dry-run: read GET /api/v1/cache/cleanup/preview,
+  # then flip dryRun to false in a follow-up change.
+  sweep:
+    enabled: true
+    dryRun: true
+    retentionDays: 30
+    keepNewest: 3
+    intervalSeconds: 21600
 
 # Sessions with kube_access get full Kubernetes access through the chart's kube-access ServiceAccount.
 kubeAccess:

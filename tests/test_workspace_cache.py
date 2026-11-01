@@ -56,3 +56,17 @@ def test_no_cache_credentials_in_values(repo_root):
             text,
         ), path
         assert not re.search(r"AKIA[0-9A-Z]{12,}", text), path
+
+
+def test_orchestrator_api_secret_and_sweep(layered_values):
+    cache = layered_values(REL)["cache"]
+    # Same S3 identity as the reconciler: without it the archives routes answer 503.
+    assert cache["s3"]["api"]["existingSecret"] == "agents-workspace-cache"
+    sweep = cache["sweep"]
+    assert sweep["enabled"] is True
+    # Dry-run first: flip to false only after reading GET /api/v1/cache/cleanup/preview.
+    assert sweep["dryRun"] is True
+    assert sweep["retentionDays"] == 30
+    assert sweep["keepNewest"] == 3
+    assert sweep["intervalSeconds"] == 21600
+    assert "graceSeconds" not in sweep
