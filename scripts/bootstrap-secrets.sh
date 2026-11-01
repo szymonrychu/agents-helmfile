@@ -94,8 +94,15 @@ bootstrap_service_token() {
   fi
   svc="$(openssl rand -hex 32)"
   digest="$(printf '%s' "$svc" | openssl dgst -sha256 -r | cut -d' ' -f1)"
-  SVC="$svc" jq -n '{orchestrator: {token: $ENV.SVC}}' |
-    encrypt_to "$svc_file"
+  # agents-webhook also gets its endpoint-secret AES-256-GCM key (base64 of 32 random bytes).
+  if [[ "$service" == "agents-webhook" ]]; then
+    SVC="$svc" EK="$(openssl rand 32 | base64 | tr -d '\n')" \
+      jq -n '{orchestrator: {token: $ENV.SVC}, endpointKey: $ENV.EK}' |
+      encrypt_to "$svc_file"
+  else
+    SVC="$svc" jq -n '{orchestrator: {token: $ENV.SVC}}' |
+      encrypt_to "$svc_file"
+  fi
   if ! DIGEST="$digest" SERVICE="$service" \
     jq -n '{serviceApi: {tokenHashes: {($ENV.SERVICE): $ENV.DIGEST}}}' |
     encrypt_to "$hash_file"; then

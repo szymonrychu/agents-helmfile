@@ -1,5 +1,6 @@
 """Encrypted secrets and the bootstrap script that creates them."""
 
+import base64
 import hashlib
 import json
 import os
@@ -43,7 +44,7 @@ def _load(rel: str) -> dict:
     [
         (ORCH, {"claude.token", "masterKey.value"}),
         (DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
-        (WH, {"orchestrator.token"}),
+        (WH, {"orchestrator.token", "endpointKey"}),
         (WH_TOKEN, {"serviceApi.tokenHashes.agents-webhook"}),
         (SCH, {"orchestrator.token"}),
         (SCH_TOKEN, {"serviceApi.tokenHashes.agents-schedule"}),
@@ -201,14 +202,17 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
     docs = [json.loads(f.read_text()) for f in tmp_path.glob("plain.*")]
     assert len(docs) == 2
     wh = next(d for d in docs if "orchestrator" in d)
-    assert set(wh) == {"orchestrator"}
+    assert set(wh) == {"orchestrator", "endpointKey"}
     assert set(wh["orchestrator"]) == {"token"}
+    assert len(base64.b64decode(wh["endpointKey"], validate=True)) == 32
     assert "sources" not in wh
+    assert wh["endpointKey"] not in r.stdout + r.stderr
 
 
 def test_webhook_secrets_have_no_sources():
     doc = _decrypt(WH)
-    assert set(doc) == {"orchestrator"}
+    assert set(doc) == {"orchestrator", "endpointKey"}
+    assert len(base64.b64decode(doc["endpointKey"], validate=True)) == 32
     assert doc["orchestrator"]["token"]
     digest = _decrypt(WH_TOKEN)["serviceApi"]["tokenHashes"]["agents-webhook"]
     assert digest == hashlib.sha256(doc["orchestrator"]["token"].encode()).hexdigest()
