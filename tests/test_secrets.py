@@ -27,6 +27,13 @@ MX = "values/agents-matrix-connector/default.secrets.yaml"
 MX_TOKEN = "values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml"
 CHAT = "values/agents-orchestrator/chat-token.secrets.yaml"
 CHAT_HASH = "values/agents-matrix-connector/agent-token.secrets.yaml"
+USG = "values/agents-usage/default.secrets.yaml"
+USG_HASH = "values/agents-orchestrator/service-token-agents-usage.secrets.yaml"
+USG_TOKENS = "values/agents-usage/raw/service-tokens.agents-usage.pre.secrets.yaml"
+USG_ORCH = "values/agents-orchestrator/usage-token.secrets.yaml"
+USG_INGEST = "values/agents-usage/raw/ingest-token.agents-usage.pre.secrets.yaml"
+# Every file the usage bootstraps write; the sandboxes of the other tests pre-create them all.
+USAGE_FILES = (USG, USG_HASH, USG_TOKENS, USG_ORCH, USG_INGEST)
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -114,13 +121,37 @@ def _run(tmp_path: Path, bindir: Path, *bash_args: str) -> subprocess.CompletedP
 
 def test_script_does_not_overwrite_existing(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
+    for rel in (
+        ORCH,
+        DB,
+        WH,
+        WH_TOKEN,
+        SCH,
+        SCH_TOKEN,
+        MX,
+        MX_TOKEN,
+        CHAT,
+        CHAT_HASH,
+        *USAGE_FILES,
+    ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
     r = _run(tmp_path, bindir)
     assert r.returncode == 0, r.stderr
-    for rel in (ORCH, DB, WH, WH_TOKEN, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
+    for rel in (
+        ORCH,
+        DB,
+        WH,
+        WH_TOKEN,
+        SCH,
+        SCH_TOKEN,
+        MX,
+        MX_TOKEN,
+        CHAT,
+        CHAT_HASH,
+        *USAGE_FILES,
+    ):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
 
@@ -157,7 +188,7 @@ def test_webhook_token_hash_matches():
 
 def test_webhook_secrets_never_rotate(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
+    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH, *USAGE_FILES):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -198,7 +229,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
     (bindir / "sops").write_text(
         '#!/bin/sh\ncat > "$(mktemp "' + str(tmp_path) + "/plain.XXXXXX\")\"\necho 'sops: stub'\n"
     )
-    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
+    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH, *USAGE_FILES):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -244,7 +275,7 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
         f'cat > "{plain}/$name"\n'
         "echo 'sops: stub'\n"
     )
-    for rel in (ORCH, DB, WH, WH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH):
+    for rel in (ORCH, DB, WH, WH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH, *USAGE_FILES):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -478,6 +509,119 @@ def test_chat_token_not_printed(tmp_path):
         for stream in (r.stdout, r.stderr):
             assert token not in stream, f"{name}: token printed"
             assert digest not in stream, f"{name}: hash printed"
+
+
+def _usage_sandbox(tmp_path: Path) -> Path:
+    """Every target present except the five usage files."""
+    bindir = _schedule_sandbox(tmp_path)
+    for rel in (SCH, SCH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    for rel in USAGE_FILES:
+        (tmp_path / rel).unlink()
+    return bindir
+
+
+def _manifest(name: str, key: str, value: str) -> dict:
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": name},
+        "type": "Opaque",
+        "stringData": {key: value},
+    }
+
+
+def test_usage_secrets_bootstrapped(tmp_path):
+    bindir = _usage_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == sorted(rel.replace("/", "_") for rel in USAGE_FILES)
+    for rel in USAGE_FILES:
+        assert (tmp_path / rel).read_text() == "sops: stub\n"
+    # orchestrator to usage: the raw tokens Secret and the orchestrator's copy, the same token
+    orch = _plain(tmp_path, USG_ORCH)
+    assert set(orch) == {"usage"}
+    assert set(orch["usage"]) == {"token"}
+    token = orch["usage"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", token)
+    assert _plain(tmp_path, USG_TOKENS) == _manifest("agents-usage-service-tokens", "tokens", token)
+    # usage to orchestrator: the watcher's token and the orchestrator's hash of it
+    usg = _plain(tmp_path, USG)
+    assert set(usg) == {"orchestrator"}
+    assert set(usg["orchestrator"]) == {"token"}
+    watcher = usg["orchestrator"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", watcher)
+    assert watcher != token
+    assert _plain(tmp_path, USG_HASH) == {
+        "serviceApi": {
+            "tokenHashes": {"agents-usage": hashlib.sha256(watcher.encode()).hexdigest()}
+        }
+    }
+    # the agents' ingest token: one raw Secret, no newline, long enough, its own value
+    ingest = _plain(tmp_path, USG_INGEST)
+    value = ingest["stringData"]["token"]
+    assert ingest == _manifest("agents-usage-ingest", "token", value)
+    assert len(value) >= 32
+    assert value == value.strip() and "\n" not in value
+    assert value not in (token, watcher)
+
+
+def test_usage_token_pair_never_rotates(tmp_path):
+    bindir = _usage_sandbox(tmp_path)
+    assert _run(tmp_path, bindir).returncode == 0
+    for f in (tmp_path / "plain").iterdir():
+        f.unlink()
+    # all present: nothing is encrypted again
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+    # exactly one of a pair present: exit 1 naming both, the survivor untouched, nothing written
+    for pair in ((USG_TOKENS, USG_ORCH), (USG, USG_HASH)):
+        for present, absent in (pair, pair[::-1]):
+            (tmp_path / absent).unlink()
+            (tmp_path / present).write_text("sentinel: keep\n")
+            r = _run(tmp_path, bindir)
+            assert r.returncode == 1
+            assert pair[0] in r.stderr and pair[1] in r.stderr
+            assert not (tmp_path / absent).exists()
+            assert (tmp_path / present).read_text() == "sentinel: keep\n"
+            assert _encrypted(tmp_path) == []
+            (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+def test_usage_ingest_token_never_rotates(tmp_path):
+    bindir = _usage_sandbox(tmp_path)
+    for rel in USAGE_FILES:
+        if rel != USG_INGEST:
+            (tmp_path / rel).write_text("sentinel: keep\n")
+    assert _run(tmp_path, bindir).returncode == 0
+    assert _encrypted(tmp_path) == [USG_INGEST.replace("/", "_")]
+    (tmp_path / "plain" / USG_INGEST.replace("/", "_")).unlink()
+    (tmp_path / USG_INGEST).write_text("sentinel: keep\n")
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+    assert (tmp_path / USG_INGEST).read_text() == "sentinel: keep\n"
+
+
+def test_usage_tokens_not_printed(tmp_path):
+    for name, bash_args in (("plain-run", ()), ("traced-run", ("-x",))):
+        root = tmp_path / name
+        root.mkdir()
+        bindir = _usage_sandbox(root)
+        r = _run(root, bindir, *bash_args)
+        assert r.returncode == 0, r.stderr
+        secrets = [
+            _plain(root, USG_ORCH)["usage"]["token"],
+            _plain(root, USG)["orchestrator"]["token"],
+            _plain(root, USG_INGEST)["stringData"]["token"],
+        ]
+        secrets.append(hashlib.sha256(secrets[1].encode()).hexdigest())
+        for stream in (r.stdout, r.stderr):
+            for value in secrets:
+                assert value not in stream, f"{name}: a usage secret was printed"
 
 
 def _secrets_of(docs: list[dict], release: str) -> list[str]:

@@ -80,8 +80,8 @@ Applies are manual and local, run from this directory.
   Exit code 2 means there are changes (passed through, not an error); 0 means
   none.
 - `mise run check-pins` - `uv run scripts/check_pins.py`: for every pinned main-built commit (the
-  `agents-orchestrator`, `agents-web`, `agents-webhook`, `agents-schedule` and `agents-matrix-connector`
-  chart versions, the orchestrator and web `image.tag`, and the claude-code-wrapper `agentImage` and
+  `agents-orchestrator`, `agents-web`, `agents-webhook`, `agents-schedule`, `agents-matrix-connector` and
+  `agents-usage` chart versions, the orchestrator, web and agents-usage `image.tag`, and the claude-code-wrapper `agentImage` and
   `ORCH_AGENT_IMAGES`) it resolves the commit (`0.1.0-main.<sha7>` or an image sha7 is that commit, a
   release `X.Y.Z` goes through tag `vX.Y.Z`) and lists its check runs with `gh api` (paginated). A pin
   passes only when at least one check run exists and every one is completed with conclusion `success`,
@@ -178,3 +178,25 @@ The answer carries the endpoint URL, a username and a password. **The password i
   username and password in the contact point's basic authentication fields (`grafana-alert`).
 
 Use one endpoint per repository and type. The smoke creates and deletes its own `smoke-<random>` endpoint and never touches yours.
+
+## agents-usage
+
+Releases: `agents-usage-db` (CNPG database `usage`) and `agents-usage` (deployments `agents-usage-api`, `-prober` and `-watcher`).
+The api pod sits behind the same SSO as the orchestrator and is served at `https://lab.szymonrichert.pl/usage`. Its two token
+listeners are not on the ingress: the service port (the orchestrator's usage gate) and the ingest port (the agents' statusLine
+samples) are reached in-cluster through the `agents-usage` Service.
+
+`scripts/bootstrap-secrets.sh` creates its secrets, each written once and never rotated or printed:
+
+- `bootstrap_usage_token` (both files or neither): the raw Secret `agents-usage-service-tokens`
+  (`values/agents-usage/raw/service-tokens.agents-usage.pre.secrets.yaml`, key `tokens`) and the orchestrator's copy
+  `values/agents-orchestrator/usage-token.secrets.yaml` (`usage.token`, the same token).
+- `bootstrap_service_token agents-usage` (both files or neither): the watcher's token `values/agents-usage/default.secrets.yaml`
+  (`orchestrator.token`) and its sha256 `values/agents-orchestrator/service-token-agents-usage.secrets.yaml`, which the
+  orchestrator release lists once the orchestrator learns the usage service.
+- `bootstrap_usage_ingest_token`: the single shared token of the agents, the raw Secret `agents-usage-ingest`
+  (`values/agents-usage/raw/ingest-token.agents-usage.pre.secrets.yaml`, key `token`, 64 hex characters, no newline). The agent
+  pods read the same Secret as `CCW_USAGE_TOKEN`.
+
+The prober reads the orchestrator's Secret `agents-orchestrator-claude` (key `CLAUDE_CODE_OAUTH_TOKEN`). The backup credentials
+`values/agents-usage-db/default.secrets.yaml` are a byte copy of the other databases' file, as for `agents-schedule-db`.

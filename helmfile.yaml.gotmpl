@@ -117,6 +117,17 @@ releases:
       application: agents-schedule
     <<: *default
 
+  - name: agents-usage-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-usage
+    <<: *default
+
   - name: agents-webhook
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
@@ -141,6 +152,19 @@ releases:
     labels:
       purpose: agents
       application: agents-schedule
+    <<: *default
+
+  - name: agents-usage
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-usage
+    version: 0.1.0-main.0000000
+    timeout: 600
+    needs:
+      - agents/agents-usage-db
+      - agents/agents-orchestrator
+    labels:
+      purpose: agents
+      application: agents-usage
     <<: *default
 
   - name: agents-matrix-connector
