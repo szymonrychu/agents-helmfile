@@ -101,11 +101,10 @@ cache:
     # The api pod reads the same Secret (one S3 identity): without it the archives routes answer 503.
     api:
       existingSecret: agents-workspace-cache
-  # Cleanup sweep of stale archives. Starts in dry-run: read GET /api/v1/cache/cleanup/preview,
-  # then flip dryRun to false in a follow-up change.
+  # Cleanup sweep of stale archives. Real deletes: the user enabled it (dryRun false) on 2026-11-01.
   sweep:
     enabled: true
-    dryRun: true
+    dryRun: false
     retentionDays: 30
     keepNewest: 3
     intervalSeconds: 21600

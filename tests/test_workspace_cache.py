@@ -64,8 +64,8 @@ def test_orchestrator_api_secret_and_sweep(layered_values):
     assert cache["s3"]["api"]["existingSecret"] == "agents-workspace-cache"
     sweep = cache["sweep"]
     assert sweep["enabled"] is True
-    # Dry-run first: flip to false only after reading GET /api/v1/cache/cleanup/preview.
-    assert sweep["dryRun"] is True
+    # Real deletes: the user enabled the sweep on 2026-11-01.
+    assert sweep["dryRun"] is False
     assert sweep["retentionDays"] == 30
     assert sweep["keepNewest"] == 3
     assert sweep["intervalSeconds"] == 21600
