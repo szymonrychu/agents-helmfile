@@ -33,6 +33,8 @@ Tools are pinned in `mise.toml`, mirrored from the infrastructure helmfile
 once. An optional local `.env` is loaded through the mise `[env]` block; it is
 gitignored, absent is fine, and its contents are never printed.
 
+Run `pre-commit install` once per clone to enable the gitleaks hook.
+
 ## Secrets
 
 Secrets (the Claude OAuth token and the orchestrator master key) are
