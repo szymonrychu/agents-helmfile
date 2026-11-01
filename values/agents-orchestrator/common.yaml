@@ -1,11 +1,11 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "2.2.0"
+  tag: "3.0.0"
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
-agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.7.0
+agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.7.1
 
 # Connection URI from the CNPG app Secret made by the agents-orchestrator-db release.
 # No password in plain values.
@@ -24,12 +24,28 @@ serviceApi:
 chat:
   url: http://agents-matrix-connector-api-agents:8001
 
+# Seconds between two restarts an agent asks for on its own session.
+selfRestartCooldownSeconds: 600
+
+# Superleader admin relay upstreams: the webhook and schedule admin listeners (port 8001); the
+# tokens (admin.webhook.token, admin.schedule.token) come from default.secrets.yaml (SOPS). The
+# connector reuses the chat AgentGate: same url and the chat token Secret the chart makes.
+admin:
+  webhook:
+    url: http://agents-webhook-api:8001
+  schedule:
+    url: http://agents-schedule-api:8001
+  connector:
+    url: http://agents-matrix-connector-api-agents:8001
+    existingSecret: agents-orchestrator-chat
+    existingSecretKey: chat-token
+
 env:
   # The oauth2-proxy sidecar (podAnnotations below) is the only way in: it reaches the api over
   # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods
   # reach the api port only through the sidecar's SSO.
   ORCH_ALLOWED_CIDRS: 127.0.0.1/32
-  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.7.0
+  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.7.1
   # WebSocket upgrades must carry an Origin in this list: the UI origin (the ingress host over https).
   ORCH_ALLOWED_ORIGINS: https://lab.szymonrichert.pl
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
