@@ -7,6 +7,11 @@ image:
 # prunes the sha7 tags, so a sha7 pin stops pulling.
 agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.7.1
 
+# Docker-in-Docker sidecar for sessions with docker: true. Semver-pinned dind image pulled through
+# the Harbor Docker Hub proxy project with the existing regcred pull secret; caps are the chart defaults.
+docker:
+  image: harbor.szymonrichert.pl/proxy-dockerhub/library/docker:29.9.2-dind
+
 # Connection URI from the CNPG app Secret made by the agents-orchestrator-db release.
 # No password in plain values.
 postgres:

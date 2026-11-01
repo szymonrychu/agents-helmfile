@@ -284,6 +284,11 @@ def test_agent_image_pins_agree(layered_values):
     assert tag == "0.7.1"
 
 
+def test_docker_dind_image_is_semver_via_harbor_proxy(layered_values):
+    image = layered_values(REL)["docker"]["image"]
+    assert re.fullmatch(r"harbor\.szymonrichert\.pl/proxy-dockerhub/library/docker:\d+\.\d+\.\d+-dind", image)
+
+
 def test_allowed_origins_is_ingress_host(layered_values):
     v = layered_values(REL)
     host = v["ingress"]["hosts"][0]["host"]
