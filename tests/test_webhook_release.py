@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-webhook"
 DB_REL = "agents-webhook-db"
-# The v0.3.0 release commit: chart and image from one commit.
-SHA = "84385ae"
-TAG = "0.3.0"
+# The v0.4.0 release commit: chart and image from one commit.
+SHA = "f720309"
+TAG = "0.4.0"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
     "192.168.1.26/32",
