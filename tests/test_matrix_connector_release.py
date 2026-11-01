@@ -10,9 +10,9 @@ import yaml
 
 REL = "agents-matrix-connector"
 DB_REL = "agents-matrix-connector-db"
-# The v0.3.0 release commit: chart and image from one commit.
-SHA = "995b2e2"
-TAG = "0.3.0"
+# The v0.4.0 release commit: chart and image from one commit.
+SHA = "d2a145f"
+TAG = "0.4.0"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
     "192.168.1.26/32",
