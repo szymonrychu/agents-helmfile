@@ -68,7 +68,7 @@ releases:
   - name: agents-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-orchestrator
-    version: 0.1.0-main.8787f71
+    version: 0.1.0-main.c275c8c
     timeout: 600
     needs:
       - agents/agents-orchestrator-db
@@ -82,6 +82,7 @@ releases:
     - values/agents-orchestrator/service-token-agents-webhook.secrets.yaml
     - values/agents-orchestrator/service-token-agents-schedule.secrets.yaml
     - values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml
+    - values/agents-orchestrator/service-token-agents-usage.secrets.yaml
     - values/agents-orchestrator/chat-token.secrets.yaml
 
   - name: agents-webhook-db

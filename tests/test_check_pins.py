@@ -265,6 +265,22 @@ def test_every_pin_resolved(tree):
     assert expected["agents-orchestrator:agentImage"][0] == "claude-code-wrapper"
 
 
+def test_deployed_orchestrator_and_wrapper_pins_resolve(tree):
+    """The orchestrator 3.3.0 and wrapper 0.8.0 pins resolve through their v tags and pass."""
+    expected = expected_pins(tree)
+    assert expected["agents-orchestrator:image.tag"] == ("agents-orchestrator", "3.3.0")
+    assert expected["agents-orchestrator"] == ("agents-orchestrator", "0.1.0-main.c275c8c")
+    wrapper = [label for label, (repo, _) in expected.items() if repo == "claude-code-wrapper"]
+    assert len(wrapper) == 2
+    assert {expected[label] for label in wrapper} == {("claude-code-wrapper", "0.8.0")}
+    proc, calls = check(tree, green_state())
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    paths = {next(a for a in call if a.startswith("repos/")).split("?")[0] for call in calls}
+    assert "repos/szymonrychu/claude-code-wrapper/commits/v0.8.0" in paths
+    assert "repos/szymonrychu/agents-orchestrator/commits/v3.3.0" in paths
+    assert "repos/szymonrychu/agents-orchestrator/commits/c275c8c" in paths
+
+
 def test_green_pins_pass(tree):
     pin_chart(tree, "agents-orchestrator", "0.1.0-main.96e46f3")
     real_green = copy.deepcopy(REAL)

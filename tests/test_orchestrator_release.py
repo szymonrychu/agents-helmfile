@@ -11,9 +11,10 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "3.0.0"
-# The chart of the v3.0.0 release commit 8787f71: chart and image from one commit.
-CHART = "0.1.0-main.8787f71"
+PIN = "3.3.0"
+# The chart of the v3.3.0 release commit c275c8c (main CI run 41366646249): chart and image from one commit.
+CHART = "0.1.0-main.c275c8c"
+WRAPPER_PIN = "0.8.0"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -281,7 +282,7 @@ def test_agent_image_pins_agree(layered_values):
     repo, _, tag = v["agentImage"].rpartition(":")
     assert repo == "harbor.szymonrichert.pl/containers/claude-code-wrapper"
     # Release tag, not a sha7: Harbor prunes the sha7 tags.
-    assert tag == "0.7.1"
+    assert tag == WRAPPER_PIN
 
 
 def test_allowed_origins_is_ingress_host(layered_values):
@@ -326,5 +327,54 @@ def test_values_dir_moved(repo_root):
         f"values/{REL}/default.secrets.yaml",
         f"values/{REL}/service-token-agents-matrix-connector.secrets.yaml",
         f"values/{REL}/service-token-agents-schedule.secrets.yaml",
+        f"values/{REL}/service-token-agents-usage.secrets.yaml",
         f"values/{REL}/service-token-agents-webhook.secrets.yaml",
+        f"values/{REL}/usage-token.secrets.yaml",
     ]
+
+
+def _semver(tag: str) -> tuple[int, int, int]:
+    assert re.fullmatch(r"\d+\.\d+\.\d+", tag), f"{tag!r} is not a release tag"
+    major, minor, patch = (int(part) for part in tag.split("."))
+    return major, minor, patch
+
+
+def test_agent_usage_forwarding_wired(layered_values):
+    v = layered_values(REL)
+    assert v["agentUsage"]["url"] == "http://agents-usage:8002"
+    # The Secret name and key come from the agents-usage ingest listener (the one raw Secret
+    # agents-usage-ingest that bootstrap-secrets.sh makes), not a second hard-coded copy.
+    ingest = layered_values("agents-usage")["ingestListener"]["tokensSecret"]
+    assert v["agentUsage"]["secretName"] == ingest["name"] == "agents-usage-ingest"
+    assert ingest["key"] == "token"
+
+
+def test_agent_usage_needs_wrapper_0_8_or_newer(layered_values):
+    """An older wrapper refuses the usage config section: the guard while agentUsage.url is set."""
+    v = layered_values(REL)
+    assert v["agentUsage"]["url"]
+    images = [v["agentImage"], *[i.strip() for i in v["env"]["ORCH_AGENT_IMAGES"].split(",")]]
+    for image in images:
+        repo, _, tag = image.rpartition(":")
+        assert repo == "harbor.szymonrichert.pl/containers/claude-code-wrapper", image
+        assert _semver(tag) >= (0, 8, 0), image
+
+
+def test_usage_hash_file_listed_after_default(helmfile_build):
+    secrets = _release(helmfile_build).get("secrets", [])
+    names = [s if isinstance(s, str) else s.get("path", "") for s in secrets]
+    default = f"values/{REL}/default.secrets.yaml"
+    hash_file = f"values/{REL}/service-token-agents-usage.secrets.yaml"
+    assert hash_file in names and names.index(hash_file) > names.index(default)
+
+
+def test_usage_hash_file_listed_in_release_block(repo_root):
+    block = _release_block(repo_root, REL)
+    assert f"- values/{REL}/service-token-agents-usage.secrets.yaml" in block
+
+
+def test_usage_gate_stays_off(repo_root, layered_values):
+    """No usage.url and no usage token file yet: the chart fails a half-set usage pair, and the
+    gate is switched on in a later step once agent forwarding is verified."""
+    assert not layered_values(REL).get("usage", {}).get("url")
+    assert "usage-token.secrets.yaml" not in _release_block(repo_root, REL)
