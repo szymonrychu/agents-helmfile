@@ -11,9 +11,12 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "3.2.0"
-# The chart of the v3.2.0 release commit 11bd82f: chart and image from one commit.
-CHART = "0.1.0-main.11bd82f"
+PIN = "3.3.0"
+# The chart of the v3.3.0 release commit c275c8c (main CI run 41366646249): chart and image from one commit.
+CHART = "0.1.0-main.c275c8c"
+WRAPPER_PIN = "0.8.0"
+USAGE_INGEST_SECRET = "agents-usage-ingest"
+USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -281,7 +284,7 @@ def test_agent_image_pins_agree(layered_values):
     repo, _, tag = v["agentImage"].rpartition(":")
     assert repo == "harbor.szymonrichert.pl/containers/claude-code-wrapper"
     # Release tag, not a sha7: Harbor prunes the sha7 tags.
-    assert tag == "0.7.1"
+    assert tag == WRAPPER_PIN
 
 
 def test_docker_dind_image_is_semver_via_harbor_proxy(layered_values):
@@ -337,3 +340,65 @@ def test_values_dir_moved(repo_root):
         f"values/{REL}/service-token-agents-webhook.secrets.yaml",
         f"values/{REL}/usage-token.secrets.yaml",
     ]
+
+
+def _semver(tag: str) -> tuple[int, int, int]:
+    assert re.fullmatch(r"\d+\.\d+\.\d+", tag), f"{tag!r} is not a release tag"
+    major, minor, patch = (int(part) for part in tag.split("."))
+    return major, minor, patch
+
+
+def test_agent_usage_forwarding_wired(layered_values):
+    v = layered_values(REL)
+    assert v["agentUsage"]["url"] == "http://agents-usage:8002"
+    # The Secret name and key come from the agents-usage ingest listener (the one raw Secret
+    # agents-usage-ingest that bootstrap-secrets.sh makes), not a second hard-coded copy.
+    ingest = layered_values("agents-usage")["ingestListener"]["tokensSecret"]
+    assert v["agentUsage"]["secretName"] == ingest["name"] == USAGE_INGEST_SECRET
+    assert ingest["key"] == "token"
+
+
+def test_agent_usage_needs_wrapper_0_8_or_newer(layered_values):
+    """An older wrapper refuses the usage config section: the guard while agentUsage.url is set."""
+    v = layered_values(REL)
+    assert v["agentUsage"]["url"]
+    images = [v["agentImage"], *[i.strip() for i in v["env"]["ORCH_AGENT_IMAGES"].split(",")]]
+    for image in images:
+        repo, _, tag = image.rpartition(":")
+        assert repo == "harbor.szymonrichert.pl/containers/claude-code-wrapper", image
+        assert _semver(tag) >= (0, 8, 0), image
+
+
+def test_usage_hash_file_listed_after_default(helmfile_build):
+    secrets = _release(helmfile_build).get("secrets", [])
+    names = [s if isinstance(s, str) else s.get("path", "") for s in secrets]
+    default = f"values/{REL}/default.secrets.yaml"
+    hash_file = f"values/{REL}/service-token-agents-usage.secrets.yaml"
+    assert hash_file in names and names.index(hash_file) > names.index(default)
+
+
+def _release_secrets(repo_root) -> list[str]:
+    """The `secrets` list of the orchestrator release block, parsed (not substring-matched)."""
+    text = _release_block(repo_root, REL)
+    # The block merges the shared anchor, which is not defined inside the block alone.
+    text = re.sub(r"^\s*<<: \*default\n", "", text, flags=re.MULTILINE)
+    (release,) = yaml.safe_load(text)
+    return release["secrets"]
+
+
+def test_usage_hash_file_listed_in_release_block(repo_root):
+    assert f"values/{REL}/service-token-agents-usage.secrets.yaml" in _release_secrets(repo_root)
+
+
+def test_usage_gate_on(repo_root, layered_values):
+    """usage.url and the encrypted usage token file land together: the chart fails the render for
+    a usage token without usage.url. Quotas are not set here: they default to 100 and the user
+    sets them per preset."""
+    usage = layered_values(REL)["usage"]
+    assert usage["url"] == USAGE_URL
+    assert not usage.get("token")
+    assert not usage.get("existingSecret")
+    token_file = f"values/{REL}/usage-token.secrets.yaml"
+    assert token_file in _release_secrets(repo_root)
+    enc = yaml.safe_load((repo_root / token_file).read_text())
+    assert str(enc["usage"]["token"]).startswith("ENC[")
