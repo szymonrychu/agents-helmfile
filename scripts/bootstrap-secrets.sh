@@ -30,6 +30,9 @@ TB_FILE="values/agents-taskboard/default.secrets.yaml"
 TB_HASH_FILE="values/agents-orchestrator/service-token-agents-taskboard.secrets.yaml"
 TB_RELAY_FILE="values/agents-taskboard/relay-token.secrets.yaml"
 TB_ORCH_FILE="values/agents-orchestrator/taskboard-token.secrets.yaml"
+HIS_TOKENS_FILE="values/agents-history/raw/service-tokens.agents-history.pre.secrets.yaml"
+HIS_ORCH_FILE="values/agents-orchestrator/history-token.secrets.yaml"
+HIS_INGEST_FILE="values/agents-history/raw/ingest-token.agents-history.pre.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
@@ -217,6 +220,40 @@ bootstrap_taskboard_relay_token() {
   fi
 }
 
+# bootstrap_history_token: both files or neither. The token the orchestrator's history relay sends
+# to the history service listener: the raw Secret agents-history-service-tokens (key tokens, one
+# token per line, applied by the agents-history release hook) and the orchestrator's copy
+# (admin.history.token, ORCH_HISTORY_TOKEN). Never rotates, never half-writes.
+bootstrap_history_token() {
+  local token
+  if [[ -e "$HIS_TOKENS_FILE" && -e "$HIS_ORCH_FILE" ]]; then return 0; fi
+  if [[ -e "$HIS_TOKENS_FILE" || -e "$HIS_ORCH_FILE" ]]; then
+    die "exactly one of $HIS_TOKENS_FILE and $HIS_ORCH_FILE exists; refusing to rotate or half-write"
+  fi
+  token="$(openssl rand -hex 32)"
+  TOKEN="$token" jq -n '{
+      apiVersion: "v1", kind: "Secret", metadata: {name: "agents-history-service-tokens"},
+      type: "Opaque", stringData: {tokens: $ENV.TOKEN}}' |
+    encrypt_to "$HIS_TOKENS_FILE"
+  if ! TOKEN="$token" jq -n '{admin: {history: {token: $ENV.TOKEN}}}' |
+    encrypt_to "$HIS_ORCH_FILE"; then
+    rm -f "$HIS_TOKENS_FILE"
+    die "writing $HIS_ORCH_FILE failed; removed $HIS_TOKENS_FILE"
+  fi
+}
+
+# bootstrap_history_ingest_token: one raw Secret agents-history-ingest (key token) holding the token
+# the orchestrator sends to the history ingest listener when it delivers a discarded session. A value
+# of its own, different from the service token (the service exits 78 otherwise). No trailing newline,
+# so the value works as a tokens file line and as an env value. Never rotates.
+bootstrap_history_ingest_token() {
+  [[ -e "$HIS_INGEST_FILE" ]] && return 0
+  TOKEN="$(openssl rand -hex 32)" jq -n '{
+      apiVersion: "v1", kind: "Secret", metadata: {name: "agents-history-ingest"},
+      type: "Opaque", stringData: {token: $ENV.TOKEN}}' |
+    encrypt_to "$HIS_INGEST_FILE"
+}
+
 bootstrap_orchestrator
 bootstrap_database
 bootstrap_service_token agents-webhook "$WH_FILE" "$WH_TOKEN_FILE"
@@ -228,4 +265,6 @@ bootstrap_usage_token
 bootstrap_usage_ingest_token
 bootstrap_service_token agents-taskboard "$TB_FILE" "$TB_HASH_FILE"
 bootstrap_taskboard_relay_token
+bootstrap_history_token
+bootstrap_history_ingest_token
 echo "secrets bootstrap done (existing files left untouched)" >&2
