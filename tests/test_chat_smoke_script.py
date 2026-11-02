@@ -809,8 +809,12 @@ def test_stale_port_forward_found_through_ps(make, fakebin):
         "#!/bin/sh\n"
         '[ "$*" = "-eo pid=,args=" ] || exit 2\n'
         # A killed stale process leaves the listing: a zombie (state Z) or a reaped pid is not
-        # listed. The real ps by absolute path, since this fake shadows `ps` on PATH (no /proc).
-        f'case "$(/bin/ps -o stat= -p {stale.pid})" in ""|Z*) ;; *)'
+        # listed. The state comes from the test host's own /proc (agent pods have no real ps; the
+        # fallback lookup is pointed at a missing dir through CHAT_SMOKE_PROC_DIR), else from the
+        # real ps by absolute path (macOS), since this fake shadows `ps` on PATH.
+        f'st=$(sed -n "s/^[0-9]* (.*) \\(.\\) .*/\\1/p" /proc/{stale.pid}/stat 2>/dev/null)\n'
+        f"[ -d /proc/self ] || st=$(/bin/ps -o stat= -p {stale.pid})\n"
+        'case "$st" in ""|Z*) ;; *)'
         f' echo "  {stale.pid} /bin/sh {fakebin}/kubectl'
         f' -n agents port-forward deploy/x {fake.port}:8000";; esac\n'
         f'echo "  {other.pid} kubectl -n agents port-forward deploy/x 1{fake.port}:8000"\n'
@@ -824,6 +828,35 @@ def test_stale_port_forward_found_through_ps(make, fakebin):
         assert stale.wait(timeout=5) == 0
         assert other.poll() is None
         assert f"killed stale port-forward {stale.pid} on port {fake.port}" in r.stdout
+    finally:
+        for proc in (stale, other):
+            if proc.poll() is None:
+                proc.kill()
+
+
+def test_stale_port_forward_found_through_proc_without_ps(make, fakebin):
+    # With /proc present (Linux, agent pods, CI) the stale lookup never runs `ps`: this ps fails
+    # loudly and leaves a marker, so the test also passes on a host that has no ps at all.
+    fake = make(bound=True)
+    env = _env(fake, fakebin)
+    marker = fakebin.parent / "ps-called"
+    ps = fakebin / "ps"
+    ps.write_text(f"#!/bin/sh\ntouch {marker}\nexit 127\n")
+    ps.chmod(0o755)
+    stale = subprocess.Popen(
+        [str(fakebin / "kubectl"), "-n", "agents", "port-forward", "deploy/x", f"{fake.port}:8000"],
+        env=env,
+    )
+    other = subprocess.Popen(["sleep", "30"])
+    try:
+        r = subprocess.run(
+            ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=90, check=False
+        )
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert stale.wait(timeout=5) == 0
+        assert other.poll() is None
+        assert f"killed stale port-forward {stale.pid} on port {fake.port}" in r.stdout
+        assert not marker.exists()
     finally:
         for proc in (stale, other):
             if proc.poll() is None:
