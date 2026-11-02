@@ -14,7 +14,6 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 CI = WORKFLOWS / "ci.yaml"
 SAME_REPO = "github.event.pull_request.head.repo.full_name == github.repository"
 FORK = "github.event.pull_request.head.repo.full_name != github.repository"
-GNUPGHOME = "${{ runner.temp }}/gnupg"
 
 
 def _workflow() -> dict:
@@ -84,27 +83,27 @@ def test_checkout_keeps_no_token_in_git_config():
             assert step.get("with", {}).get("persist-credentials") is False, name
 
 
-def test_final_step_always_removes_the_key_and_the_harbor_login():
-    job = _secret_job()
-    last = job["steps"][-1]
+def test_final_step_always_removes_the_harbor_login():
+    last = _secret_job()["steps"][-1]
     assert last["if"] == "always()"
-    assert "gpgconf --kill gpg-agent" in last["run"]
-    assert 'rm -rf "$GNUPGHOME"' in last["run"]
     assert 'helm registry logout "$HARBOR_URL"' in last["run"]
-    # Every cleanup command runs even when an earlier one fails; the step still reports it.
-    assert "set -e" not in last["run"] and "exit $rc" in last["run"]
-    # The cleanup and the import name the same GNUPGHOME, so the cleanup never depends on
-    # the import step having exported it.
-    imp = job["steps"][_step_index(job, "gpg --batch --quiet --import")]
-    assert imp["env"]["GNUPGHOME"] == GNUPGHOME
-    assert last["env"]["GNUPGHOME"] == GNUPGHOME
+
+
+def test_no_sops_or_pgp_key_in_github():
+    """User decision 2026-11-02: the master key and any SOPS/PGP key never go into GitHub."""
+    text = CI.read_text()
+    assert not re.search(r"SOPS_PGP|GNUPGHOME|gpg\b|gpgconf|SOPS_AGE", text), text
+    secrets = set(re.findall(r"secrets\.([A-Z_]+)", text))
+    assert secrets == {"HARBOR_USERNAME", "HARBOR_PASSWORD"}, secrets
+
+
+def test_ci_log_names_the_skipped_tests_and_why():
+    assert "-rs" in _test_step_args()
 
 
 def test_lint_and_check_pins_run_before_any_secret_reaches_the_runner():
     job = _secret_job()
-    first_secret = min(
-        _step_index(job, "helm registry login"), _step_index(job, "gpg --batch --quiet --import")
-    )
+    first_secret = _step_index(job, "helm registry login")
     assert _step_index(job, "mise run lint") < first_secret
     assert _step_index(job, "mise run check-pins") < first_secret
     assert _step_index(job, "mise run test") > first_secret
@@ -219,5 +218,4 @@ def test_ci_never_reaches_a_kubernetes_api():
     guard = _step_index(job, "kubectl cluster-info")
     assert "exit 1" in _runs(job)[guard]
     assert guard < _step_index(job, "helm registry login")
-    assert guard < _step_index(job, "gpg --batch --quiet --import")
     assert guard < _step_index(job, "mise run test")

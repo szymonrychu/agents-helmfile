@@ -126,6 +126,7 @@ def test_token_hash_wired_and_no_plaintext(repo_root, layered_values):
     assert not v["matrix"].get("accessToken")
 
 
+@pytest.mark.needs_sops_key
 def test_db_secret_matches_rendered_cnpg_cluster_helmfile_build(layered_values, repo_root):
     if shutil.which("helmfile") is None:
         pytest.fail("helmfile is not on PATH (run under `mise exec`/`mise run`)")

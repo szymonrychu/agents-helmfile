@@ -1,5 +1,7 @@
 """The agents-usage-db CNPG release: pinned chart, labels, initdb names, no plain credentials."""
 
+import pytest
+
 REL = "agents-usage-db"
 
 
@@ -11,6 +13,7 @@ def _release(helmfile_build):
     raise AssertionError(f"release {REL} not rendered")
 
 
+@pytest.mark.needs_sops_key
 def test_release_declared(helmfile_build):
     rel = _release(helmfile_build)
     assert rel["chart"] == "cnpg/cluster"

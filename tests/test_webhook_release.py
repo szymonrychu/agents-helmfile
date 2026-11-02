@@ -168,6 +168,7 @@ def _rendered_cnpg_app_secret(repo_root) -> str:
     return clusters[0]["metadata"]["name"] + "-app"
 
 
+@pytest.mark.needs_sops_key
 def test_db_secret_matches_rendered_cnpg_cluster_helmfile_build(layered_values, repo_root):
     assert layered_values(REL)["postgres"]["existingSecret"] == _rendered_cnpg_app_secret(repo_root)
 

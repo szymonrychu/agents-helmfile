@@ -206,6 +206,7 @@ def _decrypt(rel: str) -> dict:
     return yaml.safe_load(r.stdout)
 
 
+@pytest.mark.needs_sops_key
 def test_webhook_token_hash_matches():
     token = _decrypt(WH)["orchestrator"]["token"]
     digest = _decrypt(WH_TOKEN)["serviceApi"]["tokenHashes"]["agents-webhook"]
@@ -295,6 +296,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
     assert wh["endpointKey"] not in r.stdout + r.stderr
 
 
+@pytest.mark.needs_sops_key
 def test_webhook_secrets_have_no_sources():
     doc = _decrypt(WH)
     assert set(doc) == {"orchestrator", "endpointKey"}
@@ -409,6 +411,7 @@ def test_matrix_connector_secrets_encrypted_with_expected_keys():
             assert str(leaf).startswith("ENC["), f"{rel}:{path} is not encrypted"
 
 
+@pytest.mark.needs_sops_key
 def test_matrix_connector_token_hash_matches():
     token = _decrypt(MX)["orchestrator"]["token"]
     digest = _decrypt(MX_TOKEN)["serviceApi"]["tokenHashes"]["agents-matrix-connector"]
@@ -694,6 +697,7 @@ def _secrets_of(docs: list[dict], release: str) -> list[str]:
     raise AssertionError(f"release {release} not rendered")
 
 
+@pytest.mark.needs_sops_key
 def test_chat_token_files_listed_on_releases(helmfile_build):
     docs = helmfile_build()
     orch = _secrets_of(docs, "agents-orchestrator")
@@ -702,6 +706,7 @@ def test_chat_token_files_listed_on_releases(helmfile_build):
     assert _secrets_of(docs, "agents-matrix-connector") == [MX, CHAT_HASH]
 
 
+@pytest.mark.needs_sops_key
 def test_chat_token_hash_matches():
     token = _decrypt(CHAT)["chat"]["token"]
     assert _decrypt(CHAT_HASH) == {
@@ -873,6 +878,7 @@ def test_history_tokens_not_printed(tmp_path):
                 assert value not in stream, f"{name}: a history secret was printed"
 
 
+@pytest.mark.needs_sops_key
 def test_history_token_files_are_consistent():
     tokens = _decrypt(HIS_TOKENS)["stringData"]["tokens"]
     ingest = _decrypt(HIS_INGEST)["stringData"]["token"]

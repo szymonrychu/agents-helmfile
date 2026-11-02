@@ -1,5 +1,7 @@
 """The agent-orchestrator-db CNPG release: chart, initdb, backups, no plain credentials."""
 
+import pytest
+
 REL = "agent-orchestrator-db"
 
 
@@ -11,6 +13,7 @@ def _release(helmfile_build, name=REL):
     raise AssertionError(f"release {name} not rendered")
 
 
+@pytest.mark.needs_sops_key
 def test_release_chart_namespace_and_force(helmfile_build):
     rel = _release(helmfile_build)
     assert rel["chart"] == "cnpg/cluster"
@@ -46,6 +49,7 @@ def test_backups_enabled_with_own_path(layered_values):
     assert b["retentionPolicy"] == "30d"
 
 
+@pytest.mark.needs_sops_key
 def test_old_db_hibernated(helmfile_build, layered_values):
     v = layered_values(REL)
     assert v["cluster"]["annotations"] == {"cnpg.io/hibernation": "on"}
@@ -62,6 +66,7 @@ def test_no_credentials_in_plain_values(layered_values):
 NEW = "agents-orchestrator-db"
 
 
+@pytest.mark.needs_sops_key
 def test_new_release_chart_and_labels(helmfile_build):
     rel = _release(helmfile_build, NEW)
     assert rel["chart"] == "cnpg/cluster"

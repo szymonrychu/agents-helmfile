@@ -72,6 +72,7 @@ def _image_refs(node, path="") -> list[tuple[str, str | None]]:
     return refs
 
 
+@pytest.mark.needs_sops_key
 def test_every_installed_release_is_guarded(helmfile_build):
     assert sorted(_installed_releases(helmfile_build)) == sorted(RELEASES)
 

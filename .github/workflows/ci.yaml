@@ -4,9 +4,12 @@ name: ci
 # - no privileged pull request trigger (only `pull_request`); secrets go only to push, workflow_dispatch and pull requests
 #   whose head branch lives in this repository (job `ci`). A fork pull request gets `fork-lint`,
 #   which references no secret;
+# - no SOPS/PGP key is ever stored in GitHub (user decision 2026-11-02): the tests that decrypt
+#   SOPS values are skipped here, with the reason logged (-rs), and run in the `mise run apply`
+#   gate in agent pods that have the key;
 # - no decrypted value is printed: no xtrace, and the test step keeps every failure detail
 #   (assertion diffs, messages, captured output, warnings) off the log;
-# - the key and the Harbor login leave the runner in a final `if: always()` step;
+# - the Harbor login leaves the runner in a final `if: always()` step;
 # - no Kubernetes API is reachable: no kubeconfig and no in-cluster fallback.
 on:
   push:
@@ -44,16 +47,15 @@ jobs:
       - run: mise install
 
       # The release tests run `helmfile build` and `helmfile template`, which pull the charts
-      # from Harbor and decrypt the SOPS/PGP values files. Neither is skipped: a missing secret
-      # fails the job.
+      # from Harbor: a missing Harbor secret fails the job. The SOPS/PGP key is deliberately
+      # absent; the tests that decrypt are skipped (marker needs_sops_key in tests/conftest.py).
       - name: Require repository secrets
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-          SOPS_PGP_PRIVATE_KEY: ${{ secrets.SOPS_PGP_PRIVATE_KEY }}
         run: |
           missing=""
-          for name in HARBOR_USERNAME HARBOR_PASSWORD SOPS_PGP_PRIVATE_KEY; do
+          for name in HARBOR_USERNAME HARBOR_PASSWORD; do
             if [ -z "${!name:-}" ]; then missing="$missing $name"; fi
           done
           if [ -n "$missing" ]; then
@@ -68,7 +70,7 @@ jobs:
             exit 1
           fi
 
-      # Neither needs a secret, so both run before the key and the Harbor login exist.
+      # Neither needs a secret, so both run before the Harbor login exists.
       - run: mise run lint
       - name: Check pins
         env:
@@ -81,32 +83,17 @@ jobs:
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
         run: echo "$HARBOR_PASSWORD" | mise exec -- helm registry login "$HARBOR_URL" --username "$HARBOR_USERNAME" --password-stdin
 
-      - name: Import the SOPS PGP key
-        env:
-          GNUPGHOME: ${{ runner.temp }}/gnupg
-          SOPS_PGP_PRIVATE_KEY: ${{ secrets.SOPS_PGP_PRIVATE_KEY }}
-        run: |
-          mkdir -m 700 "$GNUPGHOME"
-          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
-          printf '%s\n' "$SOPS_PGP_PRIVATE_KEY" | gpg --batch --quiet --import
-
-      # Decrypted values live only inside the test processes. On a failure pytest would print
-      # them in assertion diffs, messages (helmfile stderr), YAML error snippets, captured output
-      # and warnings, untruncated because CI is set. These flags print only the name and outcome
-      # of each test; `mise run test` on a machine with the key shows the details.
+      # Without the key no SOPS value is decrypted here, but the flags stay as defence in depth:
+      # on a failure pytest would print assertion diffs, messages (helmfile stderr), YAML error
+      # snippets, captured output and warnings, untruncated because CI is set. These flags print
+      # only the name and outcome of each test (and, with -rs, why a test was skipped);
+      # `mise run test` on a machine with the key shows the details.
       - name: Run the tests (failure details stay off the log)
-        run: mise run test -- --tb=no --show-capture=no --disable-warnings -rN -vv
+        run: mise run test -- --tb=no --show-capture=no --disable-warnings -rs -vv
 
-      - name: Remove the key and the Harbor login
+      - name: Remove the Harbor login
         if: always()
-        env:
-          GNUPGHOME: ${{ runner.temp }}/gnupg
-        run: |
-          rc=0
-          gpgconf --kill gpg-agent || rc=1
-          rm -rf "$GNUPGHOME" || rc=1
-          mise exec -- helm registry logout "$HARBOR_URL" || rc=1
-          exit $rc
+        run: mise exec -- helm registry logout "$HARBOR_URL"
 
   fork-lint:
     # GitHub gives a fork pull request no secrets, and this job asks for none.
@@ -115,7 +102,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Lint only for a fork pull request
-        run: echo "::notice::Fork pull request, lint only and without any secret. The full suite (SOPS-decrypting tests, Harbor charts, check-pins) runs after a maintainer merges or re-pushes this change from a same-repo branch."
+        run: echo "::notice::Fork pull request, lint only and without any secret. The full suite (Harbor charts, check-pins) runs after a maintainer merges or re-pushes this change from a same-repo branch."
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false

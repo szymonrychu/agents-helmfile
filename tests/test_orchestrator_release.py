@@ -38,6 +38,7 @@ def _ann(layered_values):
     return layered_values(REL)["ingress"]["annotations"]
 
 
+@pytest.mark.needs_sops_key
 def test_release_chart_version_and_needs(helmfile_build):
     rel = _release(helmfile_build)
     assert rel["chart"] == "oci://harbor.szymonrichert.pl/charts/agents-orchestrator"
@@ -135,6 +136,7 @@ def _rendered_cnpg_app_secret(repo_root) -> str:
     return clusters[0]["metadata"]["name"] + "-app"
 
 
+@pytest.mark.needs_sops_key
 def test_db_secret_matches_rendered_cnpg_cluster(layered_values, repo_root):
     v = layered_values(REL)
     assert v["postgres"]["existingSecret"] == _rendered_cnpg_app_secret(repo_root)
@@ -204,6 +206,7 @@ def test_chat_upstream_wired(repo_root, layered_values):
     assert str(enc["chat"]["token"]).startswith("ENC[")
 
 
+@pytest.mark.needs_sops_key
 def test_chat_url_and_token_render_together(repo_root):
     """The chart fails the render for a chat token without chat.url, so a render is the guard."""
     if shutil.which("helmfile") is None:
@@ -270,6 +273,7 @@ def test_orchestrator_pin_matches_image(repo_root, layered_values):
     assert tag == PIN
 
 
+@pytest.mark.needs_sops_key
 def test_service_token_file_listed(helmfile_build, layered_values):
     secrets = _release(helmfile_build).get("secrets", [])
     names = [s if isinstance(s, str) else s.get("path", "") for s in secrets]
@@ -347,6 +351,7 @@ def test_values_dir_moved(repo_root):
     ]
 
 
+@pytest.mark.needs_sops_key
 def test_history_upstream(helmfile_build, layered_values):
     v = layered_values(REL)
     assert v["admin"]["history"]["url"] == "http://agents-history:8001"
@@ -414,6 +419,7 @@ def test_agent_usage_needs_wrapper_0_8_or_newer(layered_values):
         assert _semver(tag) >= (0, 8, 0), image
 
 
+@pytest.mark.needs_sops_key
 def test_usage_hash_file_listed_after_default(helmfile_build):
     secrets = _release(helmfile_build).get("secrets", [])
     names = [s if isinstance(s, str) else s.get("path", "") for s in secrets]
