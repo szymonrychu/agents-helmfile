@@ -32,9 +32,9 @@ def _chart_version(repo_root) -> str:
 def test_web_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"\d+\.\d+\.\d+", tag)
-    # The chart of the v0.12.0 release commit 7f8a890: chart and image from one commit.
-    assert _chart_version(repo_root) == "0.1.0-main.7f8a890"
-    assert tag == "0.12.0"
+    # The chart of the v0.13.0 release commit 8d67606: chart and image from one commit.
+    assert _chart_version(repo_root) == "0.1.0-main.8d67606"
+    assert tag == "0.13.0"
 
 
 def test_web_behind_oauth2_proxy_with_orchestrator_secret(layered_values):
@@ -83,8 +83,20 @@ def test_schedules_backend_configured(layered_values):
 
 def test_matrix_backend_configured(layered_values):
     backends = layered_values(REL)["backends"]
-    assert backends[-1] == {"id": "matrix", "label": "Chats", "basePath": "/matrix/api/v1"}
-    assert [b["id"] for b in backends] == ["orchestrator", "webhooks", "schedules", "matrix"]
+    assert backends[3] == {"id": "matrix", "label": "Chats", "basePath": "/matrix/api/v1"}
+    assert [b["id"] for b in backends][:4] == ["orchestrator", "webhooks", "schedules", "matrix"]
+
+
+def test_usage_backend_configured(layered_values):
+    backends = layered_values(REL)["backends"]
+    assert backends[-1] == {"id": "usage", "label": "Usage", "basePath": "/usage/v1"}
+    assert [b["id"] for b in backends] == [
+        "orchestrator",
+        "webhooks",
+        "schedules",
+        "matrix",
+        "usage",
+    ]
 
 
 def test_web_release_needs_matrix_connector(repo_root):
