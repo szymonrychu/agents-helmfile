@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "3.3.0"
+  tag: "3.4.0"
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
@@ -46,6 +46,12 @@ agentUsage:
 usage:
   url: http://agents-usage:8001
 
+# Taskboard relay upstream: the agents-taskboard service listener (port 8002). The bearer
+# (taskboard.token) comes from taskboard-token.secrets.yaml (SOPS); agents-taskboard holds the same
+# value as relayToken. The chart fails the render for a url without a token source.
+taskboard:
+  url: http://agents-taskboard-service:8002
+
 # Seconds between two restarts an agent asks for on its own session.
 selfRestartCooldownSeconds: 600
 
@@ -75,7 +81,7 @@ env:
   ORCH_ANY_MCP_REF: v0.5.0
   # The reserved orchestrator plugin (the orchestrator tools) is installed from this repo at this tag.
   ORCH_ANY_MCP_PLUGINS_REPO: https://github.com/szymonrychu/any-mcp-tatara-plugins
-  ORCH_ANY_MCP_PLUGINS_REF: v0.4.0
+  ORCH_ANY_MCP_PLUGINS_REF: v0.9.0
 
 # Keycloak SSO via the oauth2-proxy admission webhook (same shape as the infrastructure
 # helmfile's searxng/comfyui). The agents-orchestrator-proxy Secret is created by the

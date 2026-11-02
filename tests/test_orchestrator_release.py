@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "3.3.0"
-# The chart of the v3.3.0 release commit c275c8c (main CI run 41366646249): chart and image from one commit.
-CHART = "0.1.0-main.c275c8c"
+PIN = "3.4.0"
+# The chart of the v3.4.0 release commit 9649a61: chart and image from one commit.
+CHART = "0.1.0-main.9649a61"
 WRAPPER_PIN = "0.8.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
@@ -182,7 +182,8 @@ def test_any_mcp_configured_for_new_sessions(layered_values):
     assert (
         env["ORCH_ANY_MCP_PLUGINS_REPO"] == "https://github.com/szymonrychu/any-mcp-tatara-plugins"
     )
-    assert env["ORCH_ANY_MCP_PLUGINS_REF"] == "v0.4.0"
+    # The pinned tag itself is guarded by tests/test_taskboard_release.py::test_plugins_ref_is_v0_9_0.
+    assert re.fullmatch(r"v\d+\.\d+\.\d+", env["ORCH_ANY_MCP_PLUGINS_REF"])
 
 
 CHAT_URL = "http://agents-matrix-connector-api-agents:8001"
