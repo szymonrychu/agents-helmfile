@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "3.1.0"
-# The chart of the v3.1.0 release commit e846ee1: chart and image from one commit.
-CHART = "0.1.0-main.e846ee1"
+PIN = "3.2.0"
+# The chart of the v3.2.0 release commit 11bd82f: chart and image from one commit.
+CHART = "0.1.0-main.11bd82f"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -286,7 +286,9 @@ def test_agent_image_pins_agree(layered_values):
 
 def test_docker_dind_image_is_semver_via_harbor_proxy(layered_values):
     image = layered_values(REL)["docker"]["image"]
-    assert re.fullmatch(r"harbor\.szymonrichert\.pl/proxy-dockerhub/library/docker:\d+\.\d+\.\d+-dind", image)
+    assert re.fullmatch(
+        r"harbor\.szymonrichert\.pl/proxy-dockerhub/library/docker:\d+\.\d+\.\d+-dind", image
+    )
 
 
 def test_allowed_origins_is_ingress_host(layered_values):
