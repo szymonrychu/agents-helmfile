@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "3.4.0"
-# The chart of the v3.4.0 release commit 9649a61: chart and image from one commit.
-CHART = "0.1.0-main.9649a61"
+PIN = "3.5.0"
+# The chart of the v3.5.0 release commit 2ff61fa: chart and image from one commit.
+CHART = "0.1.0-main.2ff61fa"
 WRAPPER_PIN = "0.8.1"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
@@ -344,6 +344,41 @@ def test_values_dir_moved(repo_root):
         f"values/{REL}/taskboard-token.secrets.yaml",
         f"values/{REL}/usage-token.secrets.yaml",
     ]
+
+
+def test_history_upstream(helmfile_build, layered_values):
+    v = layered_values(REL)
+    assert v["admin"]["history"]["url"] == "http://agents-history:8001"
+    # The bearer comes from the SOPS file, never plain values.
+    assert not v["admin"]["history"].get("existingSecret")
+    names = [
+        s if isinstance(s, str) else s.get("path", "") for s in _release(helmfile_build)["secrets"]
+    ]
+    assert f"values/{REL}/history-token.secrets.yaml" in names
+    assert names.index(f"values/{REL}/history-token.secrets.yaml") > names.index(
+        f"values/{REL}/default.secrets.yaml"
+    )
+
+
+def test_discard_hook_to_history(layered_values):
+    v = layered_values(REL)
+    hook = v["discardHook"]
+    assert hook["url"] == "http://agents-history:8002/history/v1/ingest"
+    assert hook["url"].endswith("/history/v1/ingest")
+    assert hook["existingSecret"] == "agents-history-ingest"
+    assert hook["existingSecretKey"] == "token"
+    assert not hook.get("token")
+    assert v["env"]["ORCH_DISCARD_HOOK_TIMEOUT_SECONDS"] == "600"
+
+
+def test_plugins_ref_is_a_tag(layered_values):
+    ref = layered_values(REL)["env"]["ORCH_ANY_MCP_PLUGINS_REF"]
+    assert re.fullmatch(r"v\d+\.\d+\.\d+", ref)
+    assert _semver(ref.lstrip("v")) >= (0, 11, 0)
+
+
+def test_usage_quota_default_95(layered_values):
+    assert layered_values(REL)["usageQuotaDefault"] == 95
 
 
 def _semver(tag: str) -> tuple[int, int, int]:

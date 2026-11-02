@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "3.4.0"
+  tag: "3.5.0"
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
@@ -46,6 +46,10 @@ agentUsage:
 usage:
   url: http://agents-usage:8001
 
+# Default usage quota percent of a session without its own usage_quota (ORCH_USAGE_QUOTA_DEFAULT):
+# a metric gates at percent >= quota, so 95 keeps headroom below the plan limit.
+usageQuotaDefault: 95
+
 # Taskboard relay upstream: the agents-taskboard service listener (port 8002). The bearer
 # (taskboard.token) comes from taskboard-token.secrets.yaml (SOPS); agents-taskboard holds the same
 # value as relayToken. The chart fails the render for a url without a token source.
@@ -67,8 +71,23 @@ admin:
     url: http://agents-matrix-connector-api-agents:8001
     existingSecret: agents-orchestrator-chat
     existingSecretKey: chat-token
+  # The agents-history service listener (port 8001); the bearer (admin.history.token) comes from
+  # history-token.secrets.yaml (SOPS), agents-history holds the same value as its service token.
+  history:
+    url: http://agents-history:8001
+
+# Pre-discard settings hook: every discard POSTs the session export to the agents-history ingest
+# listener before anything is deleted. The bearer is the Secret agents-history-ingest (made by
+# scripts/bootstrap-secrets.sh, it must exist before the orchestrator pod rolls), reaching only the
+# reconciler container as ORCH_DISCARD_HOOK_TOKEN; it differs from the history service token.
+discardHook:
+  url: http://agents-history:8002/history/v1/ingest
+  existingSecret: agents-history-ingest
+  existingSecretKey: token
 
 env:
+  # A big session export can take minutes to ingest; the chart default is 120 s.
+  ORCH_DISCARD_HOOK_TIMEOUT_SECONDS: "600"
   # The oauth2-proxy sidecar (podAnnotations below) is the only way in: it reaches the api over
   # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods
   # reach the api port only through the sidecar's SSO.
@@ -81,7 +100,7 @@ env:
   ORCH_ANY_MCP_REF: v0.5.0
   # The reserved orchestrator plugin (the orchestrator tools) is installed from this repo at this tag.
   ORCH_ANY_MCP_PLUGINS_REPO: https://github.com/szymonrychu/any-mcp-tatara-plugins
-  ORCH_ANY_MCP_PLUGINS_REF: v0.9.0
+  ORCH_ANY_MCP_PLUGINS_REF: v0.11.0
 
 # Keycloak SSO via the oauth2-proxy admission webhook (same shape as the infrastructure
 # helmfile's searxng/comfyui). The agents-orchestrator-proxy Secret is created by the
