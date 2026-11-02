@@ -27,6 +27,9 @@ backends:
   - id: usage
     label: Usage
     basePath: /usage/v1
+  - id: taskboard
+    label: Tasks
+    basePath: /taskboard/api/v1
 
 # The UI owns "/" of the host. The orchestrator ingress owns /api and the only
 # cert-manager annotations, so there is one Certificate for agents-orchestrator-tls.

@@ -26,6 +26,10 @@ USG_HASH_FILE="values/agents-orchestrator/service-token-agents-usage.secrets.yam
 USG_TOKENS_FILE="values/agents-usage/raw/service-tokens.agents-usage.pre.secrets.yaml"
 USG_ORCH_FILE="values/agents-orchestrator/usage-token.secrets.yaml"
 USG_INGEST_FILE="values/agents-usage/raw/ingest-token.agents-usage.pre.secrets.yaml"
+TB_FILE="values/agents-taskboard/default.secrets.yaml"
+TB_HASH_FILE="values/agents-orchestrator/service-token-agents-taskboard.secrets.yaml"
+TB_RELAY_FILE="values/agents-taskboard/relay-token.secrets.yaml"
+TB_ORCH_FILE="values/agents-orchestrator/taskboard-token.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
@@ -194,6 +198,25 @@ bootstrap_usage_ingest_token() {
     encrypt_to "$USG_INGEST_FILE"
 }
 
+# bootstrap_taskboard_relay_token: both files or neither. The token the orchestrator's taskboard
+# relay sends to the taskboard service listener (relayToken there, taskboard.token on the
+# orchestrator); distinct from the notifier's service token. Never rotates, never half-writes.
+bootstrap_taskboard_relay_token() {
+  local token
+  if [[ -e "$TB_RELAY_FILE" && -e "$TB_ORCH_FILE" ]]; then return 0; fi
+  if [[ -e "$TB_RELAY_FILE" || -e "$TB_ORCH_FILE" ]]; then
+    die "exactly one of $TB_RELAY_FILE and $TB_ORCH_FILE exists; refusing to rotate or half-write"
+  fi
+  token="$(openssl rand -hex 32)"
+  TOKEN="$token" jq -n '{relayToken: $ENV.TOKEN}' |
+    encrypt_to "$TB_RELAY_FILE"
+  if ! TOKEN="$token" jq -n '{taskboard: {token: $ENV.TOKEN}}' |
+    encrypt_to "$TB_ORCH_FILE"; then
+    rm -f "$TB_RELAY_FILE"
+    die "writing $TB_ORCH_FILE failed; removed $TB_RELAY_FILE"
+  fi
+}
+
 bootstrap_orchestrator
 bootstrap_database
 bootstrap_service_token agents-webhook "$WH_FILE" "$WH_TOKEN_FILE"
@@ -203,4 +226,6 @@ bootstrap_chat_token
 bootstrap_service_token agents-usage "$USG_FILE" "$USG_HASH_FILE"
 bootstrap_usage_token
 bootstrap_usage_ingest_token
+bootstrap_service_token agents-taskboard "$TB_FILE" "$TB_HASH_FILE"
+bootstrap_taskboard_relay_token
 echo "secrets bootstrap done (existing files left untouched)" >&2

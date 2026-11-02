@@ -89,13 +89,14 @@ def test_matrix_backend_configured(layered_values):
 
 def test_usage_backend_configured(layered_values):
     backends = layered_values(REL)["backends"]
-    assert backends[-1] == {"id": "usage", "label": "Usage", "basePath": "/usage/v1"}
+    assert backends[4] == {"id": "usage", "label": "Usage", "basePath": "/usage/v1"}
     assert [b["id"] for b in backends] == [
         "orchestrator",
         "webhooks",
         "schedules",
         "matrix",
         "usage",
+        "taskboard",
     ]
 
 
