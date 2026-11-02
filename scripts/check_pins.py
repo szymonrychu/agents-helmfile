@@ -5,7 +5,8 @@ of `apply`). It takes no arguments and reads no environment switch: nothing skip
 
 Pin sources: the chart `version:` of the main-built releases in helmfile.yaml.gotmpl, and the
 image tags in values/agents-orchestrator/common.yaml (`image.tag`, `agentImage`,
-`env.ORCH_AGENT_IMAGES`) and values/agents-web/common.yaml (`image.tag`). A chart maps to the
+`env.ORCH_AGENT_IMAGES`), values/agents-web/common.yaml (`image.tag`) and
+values/agents-usage/common.yaml (`image.tag`). A chart maps to the
 repo named by its chart path, an image to the repo named by its image name, both under
 szymonrychu. `0.1.0-main.<sha7>` and an image sha7 resolve to that commit, a release version
 `X.Y.Z` through tag `vX.Y.Z`. A pin passes only when its commit has at least one check run and
@@ -35,12 +36,14 @@ OWNER = "szymonrychu"
 HELMFILE = Path("helmfile.yaml.gotmpl")
 ORCH_VALUES = Path("values/agents-orchestrator/common.yaml")
 WEB_VALUES = Path("values/agents-web/common.yaml")
+USAGE_VALUES = Path("values/agents-usage/common.yaml")
 CHART_RELEASES = (
     "agents-orchestrator",
     "agents-web",
     "agents-webhook",
     "agents-schedule",
     "agents-matrix-connector",
+    "agents-usage",
 )
 GREEN = frozenset({"success", "neutral", "skipped"})
 MAIN_BUILD = re.compile(r"\d+\.\d+\.\d+-main\.([0-9a-f]{7,40})")
@@ -147,6 +150,11 @@ def _values_pins() -> list[Pin]:
         pins.append(_tag_pin("agents-web:image.tag", "agents-web", _dig(web, "image.tag")))
     except Refused as exc:
         pins.append(Pin("agents-web:image.tag", None, None, str(exc)))
+    try:
+        usage = _load(USAGE_VALUES)
+        pins.append(_tag_pin("agents-usage:image.tag", "agents-usage", _dig(usage, "image.tag")))
+    except Refused as exc:
+        pins.append(Pin("agents-usage:image.tag", None, None, str(exc)))
     return pins
 
 

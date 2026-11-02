@@ -1,0 +1,75 @@
+image:
+  repository: harbor.szymonrichert.pl/containers/agents-usage
+  # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
+  tag: "0.1.0"
+
+# Connection URI from the CNPG app Secret made by the agents-usage-db release.
+postgres:
+  existingSecret: agents-usage-db-cluster-app
+  existingSecretKey: uri
+
+# The prober's OAuth token: the agents-orchestrator release's Secret (same namespace), key
+# CLAUDE_CODE_OAUTH_TOKEN. Mounted into the prober pod only, as a file.
+claude:
+  existingSecret: agents-orchestrator-claude
+
+# The watcher's service token (orchestrator.token) comes from default.secrets.yaml (SOPS); the
+# orchestrator holds its sha256 in values/agents-orchestrator/service-token-agents-usage.secrets.yaml.
+# Port 8002 takes bearer service tokens; the orchestrator's port 8000 would answer 403 from its
+# CIDR allowlist.
+orchestrator:
+  url: http://agents-orchestrator-services:8002
+
+# Token-gated service listener (the orchestrator's usage gate). The tokens Secret is
+# values/agents-usage/raw/service-tokens.agents-usage.pre.secrets.yaml (SOPS); the orchestrator
+# holds the same token in usage-token.secrets.yaml (usage.token).
+serviceListener:
+  enabled: true
+  tokensSecret:
+    name: agents-usage-service-tokens
+    key: tokens
+
+# Token-gated ingest listener (the agents' statusLine samples). One shared token Secret,
+# values/agents-usage/raw/ingest-token.agents-usage.pre.secrets.yaml (SOPS); the agent pods read the
+# same Secret as CCW_USAGE_TOKEN.
+ingestListener:
+  enabled: true
+  tokensSecret:
+    name: agents-usage-ingest
+    key: token
+
+env:
+  # Only the oauth2-proxy sidecar (podAnnotations below) reaches the api, over 127.0.0.1.
+  # Widening this bypasses SSO.
+  USAGE_ALLOWED_CIDRS: 127.0.0.1/32
+
+# SSO (oauth2-proxy admission webhook) on the api pod only, as for agents-orchestrator.
+components:
+  api:
+    podAnnotations:
+      oauth2-proxy-admission/enable: "true"
+      oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
+      oauth2-proxy-admission/secret-name: agents-orchestrator-proxy
+      oauth2-proxy-admission/secret-namespace: agents
+
+# Shares the lab host and its certificate with agents-orchestrator (agents-orchestrator-tls, owned
+# by that release's cert-manager annotation), so no cert-manager annotation here.
+ingress:
+  enabled: true
+  className: nginx
+  # Cluster node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
+  denySourceRanges:
+    - 192.168.1.26/32
+    - 192.168.1.27/32
+    - 192.168.1.28/32
+    - 192.168.1.29/32
+    - 192.168.1.65/32
+  hosts:
+    - host: lab.szymonrichert.pl
+      paths:
+        - path: /usage
+          pathType: Prefix
+  tls:
+    - secretName: agents-orchestrator-tls
+      hosts:
+        - lab.szymonrichert.pl
