@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 
+import pytest
 import yaml
 
 
@@ -12,6 +13,7 @@ def _template(repo_root) -> dict:
     return yaml.safe_load((repo_root / "helmfile.yaml.gotmpl").read_text())
 
 
+@pytest.mark.needs_sops_key
 def test_default_template_layers_values(repo_root, helmfile_build, layered_values):
     docs = helmfile_build()
     assert docs, "helmfile build produced no documents"

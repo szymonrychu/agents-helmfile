@@ -118,6 +118,7 @@ def test_web_release_needs_webhook(repo_root):
     assert "- agents/agents-webhook" in block
 
 
+@pytest.mark.needs_sops_key
 def test_web_release_chart(helmfile_build):
     rels = [r for d in helmfile_build() for r in d.get("releases", []) if r["name"] == REL]
     assert rels, f"release {REL} not rendered"
@@ -129,6 +130,7 @@ def test_web_release_chart(helmfile_build):
     assert rel["labels"]["application"] == "agents-web"
 
 
+@pytest.mark.needs_sops_key
 def test_web_release_chart_renders_unique_pull_secrets(repo_root):
     """Server-side apply rejects duplicate imagePullSecrets names in a pod spec."""
     if shutil.which("helmfile") is None:
