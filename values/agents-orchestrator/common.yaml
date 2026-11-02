@@ -28,11 +28,18 @@ chat:
 # agents-usage ingest listener (config section `usage`, token env CCW_USAGE_TOKEN from this Secret,
 # made by scripts/bootstrap-secrets.sh). The default agent image (agentImage and every
 # ORCH_AGENT_IMAGES entry) must be claude-code-wrapper >= 0.8.0 while this is set: an older wrapper
-# refuses the usage config section (tests/test_orchestrator_release.py guards it). The usage gate
-# stays off: there is no usage.url here yet.
+# refuses the usage config section (tests/test_orchestrator_release.py guards it).
 agentUsage:
   url: http://agents-usage:8002
   secretName: agents-usage-ingest
+
+# Usage gate upstream: the agents-usage service Service (port 8001). The bearer (usage.token) comes
+# from usage-token.secrets.yaml (SOPS); agents-usage holds it in its service tokens Secret. The chart
+# fails the render for a token without this URL, so both land together. The gate is fail-open while
+# agents-usage is down or its data is missing or stale. Quotas default to 100 (a metric gates at
+# percent >= quota) and are set per preset by the user (usage_quota), not here.
+usage:
+  url: http://agents-usage:8001
 
 # Seconds between two restarts an agent asks for on its own session.
 selfRestartCooldownSeconds: 600

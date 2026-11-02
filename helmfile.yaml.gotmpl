@@ -76,13 +76,14 @@ releases:
       purpose: agents
       application: agents-orchestrator
     <<: *default
-    # Overrides the default anchor's list: the service and chat token files come after default.
+    # Overrides the default anchor's list: the service, usage and chat token files come after default.
     secrets:
     - values/agents-orchestrator/default.secrets.yaml
     - values/agents-orchestrator/service-token-agents-webhook.secrets.yaml
     - values/agents-orchestrator/service-token-agents-schedule.secrets.yaml
     - values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml
     - values/agents-orchestrator/service-token-agents-usage.secrets.yaml
+    - values/agents-orchestrator/usage-token.secrets.yaml
     - values/agents-orchestrator/chat-token.secrets.yaml
 
   - name: agents-webhook-db

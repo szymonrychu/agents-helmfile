@@ -15,6 +15,8 @@ PIN = "3.3.0"
 # The chart of the v3.3.0 release commit c275c8c (main CI run 41366646249): chart and image from one commit.
 CHART = "0.1.0-main.c275c8c"
 WRAPPER_PIN = "0.8.0"
+USAGE_INGEST_SECRET = "agents-usage-ingest"
+USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
@@ -345,7 +347,7 @@ def test_agent_usage_forwarding_wired(layered_values):
     # The Secret name and key come from the agents-usage ingest listener (the one raw Secret
     # agents-usage-ingest that bootstrap-secrets.sh makes), not a second hard-coded copy.
     ingest = layered_values("agents-usage")["ingestListener"]["tokensSecret"]
-    assert v["agentUsage"]["secretName"] == ingest["name"] == "agents-usage-ingest"
+    assert v["agentUsage"]["secretName"] == ingest["name"] == USAGE_INGEST_SECRET
     assert ingest["key"] == "token"
 
 
@@ -368,13 +370,28 @@ def test_usage_hash_file_listed_after_default(helmfile_build):
     assert hash_file in names and names.index(hash_file) > names.index(default)
 
 
+def _release_secrets(repo_root) -> list[str]:
+    """The `secrets` list of the orchestrator release block, parsed (not substring-matched)."""
+    text = _release_block(repo_root, REL)
+    # The block merges the shared anchor, which is not defined inside the block alone.
+    text = re.sub(r"^\s*<<: \*default\n", "", text, flags=re.MULTILINE)
+    (release,) = yaml.safe_load(text)
+    return release["secrets"]
+
+
 def test_usage_hash_file_listed_in_release_block(repo_root):
-    block = _release_block(repo_root, REL)
-    assert f"- values/{REL}/service-token-agents-usage.secrets.yaml" in block
+    assert f"values/{REL}/service-token-agents-usage.secrets.yaml" in _release_secrets(repo_root)
 
 
-def test_usage_gate_stays_off(repo_root, layered_values):
-    """No usage.url and no usage token file yet: the chart fails a half-set usage pair, and the
-    gate is switched on in a later step once agent forwarding is verified."""
-    assert not layered_values(REL).get("usage", {}).get("url")
-    assert "usage-token.secrets.yaml" not in _release_block(repo_root, REL)
+def test_usage_gate_on(repo_root, layered_values):
+    """usage.url and the encrypted usage token file land together: the chart fails the render for
+    a usage token without usage.url. Quotas are not set here: they default to 100 and the user
+    sets them per preset."""
+    usage = layered_values(REL)["usage"]
+    assert usage["url"] == USAGE_URL
+    assert not usage.get("token")
+    assert not usage.get("existingSecret")
+    token_file = f"values/{REL}/usage-token.secrets.yaml"
+    assert token_file in _release_secrets(repo_root)
+    enc = yaml.safe_load((repo_root / token_file).read_text())
+    assert str(enc["usage"]["token"]).startswith("ENC[")
