@@ -41,8 +41,9 @@ agentUsage:
 # Usage gate upstream: the agents-usage service Service (port 8001). The bearer (usage.token) comes
 # from usage-token.secrets.yaml (SOPS); agents-usage holds it in its service tokens Secret. The chart
 # fails the render for a token without this URL, so both land together. The gate is fail-open while
-# agents-usage is down or its data is missing or stale. Quotas default to 100 (a metric gates at
-# percent >= quota) and are set per preset by the user (usage_quota), not here.
+# agents-usage is down or its data is missing or stale. Quotas default to 95
+# (usageQuotaDefault below; a metric gates at percent >= quota) and are set per preset by the
+# user (usage_quota), not here.
 usage:
   url: http://agents-usage:8001
 

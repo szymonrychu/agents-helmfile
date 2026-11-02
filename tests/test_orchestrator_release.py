@@ -182,7 +182,8 @@ def test_any_mcp_configured_for_new_sessions(layered_values):
     assert (
         env["ORCH_ANY_MCP_PLUGINS_REPO"] == "https://github.com/szymonrychu/any-mcp-tatara-plugins"
     )
-    # The pinned tag itself is guarded by tests/test_taskboard_release.py::test_plugins_ref_is_v0_9_0.
+    # The pinned tag itself is guarded by
+    # tests/test_taskboard_release.py::test_plugins_ref_has_the_taskboard_tools.
     assert re.fullmatch(r"v\d+\.\d+\.\d+", env["ORCH_ANY_MCP_PLUGINS_REF"])
 
 
