@@ -105,8 +105,10 @@ def test_orchestrator_values_set_taskboard_pair(repo_root, layered_values, helmf
     assert "- agents/agents-taskboard" not in block
 
 
-def test_plugins_ref_is_v0_9_0(layered_values):
-    assert layered_values("agents-orchestrator")["env"]["ORCH_ANY_MCP_PLUGINS_REF"] == "v0.9.0"
+def test_plugins_ref_has_the_taskboard_tools(layered_values):
+    ref = layered_values("agents-orchestrator")["env"]["ORCH_ANY_MCP_PLUGINS_REF"]
+    # v0.9.0 introduced the taskboard tools; later minors keep them.
+    assert tuple(int(p) for p in ref.lstrip("v").split(".")) >= (0, 9, 0)
 
 
 def test_web_backend_taskboard_listed(layered_values):
