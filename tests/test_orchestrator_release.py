@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "3.6.0"
-# The chart of the v3.6.0 release commit 8a390d6: chart and image from one commit.
-CHART = "0.1.0-main.8a390d6"
+PIN = "3.7.0"
+# The chart of the v3.7.0 release commit dc6343d: chart and image from one commit.
+CHART = "0.1.0-main.dc6343d"
 WRAPPER_PIN = "0.8.1"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
@@ -375,7 +375,12 @@ def test_discard_hook_to_history(layered_values):
 def test_plugins_ref_is_a_tag(layered_values):
     ref = layered_values(REL)["env"]["ORCH_ANY_MCP_PLUGINS_REF"]
     assert re.fullmatch(r"v\d+\.\d+\.\d+", ref)
-    assert _semver(ref.lstrip("v")) >= (0, 11, 0)
+    assert _semver(ref.lstrip("v")) >= (0, 11, 2)
+
+
+def test_close_grace_is_set(layered_values):
+    # Seconds a self-closing session idles before the sweeper discards it (bounds 10..3600).
+    assert layered_values(REL)["env"]["ORCH_CLOSE_GRACE_SECONDS"] == "30"
 
 
 def test_usage_quota_default_95(layered_values):
