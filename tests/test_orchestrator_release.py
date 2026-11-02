@@ -14,7 +14,7 @@ OLD_REL = "agent-orchestrator"
 PIN = "3.3.0"
 # The chart of the v3.3.0 release commit c275c8c (main CI run 41366646249): chart and image from one commit.
 CHART = "0.1.0-main.c275c8c"
-WRAPPER_PIN = "0.8.0"
+WRAPPER_PIN = "0.8.1"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
