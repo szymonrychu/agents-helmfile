@@ -200,3 +200,21 @@ samples) are reached in-cluster through the `agents-usage` Service.
 
 The prober reads the orchestrator's Secret `agents-orchestrator-claude` (key `CLAUDE_CODE_OAUTH_TOKEN`). The backup credentials
 `values/agents-usage-db/default.secrets.yaml` are a byte copy of the other databases' file, as for `agents-schedule-db`.
+
+## agents-taskboard
+
+Releases: `agents-taskboard-db` (CNPG database `taskboard`) and `agents-taskboard` (deployments `-web`, `-service` and `-notifier`).
+The web pod sits behind the same SSO as the orchestrator and is served at `https://lab.szymonrichert.pl/taskboard`; agents-web lists
+it as the `taskboard` backend (`/taskboard/api/v1`). The service listener (the orchestrator relay, port 8002) is reached in-cluster
+through the `agents-taskboard-service` Service.
+
+`scripts/bootstrap-secrets.sh` creates its secrets, each written once and never rotated or printed:
+
+- `bootstrap_service_token agents-taskboard` (both files or neither): the notifier's token `values/agents-taskboard/default.secrets.yaml`
+  (`orchestrator.token`, also used for the session label lookup) and its sha256
+  `values/agents-orchestrator/service-token-agents-taskboard.secrets.yaml`.
+- `bootstrap_taskboard_relay_token` (both files or neither): the orchestrator relay's bearer, `relayToken` in
+  `values/agents-taskboard/relay-token.secrets.yaml` and the same value as `taskboard.token` in
+  `values/agents-orchestrator/taskboard-token.secrets.yaml`. It differs from the notifier's service token.
+
+The backup credentials `values/agents-taskboard-db/default.secrets.yaml` are a byte copy of the other databases' file, as for `agents-schedule-db`.

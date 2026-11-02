@@ -68,7 +68,7 @@ releases:
   - name: agents-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-orchestrator
-    version: 0.1.0-main.c275c8c
+    version: 0.1.0-main.9649a61
     timeout: 600
     needs:
       - agents/agents-orchestrator-db
@@ -83,8 +83,10 @@ releases:
     - values/agents-orchestrator/service-token-agents-schedule.secrets.yaml
     - values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml
     - values/agents-orchestrator/service-token-agents-usage.secrets.yaml
+    - values/agents-orchestrator/service-token-agents-taskboard.secrets.yaml
     - values/agents-orchestrator/usage-token.secrets.yaml
     - values/agents-orchestrator/chat-token.secrets.yaml
+    - values/agents-orchestrator/taskboard-token.secrets.yaml
 
   - name: agents-webhook-db
     namespace: agents
@@ -130,6 +132,17 @@ releases:
       application: agents-usage
     <<: *default
 
+  - name: agents-taskboard-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-taskboard
+    <<: *default
+
   - name: agents-webhook
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
@@ -156,10 +169,27 @@ releases:
       application: agents-schedule
     <<: *default
 
+  - name: agents-taskboard
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-taskboard
+    version: 0.1.0-main.8ee4f5a
+    timeout: 600
+    needs:
+      - agents/agents-taskboard-db
+      - agents/agents-orchestrator
+    labels:
+      purpose: agents
+      application: agents-taskboard
+    <<: *default
+    # Overrides the default anchor's list: the relay token file comes after default.
+    secrets:
+    - values/agents-taskboard/default.secrets.yaml
+    - values/agents-taskboard/relay-token.secrets.yaml
+
   - name: agents-usage
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-usage
-    version: 0.1.0-main.6b8cca5
+    version: 0.1.0-main.40be11c
     timeout: 600
     needs:
       - agents/agents-usage-db
@@ -189,7 +219,7 @@ releases:
   - name: agents-web
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-web
-    version: 0.1.0-main.7f8a890
+    version: 0.1.0-main.103d114
     timeout: 600
     needs:
       - agents/agents-webhook

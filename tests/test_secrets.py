@@ -34,6 +34,13 @@ USG_ORCH = "values/agents-orchestrator/usage-token.secrets.yaml"
 USG_INGEST = "values/agents-usage/raw/ingest-token.agents-usage.pre.secrets.yaml"
 # Every file the usage bootstraps write; the sandboxes of the other tests pre-create them all.
 USAGE_FILES = (USG, USG_HASH, USG_TOKENS, USG_ORCH, USG_INGEST)
+TB = "values/agents-taskboard/default.secrets.yaml"
+TB_HASH = "values/agents-orchestrator/service-token-agents-taskboard.secrets.yaml"
+TB_RELAY = "values/agents-taskboard/relay-token.secrets.yaml"
+TB_ORCH = "values/agents-orchestrator/taskboard-token.secrets.yaml"
+TB_DB = "values/agents-taskboard-db/default.secrets.yaml"
+# Every file the taskboard bootstraps write; the sandboxes of the other tests pre-create them all.
+TASKBOARD_FILES = (TB, TB_HASH, TB_RELAY, TB_ORCH)
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -60,6 +67,11 @@ def _load(rel: str) -> dict:
         (SCH_TOKEN, {"serviceApi.tokenHashes.agents-schedule"}),
         (CHAT, {"chat.token"}),
         (CHAT_HASH, {"agentApi.tokenSha256"}),
+        (TB, {"orchestrator.token"}),
+        (TB_HASH, {"serviceApi.tokenHashes.agents-taskboard"}),
+        (TB_RELAY, {"relayToken"}),
+        (TB_ORCH, {"taskboard.token"}),
+        (TB_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (ADMIN_WH, SECRET_KEYS),
         (ADMIN_SCH, SECRET_KEYS),
     ],
@@ -133,6 +145,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         CHAT,
         CHAT_HASH,
         *USAGE_FILES,
+        *TASKBOARD_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +164,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         CHAT,
         CHAT_HASH,
         *USAGE_FILES,
+        *TASKBOARD_FILES,
     ):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
@@ -188,7 +202,18 @@ def test_webhook_token_hash_matches():
 
 def test_webhook_secrets_never_rotate(tmp_path):
     bindir = _sandbox(tmp_path)
-    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH, *USAGE_FILES):
+    for rel in (
+        ORCH,
+        DB,
+        SCH,
+        SCH_TOKEN,
+        MX,
+        MX_TOKEN,
+        CHAT,
+        CHAT_HASH,
+        *USAGE_FILES,
+        *TASKBOARD_FILES,
+    ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -229,7 +254,18 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
     (bindir / "sops").write_text(
         '#!/bin/sh\ncat > "$(mktemp "' + str(tmp_path) + "/plain.XXXXXX\")\"\necho 'sops: stub'\n"
     )
-    for rel in (ORCH, DB, SCH, SCH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH, *USAGE_FILES):
+    for rel in (
+        ORCH,
+        DB,
+        SCH,
+        SCH_TOKEN,
+        MX,
+        MX_TOKEN,
+        CHAT,
+        CHAT_HASH,
+        *USAGE_FILES,
+        *TASKBOARD_FILES,
+    ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -275,7 +311,18 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
         f'cat > "{plain}/$name"\n'
         "echo 'sops: stub'\n"
     )
-    for rel in (ORCH, DB, WH, WH_TOKEN, MX, MX_TOKEN, CHAT, CHAT_HASH, *USAGE_FILES):
+    for rel in (
+        ORCH,
+        DB,
+        WH,
+        WH_TOKEN,
+        MX,
+        MX_TOKEN,
+        CHAT,
+        CHAT_HASH,
+        *USAGE_FILES,
+        *TASKBOARD_FILES,
+    ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("sentinel: keep\n")
@@ -645,3 +692,78 @@ def test_chat_token_hash_matches():
     assert _decrypt(CHAT_HASH) == {
         "agentApi": {"tokenSha256": hashlib.sha256(token.encode()).hexdigest()}
     }
+
+
+def _taskboard_sandbox(tmp_path: Path) -> Path:
+    """Every target present except the four taskboard files."""
+    bindir = _schedule_sandbox(tmp_path)
+    for rel in (SCH, SCH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    for rel in TASKBOARD_FILES:
+        (tmp_path / rel).unlink()
+    return bindir
+
+
+def test_taskboard_secrets_bootstrapped(tmp_path):
+    bindir = _taskboard_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == sorted(rel.replace("/", "_") for rel in TASKBOARD_FILES)
+    # taskboard to orchestrator: the notifier's service token and the orchestrator's hash of it
+    tb = _plain(tmp_path, TB)
+    assert set(tb) == {"orchestrator"}
+    assert set(tb["orchestrator"]) == {"token"}
+    svc = tb["orchestrator"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", svc)
+    assert _plain(tmp_path, TB_HASH) == {
+        "serviceApi": {
+            "tokenHashes": {"agents-taskboard": hashlib.sha256(svc.encode()).hexdigest()}
+        }
+    }
+    # orchestrator to taskboard: the relay token, the same value in both releases, distinct from svc
+    relay = _plain(tmp_path, TB_RELAY)
+    assert set(relay) == {"relayToken"}
+    assert re.fullmatch(r"[0-9a-f]{64}", relay["relayToken"])
+    assert _plain(tmp_path, TB_ORCH) == {"taskboard": {"token": relay["relayToken"]}}
+    assert relay["relayToken"] != svc
+
+
+def test_taskboard_token_pairs_never_rotate(tmp_path):
+    bindir = _taskboard_sandbox(tmp_path)
+    assert _run(tmp_path, bindir).returncode == 0
+    for f in (tmp_path / "plain").iterdir():
+        f.unlink()
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+    for pair in ((TB, TB_HASH), (TB_RELAY, TB_ORCH)):
+        for present, absent in (pair, pair[::-1]):
+            (tmp_path / absent).unlink()
+            (tmp_path / present).write_text("sentinel: keep\n")
+            r = _run(tmp_path, bindir)
+            assert r.returncode == 1
+            assert pair[0] in r.stderr and pair[1] in r.stderr
+            assert not (tmp_path / absent).exists()
+            assert (tmp_path / present).read_text() == "sentinel: keep\n"
+            assert _encrypted(tmp_path) == []
+            (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+def test_taskboard_tokens_not_printed(tmp_path):
+    for name, bash_args in (("plain-run", ()), ("traced-run", ("-x",))):
+        root = tmp_path / name
+        root.mkdir()
+        bindir = _taskboard_sandbox(root)
+        r = _run(root, bindir, *bash_args)
+        assert r.returncode == 0, r.stderr
+        svc = _plain(root, TB)["orchestrator"]["token"]
+        secrets = [
+            svc,
+            _plain(root, TB_RELAY)["relayToken"],
+            hashlib.sha256(svc.encode()).hexdigest(),
+        ]
+        for stream in (r.stdout, r.stderr):
+            for value in secrets:
+                assert value not in stream, f"{name}: a taskboard secret was printed"
