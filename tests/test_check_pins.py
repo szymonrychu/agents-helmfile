@@ -34,6 +34,7 @@ CHARTS = (
     "agents-matrix-connector",
     "agents-usage",
     "agents-taskboard",
+    "agents-history",
 )
 GREEN = (
     ("lint", "completed", "success"),
@@ -130,7 +131,13 @@ def tree(tmp_path):
     root = tmp_path / "tree"
     (root / "values").mkdir(parents=True)
     shutil.copy(ROOT / "helmfile.yaml.gotmpl", root)
-    for release in ("agents-orchestrator", "agents-web", "agents-usage", "agents-taskboard"):
+    for release in (
+        "agents-orchestrator",
+        "agents-web",
+        "agents-usage",
+        "agents-taskboard",
+        "agents-history",
+    ):
         (root / "values" / release).mkdir()
         shutil.copy(ROOT / "values" / release / "common.yaml", root / "values" / release)
     return root
@@ -202,6 +209,8 @@ def expected_pins(tree: Path) -> dict[str, tuple[str, str]]:
     pins["agents-usage:image.tag"] = ("agents-usage", str(usage["image"]["tag"]))
     taskboard = yaml.safe_load((tree / "values/agents-taskboard/common.yaml").read_text())
     pins["agents-taskboard:image.tag"] = ("agents-taskboard", str(taskboard["image"]["tag"]))
+    history = yaml.safe_load((tree / "values/agents-history/common.yaml").read_text())
+    pins["agents-history:image.tag"] = ("agents-history", str(history["image"]["tag"]))
     agent = orch["agentImage"].rsplit("/", 1)[1].split(":")
     pins["agents-orchestrator:agentImage"] = (agent[0], agent[1])
     for image in orch["env"]["ORCH_AGENT_IMAGES"].split(","):
@@ -579,6 +588,18 @@ def test_release_version_resolves_through_tag(tree):
             "agents-taskboard",
             "helmfile.yaml.gotmpl",
             r"(charts/agents-taskboard\n)\s+version: \S+\n",
+            r"\1",
+        ),
+        (
+            "agents-history:image.tag",
+            "values/agents-history/common.yaml",
+            r'^(  tag: )"\S+"',
+            r"\g<1>1343836",
+        ),
+        (
+            "agents-history",
+            "helmfile.yaml.gotmpl",
+            r"(charts/agents-history\n)\s+version: \S+\n",
             r"\1",
         ),
     ],
