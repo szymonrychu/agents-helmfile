@@ -333,5 +333,7 @@ def test_values_dir_moved(repo_root):
         f"values/{REL}/default.secrets.yaml",
         f"values/{REL}/service-token-agents-matrix-connector.secrets.yaml",
         f"values/{REL}/service-token-agents-schedule.secrets.yaml",
+        f"values/{REL}/service-token-agents-usage.secrets.yaml",
         f"values/{REL}/service-token-agents-webhook.secrets.yaml",
+        f"values/{REL}/usage-token.secrets.yaml",
     ]
