@@ -1,11 +1,16 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "3.1.0"
+  tag: "3.3.0"
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
-agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.7.1
+agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.8.0
+
+# Docker-in-Docker sidecar for sessions with docker: true. Semver-pinned dind image pulled through
+# the Harbor Docker Hub proxy project with the existing regcred pull secret; caps are the chart defaults.
+docker:
+  image: harbor.szymonrichert.pl/proxy-dockerhub/library/docker:29.9.2-dind
 
 # Connection URI from the CNPG app Secret made by the agents-orchestrator-db release.
 # No password in plain values.
@@ -23,6 +28,23 @@ serviceApi:
 # (chat.token) comes from chat-token.secrets.yaml (SOPS); the connector holds only its sha256.
 chat:
   url: http://agents-matrix-connector-api-agents:8001
+
+# Agent usage forwarding: every agent pod's wrapper sends its statusLine rate_limits to the
+# agents-usage ingest listener (config section `usage`, token env CCW_USAGE_TOKEN from this Secret,
+# made by scripts/bootstrap-secrets.sh). The default agent image (agentImage and every
+# ORCH_AGENT_IMAGES entry) must be claude-code-wrapper >= 0.8.0 while this is set: an older wrapper
+# refuses the usage config section (tests/test_orchestrator_release.py guards it).
+agentUsage:
+  url: http://agents-usage:8002
+  secretName: agents-usage-ingest
+
+# Usage gate upstream: the agents-usage service Service (port 8001). The bearer (usage.token) comes
+# from usage-token.secrets.yaml (SOPS); agents-usage holds it in its service tokens Secret. The chart
+# fails the render for a token without this URL, so both land together. The gate is fail-open while
+# agents-usage is down or its data is missing or stale. Quotas default to 100 (a metric gates at
+# percent >= quota) and are set per preset by the user (usage_quota), not here.
+usage:
+  url: http://agents-usage:8001
 
 # Seconds between two restarts an agent asks for on its own session.
 selfRestartCooldownSeconds: 600
@@ -45,7 +67,7 @@ env:
   # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods
   # reach the api port only through the sidecar's SSO.
   ORCH_ALLOWED_CIDRS: 127.0.0.1/32
-  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.7.1
+  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.8.0
   # WebSocket upgrades must carry an Origin in this list: the UI origin (the ingress host over https).
   ORCH_ALLOWED_ORIGINS: https://lab.szymonrichert.pl
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).

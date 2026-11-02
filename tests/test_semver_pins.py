@@ -19,6 +19,7 @@ COMPONENTS = (
     "agents-webhook",
     "agents-schedule",
     "agents-matrix-connector",
+    "agents-usage",
 )
 # Every installed release of helmfile.yaml.gotmpl; test_every_installed_release_is_guarded keeps
 # this list equal to what `helmfile build` renders.
@@ -29,8 +30,10 @@ RELEASES = (
     "agents-webhook-db",
     "agents-matrix-connector-db",
     "agents-schedule-db",
+    "agents-usage-db",
     "agents-webhook",
     "agents-schedule",
+    "agents-usage",
     "agents-matrix-connector",
     "agents-web",
 )
