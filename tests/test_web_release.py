@@ -32,9 +32,9 @@ def _chart_version(repo_root) -> str:
 def test_web_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"\d+\.\d+\.\d+", tag)
-    # The chart of the v0.14.0 release commit 103d114: chart and image from one commit.
-    assert _chart_version(repo_root) == "0.1.0-main.103d114"
-    assert tag == "0.14.0"
+    # The chart of the v0.15.2 release commit 3f41dfa: chart and image from one commit.
+    assert _chart_version(repo_root) == "0.1.0-main.3f41dfa"
+    assert tag == "0.15.2"
 
 
 def test_web_behind_oauth2_proxy_with_orchestrator_secret(layered_values):
@@ -97,7 +97,13 @@ def test_usage_backend_configured(layered_values):
         "matrix",
         "usage",
         "taskboard",
+        "history",
     ]
+
+
+def test_history_backend(layered_values):
+    backends = layered_values(REL)["backends"]
+    assert {"id": "history", "label": "History", "basePath": "/history/v1"} in backends
 
 
 def test_web_release_needs_matrix_connector(repo_root):
