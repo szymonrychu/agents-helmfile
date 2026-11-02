@@ -14,7 +14,7 @@ OLD_REL = "agent-orchestrator"
 PIN = "3.4.0"
 # The chart of the v3.4.0 release commit 9649a61: chart and image from one commit.
 CHART = "0.1.0-main.9649a61"
-WRAPPER_PIN = "0.8.0"
+WRAPPER_PIN = "0.8.1"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
