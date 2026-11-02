@@ -101,7 +101,7 @@ env:
   ORCH_ANY_MCP_REF: v0.5.0
   # The reserved orchestrator plugin (the orchestrator tools) is installed from this repo at this tag.
   ORCH_ANY_MCP_PLUGINS_REPO: https://github.com/szymonrychu/any-mcp-tatara-plugins
-  ORCH_ANY_MCP_PLUGINS_REF: v0.11.0
+  ORCH_ANY_MCP_PLUGINS_REF: v0.11.1
 
 # Keycloak SSO via the oauth2-proxy admission webhook (same shape as the infrastructure
 # helmfile's searxng/comfyui). The agents-orchestrator-proxy Secret is created by the

@@ -59,3 +59,5 @@ Lessons that outlive a session. Newest first.
 - 2026-11-01: the user explicitly enabled the S3 archive cleanup sweep with real deletes (orchestrator cache.sweep.dryRun false; 30 days, keep 3, interval 21600, grace default unchanged). Not applied yet.
 
 - 2026-11-02: agents-web pinned to 0.13.0 (image tag from release v0.13.0, merge commit 8d67606; chart `0.1.0-main.8d67606`, published by that run's chart-publish job, same sha7 rule as the 0.12.0 pin) with the Usage section: the `usage` backend (`/usage/v1`, served by the agents-usage ingress path `/usage` on the lab host) is added after `matrix` in the web `backends`. Pins only; the apply is run separately by the infra hive.
+
+- 2026-11-02: `ORCH_ANY_MCP_PLUGINS_REF` moved v0.11.0 to v0.11.1 (any-mcp-tatara-plugins: history_search cursor first, default page 20). Only values/agents-orchestrator/common.yaml hardcoded it; the tests read the value, so none changed. Not applied; post-apply check: the orchestrator pod plugin install log shows ref v0.11.1.
