@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "3.0.0"
-# The chart of the v3.0.0 release commit 8787f71: chart and image from one commit.
-CHART = "0.1.0-main.8787f71"
+PIN = "3.1.0"
+# The chart of the v3.1.0 release commit e846ee1: chart and image from one commit.
+CHART = "0.1.0-main.e846ee1"
 NODE_IPS = [
     "192.168.1.26/32",
     "192.168.1.27/32",
