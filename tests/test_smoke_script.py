@@ -383,7 +383,7 @@ class _Api:
                 sess = api.cache_sessions.get(m[1]) if m else None
                 if sess is None or sess["deleted"]:
                     return False
-                key = sess["spec"]["cache"]["key"]
+                key = sess["spec"]["cache"]["restore_key"]
                 script = sess["spec"]["init_scripts"][0]
                 restore = "restored" if key in api.cache_store else "miss"
                 if m[2]:
@@ -395,7 +395,13 @@ class _Api:
                         init = {"state": "failed", "exit_code": 2, "log_tail": "boom"}
                     self._send(200, json.dumps({"scripts": [script], "status": init}))
                 else:
-                    status = {"cache": {"key": key, "restore": {"state": restore}, "save": None}}
+                    status = {
+                        "cache": {
+                            "restore_resolved": key,
+                            "restore": {"state": restore},
+                            "save": None,
+                        }
+                    }
                     self._send(
                         200, json.dumps({"id": m[1], "spec": sess["spec"], "status": status})
                     )
@@ -416,7 +422,7 @@ class _Api:
                     r"printf '%s\\n' \"(\w+)\" > cache-marker", sess["spec"]["init_scripts"][0]
                 )
                 if write and api.cache_carries:
-                    api.cache_store[sess["spec"]["cache"]["key"]] = write[1]
+                    api.cache_store[sess["spec"]["cache"]["save_key"]] = write[1]
                 self._send(202, json.dumps({"desired": "deleting"}))
 
             def _scale(self):
@@ -1478,7 +1484,14 @@ def test_workspace_cache_round_trip_passes(api, fakebin):
     assert r.returncode == 0, r.stdout + r.stderr
     assert ("GET", "/api/v1/meta") in api.methods()
     a, b = _cache_posts(api)
-    assert a["spec"]["cache"] == {"key": "smoke-workspace-cache"} == b["spec"]["cache"]
+    assert (
+        a["spec"]["cache"]
+        == {
+            "restore_key": "smoke-workspace-cache",
+            "save_key": "smoke-workspace-cache",
+        }
+        == b["spec"]["cache"]
+    )
     assert a["spec"]["replicas"] == 1 == b["spec"]["replicas"]
     assert re.fullmatch(
         r"printf '%s\\n' \"[0-9a-f]+\" > cache-marker", a["spec"]["init_scripts"][0]

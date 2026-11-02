@@ -692,7 +692,7 @@ RUN_ID=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
 cache_create() {
   local body resp
   body=$(jq -n --arg slug "${SLUG}-cache-$1" --arg key "$CACHE_KEY" --arg script "$2" \
-    '{slug: $slug, spec: {replicas: 1, cache: {key: $key}, init_scripts: [$script]}}')
+    '{slug: $slug, spec: {replicas: 1, cache: {restore_key: $key, save_key: $key}, init_scripts: [$script]}}')
   resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/sessions") ||
     fail "cache: create of session ${SLUG}-cache-$1 failed"
   CACHE_NEW_ID=$(echo "$resp" | jq -er '.id') || fail "cache: create response carries no id"
