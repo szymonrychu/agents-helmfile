@@ -41,6 +41,12 @@ TB_ORCH = "values/agents-orchestrator/taskboard-token.secrets.yaml"
 TB_DB = "values/agents-taskboard-db/default.secrets.yaml"
 # Every file the taskboard bootstraps write; the sandboxes of the other tests pre-create them all.
 TASKBOARD_FILES = (TB, TB_HASH, TB_RELAY, TB_ORCH)
+HIS_TOKENS = "values/agents-history/raw/service-tokens.agents-history.pre.secrets.yaml"
+HIS_ORCH = "values/agents-orchestrator/history-token.secrets.yaml"
+HIS_INGEST = "values/agents-history/raw/ingest-token.agents-history.pre.secrets.yaml"
+HIS_DB = "values/agents-history-db/default.secrets.yaml"
+# Every file the history bootstraps write; the sandboxes of the other tests pre-create them all.
+HISTORY_FILES = (HIS_TOKENS, HIS_ORCH, HIS_INGEST)
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -72,6 +78,10 @@ def _load(rel: str) -> dict:
         (TB_RELAY, {"relayToken"}),
         (TB_ORCH, {"taskboard.token"}),
         (TB_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
+        (HIS_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
+        (HIS_ORCH, {"admin.history.token"}),
+        (HIS_TOKENS, SECRET_KEYS),
+        (HIS_INGEST, (SECRET_KEYS - {"stringData.tokens"}) | {"stringData.token"}),
         (ADMIN_WH, SECRET_KEYS),
         (ADMIN_SCH, SECRET_KEYS),
     ],
@@ -146,6 +156,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *HISTORY_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -165,6 +176,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *HISTORY_FILES,
     ):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
@@ -213,6 +225,7 @@ def test_webhook_secrets_never_rotate(tmp_path):
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *HISTORY_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -265,6 +278,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *HISTORY_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -322,6 +336,7 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *HISTORY_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -706,6 +721,18 @@ def _taskboard_sandbox(tmp_path: Path) -> Path:
     return bindir
 
 
+def _history_sandbox(tmp_path: Path) -> Path:
+    """Every target present except the three history files."""
+    bindir = _schedule_sandbox(tmp_path)
+    for rel in (SCH, SCH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    for rel in HISTORY_FILES:
+        (tmp_path / rel).unlink()
+    return bindir
+
+
 def test_taskboard_secrets_bootstrapped(tmp_path):
     bindir = _taskboard_sandbox(tmp_path)
     r = _run(tmp_path, bindir)
@@ -767,3 +794,88 @@ def test_taskboard_tokens_not_printed(tmp_path):
         for stream in (r.stdout, r.stderr):
             for value in secrets:
                 assert value not in stream, f"{name}: a taskboard secret was printed"
+
+
+def test_history_secrets_bootstrapped(tmp_path):
+    bindir = _history_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == sorted(rel.replace("/", "_") for rel in HISTORY_FILES)
+    for rel in HISTORY_FILES:
+        assert (tmp_path / rel).read_text() == "sops: stub\n"
+    # orchestrator to history: the raw tokens Secret and the orchestrator's copy, the same token
+    orch = _plain(tmp_path, HIS_ORCH)
+    assert set(orch) == {"admin"}
+    assert set(orch["admin"]) == {"history"}
+    assert set(orch["admin"]["history"]) == {"token"}
+    token = orch["admin"]["history"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", token)
+    assert _plain(tmp_path, HIS_TOKENS) == _manifest(
+        "agents-history-service-tokens", "tokens", token
+    )
+    # the orchestrator's discard delivery token: one raw Secret, no newline, its own value
+    ingest = _plain(tmp_path, HIS_INGEST)
+    value = ingest["stringData"]["token"]
+    assert ingest == _manifest("agents-history-ingest", "token", value)
+    assert re.fullmatch(r"[0-9a-f]{64}", value)
+    assert value != token, "the service and ingest tokens must differ (the service exits 78)"
+
+
+def test_history_token_pair_never_rotates(tmp_path):
+    bindir = _history_sandbox(tmp_path)
+    assert _run(tmp_path, bindir).returncode == 0
+    for f in (tmp_path / "plain").iterdir():
+        f.unlink()
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+    pair = (HIS_TOKENS, HIS_ORCH)
+    for present, absent in (pair, pair[::-1]):
+        (tmp_path / absent).unlink()
+        (tmp_path / present).write_text("sentinel: keep\n")
+        r = _run(tmp_path, bindir)
+        assert r.returncode == 1
+        assert pair[0] in r.stderr and pair[1] in r.stderr
+        assert not (tmp_path / absent).exists()
+        assert (tmp_path / present).read_text() == "sentinel: keep\n"
+        assert _encrypted(tmp_path) == []
+        (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+def test_history_ingest_token_never_rotates(tmp_path):
+    bindir = _history_sandbox(tmp_path)
+    for rel in HISTORY_FILES:
+        if rel != HIS_INGEST:
+            (tmp_path / rel).write_text("sentinel: keep\n")
+    assert _run(tmp_path, bindir).returncode == 0
+    assert _encrypted(tmp_path) == [HIS_INGEST.replace("/", "_")]
+    (tmp_path / "plain" / HIS_INGEST.replace("/", "_")).unlink()
+    (tmp_path / HIS_INGEST).write_text("sentinel: keep\n")
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+    assert (tmp_path / HIS_INGEST).read_text() == "sentinel: keep\n"
+
+
+def test_history_tokens_not_printed(tmp_path):
+    for name, bash_args in (("plain-run", ()), ("traced-run", ("-x",))):
+        root = tmp_path / name
+        root.mkdir()
+        bindir = _history_sandbox(root)
+        r = _run(root, bindir, *bash_args)
+        assert r.returncode == 0, r.stderr
+        secrets = [
+            _plain(root, HIS_ORCH)["admin"]["history"]["token"],
+            _plain(root, HIS_INGEST)["stringData"]["token"],
+        ]
+        for stream in (r.stdout, r.stderr):
+            for value in secrets:
+                assert value not in stream, f"{name}: a history secret was printed"
+
+
+def test_history_token_files_are_consistent():
+    tokens = _decrypt(HIS_TOKENS)["stringData"]["tokens"]
+    ingest = _decrypt(HIS_INGEST)["stringData"]["token"]
+    assert _decrypt(HIS_ORCH)["admin"]["history"]["token"] == tokens
+    assert re.fullmatch(r"[0-9a-f]{64}", tokens) and re.fullmatch(r"[0-9a-f]{64}", ingest)
+    assert tokens != ingest, "the service and ingest tokens must differ"

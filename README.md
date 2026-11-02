@@ -201,6 +201,25 @@ samples) are reached in-cluster through the `agents-usage` Service.
 The prober reads the orchestrator's Secret `agents-orchestrator-claude` (key `CLAUDE_CODE_OAUTH_TOKEN`). The backup credentials
 `values/agents-usage-db/default.secrets.yaml` are a byte copy of the other databases' file, as for `agents-schedule-db`.
 
+## agents-history
+
+Releases: `agents-history-db` (CNPG database `history`, 10Gi) and `agents-history` (one api pod with three ports: UI 8000, service 8001,
+ingest 8002). The api sits behind the same SSO as the orchestrator and is served at `https://lab.szymonrichert.pl/history`. The service
+listener (the orchestrator's read and search relay) and the ingest listener (the orchestrator's session export at discard) are not on
+the ingress and are reached in-cluster through the `agents-history` Service.
+
+`scripts/bootstrap-secrets.sh` creates its secrets, each written once and never rotated or printed:
+
+- `bootstrap_history_token` (both files or neither): the raw Secret `agents-history-service-tokens`
+  (`values/agents-history/raw/service-tokens.agents-history.pre.secrets.yaml`, key `tokens`) and the orchestrator's copy
+  `values/agents-orchestrator/history-token.secrets.yaml` (`admin.history.token`, the same token).
+- `bootstrap_history_ingest_token`: the raw Secret `agents-history-ingest`
+  (`values/agents-history/raw/ingest-token.agents-history.pre.secrets.yaml`, key `token`, 64 hex characters, no newline). It differs
+  from the service token (the service exits 78 otherwise).
+
+The backup credentials `values/agents-history-db/default.secrets.yaml` are a byte copy of the other databases' file. The first
+migration creates the `pg_trgm` extension; if CNPG refuses it, set `cluster.initdb.postInitApplicationSQL` on the db release.
+
 ## agents-taskboard
 
 Releases: `agents-taskboard-db` (CNPG database `taskboard`) and `agents-taskboard` (deployments `-web`, `-service` and `-notifier`).
