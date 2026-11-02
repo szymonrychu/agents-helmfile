@@ -65,7 +65,7 @@ depends = ["kube-context"]
 run = 'helmfile -f helmfile.yaml.gotmpl diff --detailed-exitcode --suppress-secrets "$@"'
 
 [tasks.check-pins]
-description = "Refuse unless every pinned main-built commit has GitHub check runs that are all completed success, neutral or skipped (gh api check-runs): the agents-orchestrator, agents-web, agents-webhook, agents-schedule and agents-matrix-connector charts, the orchestrator and web image tags, and the claude-code-wrapper agentImage and ORCH_AGENT_IMAGES (X.Y.Z through tag vX.Y.Z). No override"
+description = "Refuse unless every pinned main-built commit has GitHub check runs that are all completed success, neutral or skipped (gh api check-runs): the agents-orchestrator, agents-web, agents-webhook, agents-schedule, agents-matrix-connector and agents-usage charts, the orchestrator, web and agents-usage image tags, and the claude-code-wrapper agentImage and ORCH_AGENT_IMAGES (X.Y.Z through tag vX.Y.Z). No override"
 run = "uv run scripts/check_pins.py"
 
 [tasks.apply]

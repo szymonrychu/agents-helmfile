@@ -21,6 +21,11 @@ MX_FILE="values/agents-matrix-connector/default.secrets.yaml"
 MX_TOKEN_FILE="values/agents-orchestrator/service-token-agents-matrix-connector.secrets.yaml"
 CHAT_FILE="values/agents-orchestrator/chat-token.secrets.yaml"
 CHAT_HASH_FILE="values/agents-matrix-connector/agent-token.secrets.yaml"
+USG_FILE="values/agents-usage/default.secrets.yaml"
+USG_HASH_FILE="values/agents-orchestrator/service-token-agents-usage.secrets.yaml"
+USG_TOKENS_FILE="values/agents-usage/raw/service-tokens.agents-usage.pre.secrets.yaml"
+USG_ORCH_FILE="values/agents-orchestrator/usage-token.secrets.yaml"
+USG_INGEST_FILE="values/agents-usage/raw/ingest-token.agents-usage.pre.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
@@ -156,10 +161,46 @@ bootstrap_chat_token() {
   fi
 }
 
+# bootstrap_usage_token: both files or neither. The token the orchestrator sends to the usage
+# service port: the raw Secret agents-usage-service-tokens (key tokens, one token per line, applied
+# by the agents-usage release hook) and the orchestrator's copy (usage.token). Never rotates,
+# never half-writes.
+bootstrap_usage_token() {
+  local token
+  if [[ -e "$USG_TOKENS_FILE" && -e "$USG_ORCH_FILE" ]]; then return 0; fi
+  if [[ -e "$USG_TOKENS_FILE" || -e "$USG_ORCH_FILE" ]]; then
+    die "exactly one of $USG_TOKENS_FILE and $USG_ORCH_FILE exists; refusing to rotate or half-write"
+  fi
+  token="$(openssl rand -hex 32)"
+  TOKEN="$token" jq -n '{
+      apiVersion: "v1", kind: "Secret", metadata: {name: "agents-usage-service-tokens"},
+      type: "Opaque", stringData: {tokens: $ENV.TOKEN}}' |
+    encrypt_to "$USG_TOKENS_FILE"
+  if ! TOKEN="$token" jq -n '{usage: {token: $ENV.TOKEN}}' |
+    encrypt_to "$USG_ORCH_FILE"; then
+    rm -f "$USG_TOKENS_FILE"
+    die "writing $USG_ORCH_FILE failed; removed $USG_TOKENS_FILE"
+  fi
+}
+
+# bootstrap_usage_ingest_token: one raw Secret agents-usage-ingest (key token) holding the single
+# shared token the agents' wrapper sends to the usage ingest port (CCW_USAGE_TOKEN). No trailing
+# newline, so the value works as a tokens file line and as an env value. Never rotates.
+bootstrap_usage_ingest_token() {
+  [[ -e "$USG_INGEST_FILE" ]] && return 0
+  TOKEN="$(openssl rand -hex 32)" jq -n '{
+      apiVersion: "v1", kind: "Secret", metadata: {name: "agents-usage-ingest"},
+      type: "Opaque", stringData: {token: $ENV.TOKEN}}' |
+    encrypt_to "$USG_INGEST_FILE"
+}
+
 bootstrap_orchestrator
 bootstrap_database
 bootstrap_service_token agents-webhook "$WH_FILE" "$WH_TOKEN_FILE"
 bootstrap_service_token agents-schedule "$SCH_FILE" "$SCH_TOKEN_FILE"
 bootstrap_matrix_connector
 bootstrap_chat_token
+bootstrap_service_token agents-usage "$USG_FILE" "$USG_HASH_FILE"
+bootstrap_usage_token
+bootstrap_usage_ingest_token
 echo "secrets bootstrap done (existing files left untouched)" >&2
