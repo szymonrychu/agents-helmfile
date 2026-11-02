@@ -37,6 +37,7 @@ HELMFILE = Path("helmfile.yaml.gotmpl")
 ORCH_VALUES = Path("values/agents-orchestrator/common.yaml")
 WEB_VALUES = Path("values/agents-web/common.yaml")
 USAGE_VALUES = Path("values/agents-usage/common.yaml")
+TASKBOARD_VALUES = Path("values/agents-taskboard/common.yaml")
 CHART_RELEASES = (
     "agents-orchestrator",
     "agents-web",
@@ -44,6 +45,7 @@ CHART_RELEASES = (
     "agents-schedule",
     "agents-matrix-connector",
     "agents-usage",
+    "agents-taskboard",
 )
 GREEN = frozenset({"success", "neutral", "skipped"})
 MAIN_BUILD = re.compile(r"\d+\.\d+\.\d+-main\.([0-9a-f]{7,40})")
@@ -155,6 +157,13 @@ def _values_pins() -> list[Pin]:
         pins.append(_tag_pin("agents-usage:image.tag", "agents-usage", _dig(usage, "image.tag")))
     except Refused as exc:
         pins.append(Pin("agents-usage:image.tag", None, None, str(exc)))
+    try:
+        taskboard = _load(TASKBOARD_VALUES)
+        pins.append(
+            _tag_pin("agents-taskboard:image.tag", "agents-taskboard", _dig(taskboard, "image.tag"))
+        )
+    except Refused as exc:
+        pins.append(Pin("agents-taskboard:image.tag", None, None, str(exc)))
     return pins
 
 
