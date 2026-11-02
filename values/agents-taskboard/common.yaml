@@ -41,8 +41,8 @@ components:
 ingress:
   enabled: true
   className: nginx
-  # The chart has no denySourceRanges key, so the ingress-nginx denylist is set directly. Cluster
-  # node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
+  # The chart has no denySourceRanges key, so the ingress-nginx denylist is set directly. The
+  # cluster node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
   annotations:
     nginx.ingress.kubernetes.io/denylist-source-range: "192.168.1.26/32,192.168.1.27/32,192.168.1.28/32,192.168.1.29/32,192.168.1.65/32"
   hosts:
