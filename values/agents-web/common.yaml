@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-web
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.12.0"
+  tag: "0.13.0"
 
 # Same oauth2-proxy admission webhook identity as the orchestrator api pod.
 podAnnotations:
@@ -24,6 +24,9 @@ backends:
   - id: matrix
     label: Chats
     basePath: /matrix/api/v1
+  - id: usage
+    label: Usage
+    basePath: /usage/v1
 
 # The UI owns "/" of the host. The orchestrator ingress owns /api and the only
 # cert-manager annotations, so there is one Certificate for agents-orchestrator-tls.
