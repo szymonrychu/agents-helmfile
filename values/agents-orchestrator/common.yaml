@@ -106,7 +106,7 @@ env:
   # of the final answer get it first (orchestrator bounds 10..3600, default 30).
   ORCH_CLOSE_GRACE_SECONDS: "30"
   # Inactivity limits: a session with no activity gets a reminder after 1 h and is closed after
-  # 4 h (reminder < close); the leader gets 5 min after the reminder to hand off. 0 turns a limit
+  # 4 h (reminder < close); the leader gets 5 min after the close notice to hand off. 0 turns a limit
   # off. Per-preset overrides are `spec.inactivity`; superleaders are exempt.
   ORCH_INACTIVITY_REMINDER_SECONDS: "3600"
   ORCH_INACTIVITY_CLOSE_SECONDS: "14400"
