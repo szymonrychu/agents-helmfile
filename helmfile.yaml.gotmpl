@@ -88,6 +88,7 @@ releases:
     - values/agents-orchestrator/chat-token.secrets.yaml
     - values/agents-orchestrator/taskboard-token.secrets.yaml
     - values/agents-orchestrator/history-token.secrets.yaml
+    - values/agents-orchestrator/service-token-agents-app-connector.secrets.yaml
 
   - name: agents-webhook-db
     namespace: agents
@@ -155,6 +156,17 @@ releases:
       application: agents-taskboard
     <<: *default
 
+  - name: agents-app-connector-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-app-connector
+    <<: *default
+
   - name: agents-webhook
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
@@ -197,6 +209,19 @@ releases:
     secrets:
     - values/agents-taskboard/default.secrets.yaml
     - values/agents-taskboard/relay-token.secrets.yaml
+
+  - name: agents-app-connector
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-app-connector
+    version: 0.1.0-main.b86c8e3
+    timeout: 600
+    needs:
+      - agents/agents-app-connector-db
+      - agents/agents-orchestrator
+    labels:
+      purpose: agents
+      application: agents-app-connector
+    <<: *default
 
   - name: agents-usage
     namespace: agents

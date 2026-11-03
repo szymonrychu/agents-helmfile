@@ -286,3 +286,12 @@ through the `agents-taskboard-service` Service.
   `values/agents-orchestrator/taskboard-token.secrets.yaml`. It differs from the notifier's service token.
 
 The backup credentials `values/agents-taskboard-db/default.secrets.yaml` are a byte copy of the other databases' file, as for `agents-schedule-db`.
+
+## agents-app-connector
+
+Releases: `agents-app-connector-db` (CNPG database `appconn`) and `agents-app-connector` (an admin pod behind the orchestrator's SSO and a
+singleton app pod with the sketch PVC). Only two paths are routed on `https://lab.szymonrichert.pl`: `/app/v1/sketch` (device API,
+bearer device tokens, public) and `/app/admin` (pairing, SSO). `bootstrap_service_token agents-app-connector` (both files or neither)
+writes `values/agents-app-connector/default.secrets.yaml` (`orchestrator.token`) and its sha256 in
+`values/agents-orchestrator/service-token-agents-app-connector.secrets.yaml`. The backup credentials
+`values/agents-app-connector-db/default.secrets.yaml` are a byte copy of the other databases' file.

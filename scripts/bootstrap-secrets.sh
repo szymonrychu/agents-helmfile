@@ -33,6 +33,8 @@ TB_ORCH_FILE="values/agents-orchestrator/taskboard-token.secrets.yaml"
 HIS_TOKENS_FILE="values/agents-history/raw/service-tokens.agents-history.pre.secrets.yaml"
 HIS_ORCH_FILE="values/agents-orchestrator/history-token.secrets.yaml"
 HIS_INGEST_FILE="values/agents-history/raw/ingest-token.agents-history.pre.secrets.yaml"
+APP_FILE="values/agents-app-connector/default.secrets.yaml"
+APP_HASH_FILE="values/agents-orchestrator/service-token-agents-app-connector.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
@@ -267,4 +269,5 @@ bootstrap_service_token agents-taskboard "$TB_FILE" "$TB_HASH_FILE"
 bootstrap_taskboard_relay_token
 bootstrap_history_token
 bootstrap_history_ingest_token
+bootstrap_service_token agents-app-connector "$APP_FILE" "$APP_HASH_FILE"
 echo "secrets bootstrap done (existing files left untouched)" >&2

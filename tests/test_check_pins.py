@@ -35,6 +35,7 @@ CHARTS = (
     "agents-usage",
     "agents-taskboard",
     "agents-history",
+    "agents-app-connector",
 )
 GREEN = (
     ("lint", "completed", "success"),
@@ -137,6 +138,7 @@ def tree(tmp_path):
         "agents-usage",
         "agents-taskboard",
         "agents-history",
+        "agents-app-connector",
     ):
         (root / "values" / release).mkdir()
         shutil.copy(ROOT / "values" / release / "common.yaml", root / "values" / release)
@@ -211,6 +213,8 @@ def expected_pins(tree: Path) -> dict[str, tuple[str, str]]:
     pins["agents-taskboard:image.tag"] = ("agents-taskboard", str(taskboard["image"]["tag"]))
     history = yaml.safe_load((tree / "values/agents-history/common.yaml").read_text())
     pins["agents-history:image.tag"] = ("agents-history", str(history["image"]["tag"]))
+    app = yaml.safe_load((tree / "values/agents-app-connector/common.yaml").read_text())
+    pins["agents-app-connector:image.tag"] = ("agents-app-connector", str(app["image"]["tag"]))
     agent = orch["agentImage"].rsplit("/", 1)[1].split(":")
     pins["agents-orchestrator:agentImage"] = (agent[0], agent[1])
     for image in orch["env"]["ORCH_AGENT_IMAGES"].split(","):
@@ -588,6 +592,18 @@ def test_release_version_resolves_through_tag(tree):
             "agents-taskboard",
             "helmfile.yaml.gotmpl",
             r"(charts/agents-taskboard\n)\s+version: \S+\n",
+            r"\1",
+        ),
+        (
+            "agents-app-connector:image.tag",
+            "values/agents-app-connector/common.yaml",
+            r'^(  tag: )"\S+"',
+            r"\g<1>1343836",
+        ),
+        (
+            "agents-app-connector",
+            "helmfile.yaml.gotmpl",
+            r"(charts/agents-app-connector\n)\s+version: \S+\n",
             r"\1",
         ),
         (
