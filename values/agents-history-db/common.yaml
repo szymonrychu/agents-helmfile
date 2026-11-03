@@ -42,6 +42,9 @@ backups:
     bucket: database-backup-szymonrychu
     path: /agents-history-db/
     # accessKey / secretKey come from default.secrets.yaml (SOPS)
+  # Archive WAL 8 segments at a time; maxParallel 1 left the archiver ~8 GB behind.
+  wal:
+    maxParallel: 8
   retentionPolicy: "30d"
   scheduledBackups:
     - name: daily-backup
