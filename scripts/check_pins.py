@@ -6,7 +6,8 @@ of `apply`). It takes no arguments and reads no environment switch: nothing skip
 Pin sources: the chart `version:` of the main-built releases in helmfile.yaml.gotmpl, and the
 image tags in values/agents-orchestrator/common.yaml (`image.tag`, `agentImage`,
 `env.ORCH_AGENT_IMAGES`), values/agents-web/common.yaml, values/agents-usage/common.yaml,
-values/agents-taskboard/common.yaml and values/agents-history/common.yaml (`image.tag`). A chart maps to the
+values/agents-taskboard/common.yaml, values/agents-history/common.yaml and
+values/agents-app-connector/common.yaml (`image.tag`). A chart maps to the
 repo named by its chart path, an image to the repo named by its image name, both under
 szymonrychu. `0.1.0-main.<sha7>` and an image sha7 resolve to that commit, a release version
 `X.Y.Z` through tag `vX.Y.Z`. A pin passes only when its commit has at least one check run and
@@ -39,6 +40,7 @@ WEB_VALUES = Path("values/agents-web/common.yaml")
 USAGE_VALUES = Path("values/agents-usage/common.yaml")
 TASKBOARD_VALUES = Path("values/agents-taskboard/common.yaml")
 HISTORY_VALUES = Path("values/agents-history/common.yaml")
+APP_CONNECTOR_VALUES = Path("values/agents-app-connector/common.yaml")
 CHART_RELEASES = (
     "agents-orchestrator",
     "agents-web",
@@ -48,6 +50,7 @@ CHART_RELEASES = (
     "agents-usage",
     "agents-taskboard",
     "agents-history",
+    "agents-app-connector",
 )
 GREEN = frozenset({"success", "neutral", "skipped"})
 MAIN_BUILD = re.compile(r"\d+\.\d+\.\d+-main\.([0-9a-f]{7,40})")
@@ -173,6 +176,15 @@ def _values_pins() -> list[Pin]:
         )
     except Refused as exc:
         pins.append(Pin("agents-history:image.tag", None, None, str(exc)))
+    try:
+        app = _load(APP_CONNECTOR_VALUES)
+        pins.append(
+            _tag_pin(
+                "agents-app-connector:image.tag", "agents-app-connector", _dig(app, "image.tag")
+            )
+        )
+    except Refused as exc:
+        pins.append(Pin("agents-app-connector:image.tag", None, None, str(exc)))
     return pins
 
 

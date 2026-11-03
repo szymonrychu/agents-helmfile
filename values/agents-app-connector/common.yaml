@@ -1,0 +1,61 @@
+image:
+  repository: harbor.szymonrichert.pl/containers/agents-app-connector
+  # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
+  tag: "0.1.0"
+
+# Connection URI from the CNPG app Secret made by the agents-app-connector-db release.
+postgres:
+  existingSecret: agents-app-connector-db-cluster-app
+
+# The connector's service token (orchestrator.token) comes from default.secrets.yaml (SOPS); the
+# orchestrator holds its sha256. Port 8002 takes bearer service tokens.
+orchestrator:
+  url: http://agents-orchestrator-services:8002
+
+# Only the oauth2-proxy sidecar (podAnnotations below) reaches the admin api, over 127.0.0.1.
+# Widening this bypasses SSO.
+adminAllowedCidrs:
+  - 127.0.0.1/32
+
+env:
+  APPCONN_HANDOFF_PRESETS: ""
+  APPCONN_MAX_LONG_EDGE_PX: "1568"
+
+# SSO (oauth2-proxy admission webhook) on the admin pod only; the app pod (device API, bearer
+# device tokens) stays unannotated and is the only public path.
+components:
+  admin:
+    podAnnotations:
+      oauth2-proxy-admission/enable: "true"
+      oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
+      oauth2-proxy-admission/secret-name: agents-orchestrator-proxy
+      oauth2-proxy-admission/secret-namespace: agents
+
+persistence:
+  size: 5Gi
+
+# Shares the lab host and its certificate with agents-orchestrator (agents-orchestrator-tls, owned
+# by that release's cert-manager annotation), so no cert-manager annotation here. Only
+# /app/v1/sketch (device, public) and /app/admin (SSO pod) are routed.
+ingress:
+  className: nginx
+  tls:
+    - secretName: agents-orchestrator-tls
+      hosts:
+        - lab.szymonrichert.pl
+  # The cluster node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
+  denySourceRanges:
+    - 192.168.1.26/32
+    - 192.168.1.27/32
+    - 192.168.1.28/32
+    - 192.168.1.29/32
+    - 192.168.1.65/32
+  device:
+    enabled: true
+    host: lab.szymonrichert.pl
+    path: /app/v1/sketch
+    proxyBodySize: 9m
+  admin:
+    enabled: true
+    host: lab.szymonrichert.pl
+    path: /app/admin

@@ -47,6 +47,11 @@ HIS_INGEST = "values/agents-history/raw/ingest-token.agents-history.pre.secrets.
 HIS_DB = "values/agents-history-db/default.secrets.yaml"
 # Every file the history bootstraps write; the sandboxes of the other tests pre-create them all.
 HISTORY_FILES = (HIS_TOKENS, HIS_ORCH, HIS_INGEST)
+APP = "values/agents-app-connector/default.secrets.yaml"
+APP_HASH = "values/agents-orchestrator/service-token-agents-app-connector.secrets.yaml"
+APP_DB = "values/agents-app-connector-db/default.secrets.yaml"
+# Every file the app-connector bootstrap writes; the sandboxes of the other tests pre-create them all.
+APP_FILES = (APP, APP_HASH)
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -78,6 +83,9 @@ def _load(rel: str) -> dict:
         (TB_RELAY, {"relayToken"}),
         (TB_ORCH, {"taskboard.token"}),
         (TB_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
+        (APP, {"orchestrator.token"}),
+        (APP_HASH, {"serviceApi.tokenHashes.agents-app-connector"}),
+        (APP_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (HIS_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (HIS_ORCH, {"admin.history.token"}),
         (HIS_TOKENS, SECRET_KEYS),
@@ -157,6 +165,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         *USAGE_FILES,
         *TASKBOARD_FILES,
         *HISTORY_FILES,
+        *APP_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -177,6 +186,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         *USAGE_FILES,
         *TASKBOARD_FILES,
         *HISTORY_FILES,
+        *APP_FILES,
     ):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
@@ -227,6 +237,7 @@ def test_webhook_secrets_never_rotate(tmp_path):
         *USAGE_FILES,
         *TASKBOARD_FILES,
         *HISTORY_FILES,
+        *APP_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -280,6 +291,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
         *USAGE_FILES,
         *TASKBOARD_FILES,
         *HISTORY_FILES,
+        *APP_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -339,6 +351,7 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
         *USAGE_FILES,
         *TASKBOARD_FILES,
         *HISTORY_FILES,
+        *APP_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -726,6 +739,18 @@ def _taskboard_sandbox(tmp_path: Path) -> Path:
     return bindir
 
 
+def _app_sandbox(tmp_path: Path) -> Path:
+    """Every target present except the two app-connector files."""
+    bindir = _schedule_sandbox(tmp_path)
+    for rel in (SCH, SCH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    for rel in APP_FILES:
+        (tmp_path / rel).unlink()
+    return bindir
+
+
 def _history_sandbox(tmp_path: Path) -> Path:
     """Every target present except the three history files."""
     bindir = _schedule_sandbox(tmp_path)
@@ -885,3 +910,39 @@ def test_history_token_files_are_consistent():
     assert _decrypt(HIS_ORCH)["admin"]["history"]["token"] == tokens
     assert re.fullmatch(r"[0-9a-f]{64}", tokens) and re.fullmatch(r"[0-9a-f]{64}", ingest)
     assert tokens != ingest, "the service and ingest tokens must differ"
+
+
+def test_app_connector_secrets_bootstrapped(tmp_path):
+    bindir = _app_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == sorted(rel.replace("/", "_") for rel in APP_FILES)
+    app = _plain(tmp_path, APP)
+    assert set(app) == {"orchestrator"}
+    assert set(app["orchestrator"]) == {"token"}
+    svc = app["orchestrator"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", svc)
+    assert _plain(tmp_path, APP_HASH) == {
+        "serviceApi": {
+            "tokenHashes": {"agents-app-connector": hashlib.sha256(svc.encode()).hexdigest()}
+        }
+    }
+
+
+def test_app_connector_token_pair_never_rotates(tmp_path):
+    bindir = _app_sandbox(tmp_path)
+    assert _run(tmp_path, bindir).returncode == 0
+    for f in (tmp_path / "plain").iterdir():
+        f.unlink()
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+    for present, absent in ((APP, APP_HASH), (APP_HASH, APP)):
+        (tmp_path / absent).unlink()
+        (tmp_path / present).write_text("sentinel: keep\n")
+        r = _run(tmp_path, bindir)
+        assert r.returncode == 1
+        assert APP in r.stderr and APP_HASH in r.stderr
+        assert not (tmp_path / absent).exists()
+        assert _encrypted(tmp_path) == []
+        (tmp_path / absent).write_text("sentinel: keep\n")
