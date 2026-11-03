@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "3.10.0"
-# The chart of the v3.10.0 release commit 4d0f6de: chart and image from one commit.
-CHART = "0.1.0-main.4d0f6de"
+PIN = "4.0.0"
+# The chart of the v4.0.0 release commit c3ae718: chart and image from one commit.
+CHART = "0.1.0-main.c3ae718"
 WRAPPER_PIN = "0.9.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
@@ -83,6 +83,14 @@ def test_orch_env_values(layered_values):
     assert v["image"]["tag"] not in ("", "latest")
     # D2 renamed the unit settings (ORCH_MAX_SESSIONS); only the Kubernetes ORCH_CLUSTER_DOMAIN keeps it.
     assert not [k for k in v["env"] if "CLUSTER" in k and k != "ORCH_CLUSTER_DOMAIN"]
+
+
+def test_inactivity_env_enabled(layered_values):
+    env = layered_values(REL)["env"]
+    assert env["ORCH_INACTIVITY_REMINDER_SECONDS"] == "3600"
+    assert env["ORCH_INACTIVITY_CLOSE_SECONDS"] == "14400"
+    assert env["ORCH_INACTIVITY_HANDOFF_SECONDS"] == "300"
+    assert int(env["ORCH_INACTIVITY_REMINDER_SECONDS"]) < int(env["ORCH_INACTIVITY_CLOSE_SECONDS"])
 
 
 def test_api_pod_behind_oauth2_proxy_webhook(layered_values):
