@@ -30,7 +30,7 @@ def test_initdb(layered_values):
     assert v["cluster"]["initdb"] == {"database": "history", "owner": "history"}
     assert v["cluster"]["instances"] == 1
     assert v["cluster"]["storage"] == {"size": "10Gi", "storageClass": "rook-ceph"}
-    assert v["cluster"]["walStorage"]["size"] == "10Gi"
+    assert v["cluster"]["walStorage"]["size"] == "20Gi"
     assert v["backups"]["s3"]["path"] == "/agents-history-db/"
     assert "accessKey" not in v["backups"]["s3"]
     assert "secretKey" not in v["backups"]["s3"]
