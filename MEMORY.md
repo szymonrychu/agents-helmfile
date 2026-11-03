@@ -2,6 +2,7 @@
 
 Lessons that outlive a session. Newest first.
 
+- 2026-11-03: **agents-orchestrator 4.0.1 to 4.1.0 (session-close).** Image `4.1.0` and chart `0.1.0-main.03efc7d` (tag v4.1.0 = 03efc7d, from the chart-publish and release job logs of run 41614816546): a service can close (DELETE) the sessions it created; needed by agents-app-connector close-on-delete. The pin in tests/test_orchestrator_release.py and tests/test_check_pins.py moved with it. Not applied here.
 - 2026-11-03: **hive-inactivity-limits: agents-web 0.18.0 to 0.18.1.** Image `0.18.1` and chart `0.1.0-main.989a7a7` (tag v0.18.1 = merge commit 989a7a7 on agents-web main): inactivity banner wording fix. The pin is asserted in tests/test_web_release.py. Not applied here.
 - 2026-11-03: **hive-inactivity-limits: agents-orchestrator 4.0.0 to 4.0.1.** Image `4.0.1` and chart `0.1.0-main.d21da00` (tag v4.0.1 = d21da00, confirmed with `git ls-remote --tags`): adds the 403 guard on superleader DELETE of privileged presets; the pin in tests/test_orchestrator_release.py and tests/test_check_pins.py moved with it. Not applied here.
 - 2026-11-03: **hive-inactivity-limits H2: agents-web 0.18.0.** Web image `0.18.0` and chart `0.1.0-main.f1003f8` (tag v0.18.0 = f1003f8, confirmed with `git ls-remote --tags` and `helm show chart`): the preset form shows the inactivity reminder and close fields (helper text "Empty uses the default (1 h); 0 turns it off", 4 h for close); needs orchestrator 4.0.0 (H1), so both pins ship in one PR. The pin is asserted in tests/test_web_release.py. Not applied here.
