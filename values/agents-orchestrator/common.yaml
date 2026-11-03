@@ -89,6 +89,9 @@ discardHook:
 env:
   # A big session export can take minutes to ingest; the chart default is 120 s.
   ORCH_DISCARD_HOOK_TIMEOUT_SECONDS: "600"
+  # A big export needs minutes to ingest; user decision 2026-11-03 (T-26 D98), the orchestrator chart defaults are 30 and 60 s.
+  ORCH_DISCARD_HOOK_READ_TIMEOUT_SECONDS: "300"
+  ORCH_DISCARD_HOOK_PASS_BUDGET_SECONDS: "300"
   # The oauth2-proxy sidecar (podAnnotations below) is the only way in: it reaches the api over
   # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods
   # reach the api port only through the sidecar's SSO.

@@ -384,6 +384,8 @@ def test_discard_hook_to_history(layered_values):
     assert hook["existingSecretKey"] == "token"
     assert not hook.get("token")
     assert v["env"]["ORCH_DISCARD_HOOK_TIMEOUT_SECONDS"] == "600"
+    assert v["env"]["ORCH_DISCARD_HOOK_READ_TIMEOUT_SECONDS"] == "300"
+    assert v["env"]["ORCH_DISCARD_HOOK_PASS_BUDGET_SECONDS"] == "300"
 
 
 def test_plugins_ref_is_a_tag(layered_values):

@@ -87,3 +87,6 @@ Lessons that outlive a session. Newest first.
 - 2026-11-01: the user explicitly enabled the S3 archive cleanup sweep with real deletes (orchestrator cache.sweep.dryRun false; 30 days, keep 3, interval 21600, grace default unchanged). Not applied yet.
 
 - 2026-11-02: agents-web pinned to 0.13.0 (image tag from release v0.13.0, merge commit 8d67606; chart `0.1.0-main.8d67606`, published by that run's chart-publish job, same sha7 rule as the 0.12.0 pin) with the Usage section: the `usage` backend (`/usage/v1`, served by the agents-usage ingress path `/usage` on the lab host) is added after `matrix` in the web `backends`. Pins only; the apply is run separately by the infra hive.
+
+
+- 2026-11-03: discard-hook read timeout and pass budget raised to 300 s (`ORCH_DISCARD_HOOK_READ_TIMEOUT_SECONDS`, `ORCH_DISCARD_HOOK_PASS_BUDGET_SECONDS` in values/agents-orchestrator/common.yaml; chart defaults 30 and 60 s) because a big export needs minutes to ingest; user decision T-26 D98. The live configmap is patched separately; these values keep the next apply from reverting it. Not applied from here.
