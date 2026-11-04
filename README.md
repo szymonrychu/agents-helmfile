@@ -295,3 +295,5 @@ bearer device tokens, public) and `/app/admin` (pairing, SSO). `bootstrap_servic
 writes `values/agents-app-connector/default.secrets.yaml` (`orchestrator.token`) and its sha256 in
 `values/agents-orchestrator/service-token-agents-app-connector.secrets.yaml`. The backup credentials
 `values/agents-app-connector-db/default.secrets.yaml` are a byte copy of the other databases' file.
+
+Since connector 2.0.1 (needs orchestrator 4.4.0) agent tokens are verified through the orchestrator's service port (`orchestrator.url`, 8002), so the connector has no `orchestrator.agentUrl` value.
