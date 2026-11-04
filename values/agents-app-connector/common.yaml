@@ -12,6 +12,12 @@ postgres:
 orchestrator:
   url: http://agents-orchestrator-services:8002
 
+# Tasks tab relay to the taskboard delegate listener (in-namespace only, no ingress). The token
+# (taskboard.token) comes from taskboard-token.secrets.yaml (SOPS); the taskboard holds the same
+# value as delegateTokens.
+taskboard:
+  url: http://agents-taskboard-delegate:8003
+
 # Only the oauth2-proxy sidecar (podAnnotations below) reaches the admin api, over 127.0.0.1.
 # Widening this bypasses SSO.
 adminAllowedCidrs:

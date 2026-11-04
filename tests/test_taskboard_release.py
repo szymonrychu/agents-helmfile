@@ -114,3 +114,26 @@ def test_plugins_ref_has_the_taskboard_tools(layered_values):
 def test_web_backend_taskboard_listed(layered_values):
     backends = layered_values("agents-web")["backends"]
     assert {"id": "taskboard", "label": "Tasks", "basePath": "/taskboard/api/v1"} in backends
+
+
+def test_taskboard_has_delegate_component_without_ingress(layered_values):
+    v = layered_values(REL)
+    # the token file renders the delegate component; no plain token, no existing secret, no ingress
+    assert not v.get("delegateTokens")
+    assert not v.get("delegateExistingSecret")
+    assert not v["components"].get("delegate", {}).get("podAnnotations")
+    paths = [p["path"] for h in v["ingress"]["hosts"] for p in h["paths"]]
+    assert paths == ["/taskboard"]
+
+
+def test_taskboard_delegate_token_file_listed(repo_root):
+    block = _block(repo_root, REL)
+    assert "values/agents-taskboard/delegate-token.secrets.yaml" in block
+    assert (repo_root / "values/agents-taskboard/delegate-token.secrets.yaml").is_file()
+
+
+def test_ingress_paths_unchanged(layered_values):
+    ing = layered_values(REL)["ingress"]
+    assert ing["hosts"] == [{"host": HOST, "paths": [{"path": "/taskboard", "pathType": "Prefix"}]}]
+    conn = layered_values("agents-app-connector")["ingress"]
+    assert conn["device"]["path"] == "/app/v1/sketch" and conn["admin"]["path"] == "/app/admin"

@@ -21,6 +21,11 @@ orchestrator:
 # The relay token (relayToken) comes from relay-token.secrets.yaml (SOPS); the orchestrator holds
 # the same value as taskboard.token. It is a different secret from the service token above.
 
+# The delegate token list (delegateTokens) comes from delegate-token.secrets.yaml (SOPS) and renders
+# the in-namespace delegate component (port 8003, no ingress, no oauth2): the agents-app-connector
+# relays the Tasks tab of the device app to it, as a user. The connector holds the same value as
+# taskboard.token; it differs from the relay token above.
+
 # Only the oauth2-proxy sidecar (podAnnotations below) reaches the web api, over 127.0.0.1.
 # Widening this bypasses SSO.
 allowedCidrs:

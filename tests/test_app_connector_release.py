@@ -98,3 +98,14 @@ def test_sso_on_admin_only(layered_values):
     assert v["components"]["admin"]["podAnnotations"] == orch
     assert not v["components"].get("app", {}).get("podAnnotations")
     assert not v["ingress"]["device"].get("annotations")
+
+
+def test_connector_taskboard_url_and_token_file_wired(repo_root, layered_values):
+    v = layered_values(REL)
+    assert v["taskboard"] == {"url": "http://agents-taskboard-delegate:8003"}
+    # the token comes from SOPS, never a plain value or an env entry of the shared ConfigMap
+    assert not any("TASKBOARD" in k for k in v["env"])
+    block = _block(repo_root, REL)
+    assert "values/agents-app-connector/default.secrets.yaml" in block
+    assert "values/agents-app-connector/taskboard-token.secrets.yaml" in block
+    assert (repo_root / "values/agents-app-connector/taskboard-token.secrets.yaml").is_file()

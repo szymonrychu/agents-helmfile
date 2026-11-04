@@ -205,10 +205,11 @@ releases:
       purpose: agents
       application: agents-taskboard
     <<: *default
-    # Overrides the default anchor's list: the relay token file comes after default.
+    # Overrides the default anchor's list: the relay and delegate token files come after default.
     secrets:
     - values/agents-taskboard/default.secrets.yaml
     - values/agents-taskboard/relay-token.secrets.yaml
+    - values/agents-taskboard/delegate-token.secrets.yaml
 
   - name: agents-app-connector
     namespace: agents
@@ -222,6 +223,10 @@ releases:
       purpose: agents
       application: agents-app-connector
     <<: *default
+    # Overrides the default anchor's list: the taskboard delegate token file comes after default.
+    secrets:
+    - values/agents-app-connector/default.secrets.yaml
+    - values/agents-app-connector/taskboard-token.secrets.yaml
 
   - name: agents-usage
     namespace: agents
