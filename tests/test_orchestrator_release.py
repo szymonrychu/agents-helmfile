@@ -391,7 +391,7 @@ def test_discard_hook_to_history(layered_values):
 def test_plugins_ref_is_a_tag(layered_values):
     ref = layered_values(REL)["env"]["ORCH_ANY_MCP_PLUGINS_REF"]
     assert re.fullmatch(r"v\d+\.\d+\.\d+", ref)
-    assert _semver(ref.lstrip("v")) >= (0, 11, 2)
+    assert _semver(ref.lstrip("v")) >= (0, 17, 0)
 
 
 def test_close_grace_is_set(layered_values):

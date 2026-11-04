@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-matrix-connector
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.4.0"
+  tag: "0.5.0"
 
 # Connection URI from the CNPG app Secret made by the agents-matrix-connector-db release.
 postgres:
@@ -20,6 +20,7 @@ matrix:
   deviceId: hermes-agent
   selfIdentities:
     - "@facebook_61594633049360:szymonrichert.pl"
+  bridgeProvisioningUrl: http://mautrix-meta.messaging.svc.cluster.local:29328/_matrix/provision
   bridgeBots:
     - "@facebookbot:szymonrichert.pl"
 

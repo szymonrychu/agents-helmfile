@@ -10,9 +10,10 @@ import yaml
 
 REL = "agents-matrix-connector"
 DB_REL = "agents-matrix-connector-db"
-# The v0.4.0 release commit: chart and image from one commit.
-SHA = "d2a145f"
-TAG = "0.4.0"
+# The v0.5.0 release commit: chart and image from one commit.
+SHA = "28e9c7f"
+TAG = "0.5.0"
+BRIDGE_URL = "http://mautrix-meta.messaging.svc.cluster.local:29328/_matrix/provision"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
     "192.168.1.26/32",
@@ -38,6 +39,10 @@ def _field(block: str, key: str) -> str:
     match = re.search(rf"^    {key}: (\S+)", block, re.MULTILINE)
     assert match, f"no {key}"
     return match.group(1)
+
+
+def test_connector_bridge_provisioning_url(layered_values):
+    assert layered_values(REL)["matrix"]["bridgeProvisioningUrl"] == BRIDGE_URL
 
 
 def test_matrix_connector_pin_and_needs(repo_root, layered_values):
