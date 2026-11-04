@@ -98,6 +98,8 @@ Lessons that outlive a session. Newest first.
 
 - 2026-11-04: **any-mcp-tatara-plugins v0.13.0 to v0.15.0.** `ORCH_ANY_MCP_PLUGINS_REF` v0.15.0: v0.15.0 adds the `force` parameter of `session_discard` (T-26); v0.14.0 adds a `session_patch` tool that orchestrator 4.1.2 does not allow-list (on_start.py), so agents do not see it yet. The ref changes every session's rendered on-start, so live sessions roll once on apply. Not applied here.
 
+- 2026-11-04: **agents-app-connector 1.0.0 to 2.0.0.** Image `2.0.0` and chart `0.1.0-main.559e7e0` (tag v2.0.0 = 559e7e0, `git ls-remote --tags`). `orchestrator.agentUrl` set to `http://agents-orchestrator-agents:8001` (required by the chart since 1.1.0; service and port verified in the cluster). The chart also adds a ClusterIP `-mcp` Service on port 8002 (components.app.mcpPort default), no ingress; no extra value needed. Not applied here.
+
 - 2026-11-04: **boox pairing code release pins (T-37).** agents-app-connector 0.3.0 to 1.0.0 (chart `0.1.0-main.b0c73c5`; pairing code, annotated spec, taskboard relay needing the delegate token), agents-web 0.19.0 to 0.20.0 (chart `0.1.0-main.63d69f3`), agents-taskboard 0.1.1 to 0.2.0 (chart `0.1.0-main.43621ec`) because only v0.2.0 has the delegate listener (port 8003) the delegate token wiring targets. Pins only; not applied here.
 
 - 2026-11-04: agents-app-connector `trustedProxyCidrs` set to the ingress-nginx controllers' node IPs (192.168.1.26-28, hostNetwork) plus every node's flannel .0/.1 address (podCIDRs 10.244.0-4.0/24 read with `kubectl get nodes`), same list shape as agents-webhook `trustedProxies`. Why: the public pairing exchange keys its per-IP limit on X-Real-IP, trusted only from these peers; empty makes every client share one bucket. Not applied here.

@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-app-connector
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "1.0.0"
+  tag: "2.0.0"
 
 # Connection URI from the CNPG app Secret made by the agents-app-connector-db release.
 postgres:
@@ -11,6 +11,7 @@ postgres:
 # orchestrator holds its sha256. Port 8002 takes bearer service tokens.
 orchestrator:
   url: http://agents-orchestrator-services:8002
+  agentUrl: http://agents-orchestrator-agents:8001
 
 # Tasks tab relay to the taskboard delegate listener (in-namespace only, no ingress). The token
 # (taskboard.token) comes from taskboard-token.secrets.yaml (SOPS); the taskboard holds the same
