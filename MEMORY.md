@@ -109,3 +109,5 @@ Lessons that outlive a session. Newest first.
 
 - 2026-11-04: agents-matrix-connector pinned to image 0.5.1 with chart `0.1.0-main.0c5c27c` (release commit of v0.5.1, same sha7 rule as before): Matrix room version 12 ids without `:server` are now accepted by the room rule validator, which fixes chat_room_allow answering 500 and the orchestrator turning it into 503. Pins only; not applied.
 - 2026-11-04: **agents-web 0.20.0 to 0.20.1 pin** (chart `0.1.0-main.3dceb7f`): chat preset blank-page fix. Pins only; not applied here.
+
+- 2026-11-04: agents-matrix-connector pinned to image 0.7.0 with chart `0.1.0-main.35961ce` (tag v0.7.0 = 35961ce). `anonymize.admins` (MATRIX_ANONYMIZE_ADMINS) holds the owner's numeric Facebook id: admin-<sha> in anonymized rooms and fully trusted (role="admin"). Chart existence not verified (no helm here). Not applied.
