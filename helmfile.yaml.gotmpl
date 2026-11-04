@@ -196,7 +196,7 @@ releases:
   - name: agents-taskboard
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-taskboard
-    version: 0.1.0-main.aa558da
+    version: 0.1.0-main.43621ec
     timeout: 600
     needs:
       - agents/agents-taskboard-db
@@ -214,7 +214,7 @@ releases:
   - name: agents-app-connector
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-app-connector
-    version: 0.1.0-main.4182657
+    version: 0.1.0-main.b0c73c5
     timeout: 600
     needs:
       - agents/agents-app-connector-db
@@ -273,7 +273,7 @@ releases:
   - name: agents-web
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-web
-    version: 0.1.0-main.9f5938f
+    version: 0.1.0-main.63d69f3
     timeout: 600
     needs:
       - agents/agents-webhook
