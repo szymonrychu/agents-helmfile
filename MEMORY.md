@@ -2,6 +2,7 @@
 
 Lessons that outlive a session. Newest first.
 
+- 2026-11-04: **agents-orchestrator 4.1.1 to 4.1.2 (T-26 stuck discard).** Image `4.1.2` and chart `0.1.0-main.cbca443` (tag v4.1.2 = cbca443, confirmed with `git ls-remote --tags`): bounded pre-discard hook retries and force discard. New optional setting ORCH_DISCARD_HOOK_GIVE_UP_SECONDS (default 1800) left at its default. The pin moved in tests/test_orchestrator_release.py and tests/test_check_pins.py.
 - 2026-11-03: **agents-web 0.19.0 (Devices page).** Web image `0.19.0` and chart `0.1.0-main.9f5938f` (tag v0.19.0 = 9f5938f, `helm show chart` confirms the chart in Harbor). New `devices` backend at `/app/admin/v1` (agents-app-connector admin API on the lab host, routed by its `/app/admin` ingress, SSO through the same agents-orchestrator-proxy Secret as /api). Pins only; not applied here.
 - 2026-11-03: history DB WAL volume raised from 2Gi to 10Gi, then to 20Gi (values/agents-history-db/common.yaml cluster.walStorage.size). The 2Gi WAL filled up, the CNPG instance went down, history ingest failed, and the orchestrator pre-discard hook stalled discards (T-26). 10Gi filled again, so the live Cluster agents-history-db-cluster was grown to 20Gi (the user allowed up to 30Gi if needed; infra settled on 20Gi). The cause of the WAL growth is still unknown. The values match the live Cluster so the next apply does not drift back.
 
