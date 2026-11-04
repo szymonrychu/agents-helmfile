@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-app-connector
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.3.0"
+  tag: "1.0.0"
 
 # Connection URI from the CNPG app Secret made by the agents-app-connector-db release.
 postgres:
@@ -12,10 +12,35 @@ postgres:
 orchestrator:
   url: http://agents-orchestrator-services:8002
 
+# Tasks tab relay to the taskboard delegate listener (in-namespace only, no ingress). The token
+# (taskboard.token) comes from taskboard-token.secrets.yaml (SOPS); the taskboard holds the same
+# value as delegateTokens.
+taskboard:
+  url: http://agents-taskboard-delegate:8003
+
 # Only the oauth2-proxy sidecar (podAnnotations below) reaches the admin api, over 127.0.0.1.
 # Widening this bypasses SSO.
 adminAllowedCidrs:
   - 127.0.0.1/32
+
+# Ingress-nginx runs hostNetwork on nodes .26/.27/.28 (flannel CNI); the app pod sees the controller's
+# node IP or that node's flannel.1/cni0 address (podCIDR .0 or .1), as in the agents-webhook
+# trustedProxies. Every node is listed as /32s. Never the whole 10.244.0.0/16: any pod could then
+# spoof X-Real-IP.
+trustedProxyCidrs:
+  - 192.168.1.26/32
+  - 192.168.1.27/32
+  - 192.168.1.28/32
+  - 10.244.0.0/32
+  - 10.244.0.1/32
+  - 10.244.1.0/32
+  - 10.244.1.1/32
+  - 10.244.2.0/32
+  - 10.244.2.1/32
+  - 10.244.3.0/32
+  - 10.244.3.1/32
+  - 10.244.4.0/32
+  - 10.244.4.1/32
 
 env:
   APPCONN_HANDOFF_PRESETS: ""

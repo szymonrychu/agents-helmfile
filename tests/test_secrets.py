@@ -52,6 +52,8 @@ APP_HASH = "values/agents-orchestrator/service-token-agents-app-connector.secret
 APP_DB = "values/agents-app-connector-db/default.secrets.yaml"
 # Every file the app-connector bootstrap writes; the sandboxes of the other tests pre-create them all.
 APP_FILES = (APP, APP_HASH)
+TB_DELEGATE = "values/agents-taskboard/delegate-token.secrets.yaml"
+APP_TB = "values/agents-app-connector/taskboard-token.secrets.yaml"
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -946,3 +948,35 @@ def test_app_connector_token_pair_never_rotates(tmp_path):
         assert not (tmp_path / absent).exists()
         assert _encrypted(tmp_path) == []
         (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+# The delegate token pair is written once through the sops-secret-helper skill, not by
+# scripts/bootstrap-secrets.sh; these tests guard the committed encrypted files.
+def test_delegate_token_files_encrypted_with_expected_keys():
+    for rel, keys in ((TB_DELEGATE, {"delegateTokens"}), (APP_TB, {"taskboard.token"})):
+        doc = _load(rel)
+        assert doc["sops"]["pgp"], "no pgp recipient"
+        found = dict(_leaves({k: v for k, v in doc.items() if k != "sops"}))
+        assert set(found) == keys
+        assert all(str(v).startswith("ENC[") for v in found.values())
+
+
+def test_delegate_token_pair_both_or_neither():
+    assert (ROOT / TB_DELEGATE).exists() == (ROOT / APP_TB).exists()
+
+
+def test_delegate_token_differs_from_relay_token_files():
+    delegate = _load(TB_DELEGATE)["delegateTokens"]
+    connector = _load(APP_TB)["taskboard"]["token"]
+    relay = _load(TB_RELAY)["relayToken"]
+    orch = _load(TB_ORCH)["taskboard"]["token"]
+    assert len({delegate, connector, relay, orch}) == 4
+    assert "relayToken" not in _load(TB_DELEGATE)
+    assert "relayToken" not in _load(APP_TB)
+
+
+def test_delegate_tokens_not_printed():
+    for rel in (TB_DELEGATE, APP_TB):
+        text = (ROOT / rel).read_text()
+        assert not re.search(r"\b[0-9a-f]{64}\b", text), f"{rel} holds a plaintext token"
+    assert "delegate-token" not in SCRIPT.read_text()
