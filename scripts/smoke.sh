@@ -30,10 +30,14 @@
 # {list: deny, kind: user, value: @smoke-<random>:invalid.example} is created (POST /rules), listed (GET /rules) and deleted
 # (DELETE /rules/{id}, the trap deletes it on failure); GET /rooms answers 200; the UI config.json lists the matrix backend.
 # Extra env: MATRIX_RELEASE, SMOKE_MATRIX_API_LOCAL_PORT.
-# Session option steps (after the workspace cache steps): GET /api/v1/meta reports kube_access.available; a session smoke-kube-<ts> with
-# kube_access true gets a Ready pod running as a ServiceAccount ending -kube-access with its token mounted, and from inside it (curl with the
-# mounted token and CA against KUBERNETES_SERVICE_HOST/PORT, no kubectl in the pod) a SelfSubjectAccessReview for verb, group and resource *
-# answers allowed true and GET /api/v1/namespaces answers 200, which is full Kubernetes access; the hive session's pod has no mounted token.
+# Session option steps (after the workspace cache steps): GET /api/v1/meta reports kube_cluster_access.available; a session smoke-kube-<ts>
+# with kube_cluster_access true gets a Ready pod running as its own ServiceAccount agent-smoke-kube-<ts>-<8 hex> with its token mounted, a
+# ClusterRoleBinding labelled with the session slug naming cluster-admin, and from inside the pod (curl with the mounted token and CA against
+# KUBERNETES_SERVICE_HOST/PORT, no kubectl in the pod) a SelfSubjectAccessReview for verb, group and resource * answers allowed true and
+# GET /api/v1/namespaces answers 200; the hive session's pod has no mounted token. Namespace access: meta kube_namespace_access.namespaces
+# lists media; a session smoke-kns-<ts> with kube_namespace_access {media: [read]} can list pods in media but neither get secrets in media
+# nor list pods in agents (SelfSubjectAccessReviews from inside the pod); after its discard no RoleBinding in media and no ServiceAccount in
+# the agents namespace carries its session label within KNS_CLEANUP_TIMEOUT_S (120).
 # Cross-session messaging: superleader smoke-msg-a-<ts> (session_messaging true) and plain smoke-msg-b-<ts> get Ready pods; from A's pod
 # (its own ORCH_AGENT_* env, never printed) GET /agent/v1/sessions lists B and the hive session, a send to B answers 202 with a message_id,
 # the message reaches sent and B's events carry a user_message framed <session-message from="<A slug>"; from B's pod the list shows A and
@@ -800,24 +804,26 @@ src_tools=$(kubectl -n "$NAMESPACE" exec "$OPT_POD" -c ccw -- /opt/any-mcp/bin/a
 echo "$src_tools" | jq -e 'any(.[]?; (.name // "") | startswith("petstore_"))' > /dev/null 2>&1 || fail "extra source: any-mcp --list-tools in ${OPT_POD} lists no petstore_ tool"
 log "extra source ${SRC_SOURCE} installed in ${OPT_POD}; --list-tools lists petstore_ tools"
 
-# 11a. Kubernetes access. No kubectl in the pod: curl with the mounted token and CA; the token is read inside the pod and never printed.
-kube_access_available=$(curl -fsS --max-time 20 "${BASE}/api/v1/meta" | jq -r '.kube_access.available // false') ||
+# 11a. Kubernetes-wide access. No kubectl in the pod: curl with the mounted token and CA; the token is read inside the pod and never printed.
+kube_access_available=$(curl -fsS --max-time 20 "${BASE}/api/v1/meta" | jq -r '.kube_cluster_access.available // false') ||
   fail "kube access: GET /api/v1/meta failed"
-[ "$kube_access_available" = "true" ] || fail "kube access: GET /api/v1/meta kube_access.available is '${kube_access_available}', expected true"
-log "meta reports kube_access.available"
+[ "$kube_access_available" = "true" ] || fail "kube access: GET /api/v1/meta kube_cluster_access.available is '${kube_access_available}', expected true"
+log "meta reports kube_cluster_access.available"
 KUBE_SLUG="smoke-kube-${TS}"
-option_create "$KUBE_SLUG" '{"replicas": 1, "kube_access": true}' "kube access"
+option_create "$KUBE_SLUG" '{"replicas": 1, "kube_cluster_access": true}' "kube access"
 option_pod "$KUBE_SLUG" "kube access"
 kube_pod=$OPT_POD
 kube_sa=$(kubectl -n "$NAMESPACE" get "$kube_pod" -o 'jsonpath={.spec.serviceAccountName}') || fail "kube access: cannot read the ServiceAccount of ${kube_pod}"
-case "$kube_sa" in
-  *-kube-access) ;;
-  *) fail "kube access: ${kube_pod} runs as ServiceAccount '${kube_sa}', expected one ending -kube-access" ;;
-esac
+[[ "$kube_sa" =~ ^agent-${KUBE_SLUG}-[0-9a-f]{8}$ ]] ||
+  fail "kube access: ${kube_pod} runs as ServiceAccount '${kube_sa}', expected agent-${KUBE_SLUG}-<8 hex>"
 kube_mount=$(kubectl -n "$NAMESPACE" get "$kube_pod" -o 'jsonpath={.spec.automountServiceAccountToken}') ||
   fail "kube access: cannot read automountServiceAccountToken of ${kube_pod}"
 [ "$kube_mount" = "true" ] || fail "kube access: ${kube_pod} automountServiceAccountToken is '${kube_mount}', expected true"
 log "${kube_pod} runs as ${kube_sa} with its token mounted"
+kube_crb=$(kubectl get clusterrolebinding -l "agents.szymonrichert.pl/session=${KUBE_SLUG}" -o 'jsonpath={.items[*].roleRef.name}') ||
+  fail "kube access: cannot list the ClusterRoleBinding of ${KUBE_SLUG}"
+[ "$kube_crb" = "cluster-admin" ] || fail "kube access: ClusterRoleBinding of ${KUBE_SLUG} names role '${kube_crb}', expected cluster-admin"
+log "ClusterRoleBinding of ${KUBE_SLUG} names cluster-admin"
 # shellcheck disable=SC2016  # runs in the pod's shell
 kube_sh='tok=$(cat '"$SA_DIR"'/token) || exit 1
 api="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
@@ -836,6 +842,46 @@ hive_mount=$(kubectl -n "$NAMESPACE" get "$pod" -o 'jsonpath={.spec.automountSer
 kubectl -n "$NAMESPACE" exec "$pod" -- test ! -e "$SA_DIR/token" ||
   fail "kube access: hive pod ${pod} has a ServiceAccount token file at ${SA_DIR}/token"
 log "hive pod ${pod} has no ServiceAccount token"
+
+# 11a2. Namespace access: read in media only. Three SelfSubjectAccessReviews from inside the pod; the token stays in the pod.
+kns_meta=$(curl -fsS --max-time 20 "${BASE}/api/v1/meta" | jq -r '(.kube_namespace_access.namespaces // []) | index("media") != null') ||
+  fail "kube namespace access: GET /api/v1/meta failed"
+[ "$kns_meta" = "true" ] || fail "kube namespace access: GET /api/v1/meta kube_namespace_access.namespaces does not list media"
+log "meta lists media in kube_namespace_access.namespaces"
+KNS_SLUG="smoke-kns-${TS}"
+option_create "$KNS_SLUG" '{"replicas": 1, "kube_namespace_access": {"media": ["read"]}}' "kube namespace access"
+KNS_ID=$OPT_NEW_ID
+option_pod "$KNS_SLUG" "kube namespace access"
+kns_pod=$OPT_POD
+# shellcheck disable=SC2016  # runs in the pod's shell
+kns_sh='tok=$(cat '"$SA_DIR"'/token) || exit 1
+api="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
+kns_review() {
+  r=$(curl -sS --max-time 15 --cacert '"$SA_DIR"'/ca.crt -H "Authorization: Bearer $tok" -H "Content-Type: application/json" -d "{\"apiVersion\":\"authorization.k8s.io/v1\",\"kind\":\"SelfSubjectAccessReview\",\"spec\":{\"resourceAttributes\":{\"namespace\":\"$1\",\"verb\":\"$2\",\"resource\":\"$3\"}}}" "$api/apis/authorization.k8s.io/v1/selfsubjectaccessreviews")
+  a=$(printf "%s" "$r" | tr -d " \n" | grep -o "\"allowed\":[a-z]*" | head -n1 | cut -d: -f2)
+  printf "%s" "${a:-none}"
+}
+echo "$(kns_review media list pods) $(kns_review media get secrets) $(kns_review '"$NAMESPACE"' list pods)"'
+kns_probe=$(kubectl -n "$NAMESPACE" exec "$kns_pod" -c ccw -- sh -c "$kns_sh" 2> /dev/null | tail -n1) || kns_probe=""
+read -r kns_list kns_secrets kns_agents <<< "$kns_probe"
+[ "$kns_list" = "true" ] || fail "kube namespace access: list pods in media from ${kns_pod} answered allowed '${kns_list}', expected true"
+[ "$kns_secrets" = "false" ] || fail "kube namespace access: get secrets in media from ${kns_pod} answered allowed '${kns_secrets}', expected false"
+[ "$kns_agents" = "false" ] || fail "kube namespace access: list pods in ${NAMESPACE} from ${kns_pod} answered allowed '${kns_agents}', expected false"
+log "namespace access from ${kns_pod}: list pods in media allowed, get secrets in media and list pods in ${NAMESPACE} denied"
+# Discard now (the trap would only do it at exit) and wait for the per-session RoleBinding and ServiceAccount to go.
+curl -fsS --max-time 20 -X DELETE -o /dev/null "${BASE}/api/v1/sessions/${KNS_ID}" ||
+  fail "kube namespace access: discard of session ${KNS_SLUG} failed"
+OPTION_SESSION_IDS=${OPTION_SESSION_IDS/ ${KNS_ID}/}
+kns_deadline=$(($(date +%s) + ${KNS_CLEANUP_TIMEOUT_S:-120}))
+while :; do
+  kns_rb=$(kubectl -n media get rolebinding -l "agents.szymonrichert.pl/session=${KNS_SLUG}" -o name 2> /dev/null) || kns_rb=""
+  kns_sa=$(kubectl -n "$NAMESPACE" get serviceaccount -l "agents.szymonrichert.pl/session=${KNS_SLUG}" -o name 2> /dev/null) || kns_sa=""
+  [ -z "$kns_rb" ] && [ -z "$kns_sa" ] && break
+  [ "$(date +%s)" -ge "$kns_deadline" ] &&
+    fail "kube namespace access: after discard of ${KNS_SLUG} RoleBinding '${kns_rb}' in media and ServiceAccount '${kns_sa}' in ${NAMESPACE} remain"
+  sleep 3
+done
+log "discard of ${KNS_SLUG} removed its RoleBinding in media and its ServiceAccount"
 
 # 11b. Cross-session messaging (superleader model): A is a superleader, B is a plain session, the hive session is plain.
 A_SLUG="smoke-msg-a-${TS}"

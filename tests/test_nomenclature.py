@@ -42,6 +42,10 @@ ALLOWED_PHRASES = (
     # Kubernetes API access of sessions (T-55): the orchestrator's kube_cluster_access option and chart key.
     "kube_cluster_access",
     "kubeClusterAccess",
+    # Kubernetes RBAC objects the smoke checks: ClusterRoleBinding and the cluster-admin role.
+    "ClusterRoleBinding",
+    "clusterrolebinding",
+    "cluster-admin",
     # CNPG: the chart, its Cluster resource, its generated Secrets and its values key.
     "cnpg/cluster",
     "cluster.initdb",

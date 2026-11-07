@@ -180,6 +180,7 @@ class _Api:
         self.matrix_list_hides_rule = False
         # session option fakes (kube access and cross-session messaging, same server)
         self.kube_available = True
+        self.kns_namespaces = ["media"]
         self.option_specs: dict[str, dict] = {}
         self.option_deleted: set[str] = set()
         self.message_status = "sent"
@@ -310,7 +311,8 @@ class _Api:
                 elif self.path == "/api/v1/meta":
                     meta = {
                         "cache": {"available": api.cache_available, "max_bytes": 5368709120},
-                        "kube_access": {"available": api.kube_available},
+                        "kube_cluster_access": {"available": api.kube_available},
+                        "kube_namespace_access": {"namespaces": api.kns_namespaces},
                     }
                     self._send(200, json.dumps(meta))
                 elif path == f"/api/v1/messages/{MESSAGE_ID}":
@@ -541,7 +543,7 @@ class _Api:
                     self._send(404, "{}")
                     return
                 created = json.loads(api.requests[-1][2])
-                option = re.match(r"smoke-(kube|msg-a|msg-b|src|cont)-\d+$", created["slug"])
+                option = re.match(r"smoke-(kube|kns|msg-a|msg-b|src|cont)-\d+$", created["slug"])
                 if option:
                     api.option_specs[option[1]] = created
                     self._send(201, json.dumps({"id": f"sid-{option[1]}", "slug": created["slug"]}))
@@ -589,7 +591,8 @@ class _Api:
                     self._send(202, json.dumps({"id": "sid-sched", "desired": "deleting"}))
                     return
                 if self.path in (
-                    f"/api/v1/sessions/sid-{k}" for k in ("kube", "msg-a", "msg-b", "src", "cont")
+                    f"/api/v1/sessions/sid-{k}"
+                    for k in ("kube", "kns", "msg-a", "msg-b", "src", "cont")
                 ):
                     api.option_deleted.add(self.path.rsplit("/", 1)[1])
                     self._send(202, json.dumps({"desired": "deleting"}))
@@ -664,6 +667,10 @@ def fakebin(tmp_path):
     k.write_text(
         "#!/bin/sh\n"
         'case "$*" in\n'
+        '  *"kns_review"*) echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s\\n" "${FAKE_KNS_PROBE-true false false}"; exit 0 ;;\n'
+        '  *"get clusterrolebinding"*) echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_KUBE_CRB-cluster-admin}"; exit 0 ;;\n'
+        '  *"get rolebinding"*) echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_KNS_RB-}"; exit 0 ;;\n'
+        '  *"get serviceaccount"*) echo "$*" >> "$FAKE_KUBECTL_LOG"; printf "%s" "${FAKE_KNS_SA-}"; exit 0 ;;\n'
         '  *" wait "*) echo "$*" >> "$FAKE_KUBECTL_LOG";'
         ' case "$*" in *"Ready pod/agent-"*"-1 "*) sleep "${FAKE_POD1_READY_SLEEP_S:-0}" ;; esac;'
         ' case "$*" in *"${FAKE_WAIT_FAIL:-@none@}"*) exit 1 ;; esac; exit 0 ;;\n'
@@ -676,7 +683,8 @@ def fakebin(tmp_path):
         ' case "$*" in *"pod/agent-smoke-cont-"*) touch "$FAKE_STATE_DIR/cont_restarted";'
         ' [ -n "${FAKE_CONT_KEEP_UID-}" ] || echo uid-cont-new > "$FAKE_STATE_DIR/uid_cont" ;; esac; exit 0 ;;\n'
         '  *"get pod/agent-smoke-cont-"*) cat "$FAKE_STATE_DIR/uid_cont"; exit 0 ;;\n'
-        '  *"get pod/agent-smoke-kube-"*serviceAccountName*) printf "%s" "${FAKE_KUBE_SA-agents-orchestrator-kube-access}"; exit 0 ;;\n'
+        '  *"get pod/agent-smoke-kube-"*serviceAccountName*)'
+        ' printf "%s" "${FAKE_KUBE_SA-$(echo "$*" | sed -n "s|.*get pod/\\(agent-smoke-kube-[0-9]*\\)-0.*|\\1|p")-0123abcd}"; exit 0 ;;\n'
         '  *"get pod/agent-smoke-kube-"*automountServiceAccountToken*) printf "%s" "${FAKE_KUBE_AUTOMOUNT-true}"; exit 0 ;;\n'
         '  *"get pod/agent-"*automountServiceAccountToken*) printf "%s" "${FAKE_HIVE_AUTOMOUNT-false}"; exit 0 ;;\n'
         '  *"get pod/agent-"*) cat "$FAKE_STATE_DIR/uid0"; exit 0 ;;\n'
@@ -811,7 +819,11 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
     assert re.search(r"discarded session smoke-\d+ \(sid-1\)", r.stdout), r.stdout
     assert re.search(r"session smoke-\d+ leader agent-uuid-0", r.stdout), r.stdout
     assert "/api to agents-orchestrator" in r.stdout
-    assert "cluster" not in (r.stdout + r.stderr).lower()
+    # Kubernetes names (the meta key, the RBAC role and binding kind) legitimately carry the word.
+    out = (r.stdout + r.stderr).lower()
+    for k8s in ("kube_cluster_access", "clusterrolebinding", "cluster-admin"):
+        out = out.replace(k8s, "")
+    assert "cluster" not in out
     assert not (api.state_dir / "pod1").exists()
     assert (api.state_dir / "uid0").read_text() == "uid-pod-0"
 
@@ -1612,12 +1624,12 @@ def _option_log(fakebin):
     return (fakebin / "kubectl.log").read_text()
 
 
-def test_kube_access_step(api, fakebin):
+def test_kube_cluster_access_step(api, fakebin):
     r = _run(api, fakebin, "any-mcp: x - Connected")
     assert r.returncode == 0, r.stdout + r.stderr
     kube = api.option_specs["kube"]
     assert re.fullmatch(r"smoke-kube-\d+", kube["slug"])
-    assert kube["spec"] == {"replicas": 1, "kube_access": True}
+    assert kube["spec"] == {"replicas": 1, "kube_cluster_access": True}
     log = _option_log(fakebin)
     assert re.search(r"exec pod/agent-smoke-kube-\d+-0 -c ccw -- sh -c", log), log
     for needle in (
@@ -1631,20 +1643,19 @@ def test_kube_access_step(api, fakebin):
     ):
         assert needle in log, needle
     assert "kubectl" not in log.split("SelfSubjectAccessReview")[0].split("-c ccw")[-1]
-    assert "meta reports kube_access.available" in r.stdout
+    assert "meta reports kube_cluster_access.available" in r.stdout
+    assert "names cluster-admin" in r.stdout
     assert "full Kubernetes access" in r.stdout
 
 
 @pytest.mark.parametrize(
     ("name", "setup", "extra_env", "needle"),
     [
-        ("meta-unavailable", {"kube_available": False}, None, "kube_access.available"),
-        (
-            "wrong-service-account",
-            None,
-            {"FAKE_KUBE_SA": "agents-orchestrator-agent"},
-            "-kube-access",
-        ),
+        ("meta-unavailable", {"kube_available": False}, None, "kube_cluster_access.available"),
+        ("sa-not-suffixed", None, {"FAKE_KUBE_SA": "agents-orchestrator-agent"}, "<8 hex>"),
+        ("sa-legacy-name", None, {"FAKE_KUBE_SA": "agents-orchestrator-kube-access"}, "<8 hex>"),
+        ("binding-not-admin", None, {"FAKE_KUBE_CRB": "view"}, "cluster-admin"),
+        ("binding-missing", None, {"FAKE_KUBE_CRB": ""}, "cluster-admin"),
         (
             "token-not-mounted",
             None,
@@ -1657,7 +1668,7 @@ def test_kube_access_step(api, fakebin):
         ("hive-token-file-present", None, {"FAKE_HIVE_TOKEN_PRESENT": "1"}, "hive pod"),
     ],
 )
-def test_kube_access_step_failures(api, fakebin, name, setup, extra_env, needle):
+def test_kube_cluster_access_step_failures(api, fakebin, name, setup, extra_env, needle):
     for key, value in (setup or {}).items():
         setattr(api, key, value)
     r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=extra_env)
@@ -1665,6 +1676,59 @@ def test_kube_access_step_failures(api, fakebin, name, setup, extra_env, needle)
     assert "kube access:" in r.stderr and needle in r.stderr, f"{name}: {r.stderr}"
     assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
     assert ("kube" in api.option_specs) is ("sid-kube" in api.option_deleted)
+
+
+def test_kube_namespace_access_step(api, fakebin):
+    r = _run(api, fakebin, "any-mcp: x - Connected")
+    assert r.returncode == 0, r.stdout + r.stderr
+    kns = api.option_specs["kns"]
+    assert re.fullmatch(r"smoke-kns-\d+", kns["slug"])
+    assert kns["spec"] == {"replicas": 1, "kube_namespace_access": {"media": ["read"]}}
+    log = _option_log(fakebin)
+    assert re.search(r"exec pod/agent-smoke-kns-\d+-0 -c ccw -- sh -c", log), log
+    assert "kns_review media list pods" in log
+    assert "kns_review media get secrets" in log
+    assert "list pods" in log
+    assert re.search(
+        r"-n media get rolebinding -l agents.szymonrichert.pl/session=smoke-kns-\d+", log
+    )
+    assert re.search(r"get serviceaccount -l agents.szymonrichert.pl/session=smoke-kns-\d+", log)
+    assert "meta lists media" in r.stdout
+    assert "removed its RoleBinding in media and its ServiceAccount" in r.stdout
+    # discarded once by the step itself, not again by the trap
+    deletes = [p for m, p in api.methods() if m == "DELETE" and p.endswith("sid-kns")]
+    assert len(deletes) == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "setup", "extra_env", "needle"),
+    [
+        ("meta-without-media", {"kns_namespaces": ["other"]}, None, "does not list media"),
+        ("list-denied", None, {"FAKE_KNS_PROBE": "false false false"}, "list pods in media"),
+        ("secrets-allowed", None, {"FAKE_KNS_PROBE": "true true false"}, "get secrets in media"),
+        ("agents-allowed", None, {"FAKE_KNS_PROBE": "true false true"}, "list pods in agents"),
+        (
+            "rolebinding-left",
+            None,
+            {"FAKE_KNS_RB": "rolebinding/x", "KNS_CLEANUP_TIMEOUT_S": "4"},
+            "RoleBinding",
+        ),
+        (
+            "serviceaccount-left",
+            None,
+            {"FAKE_KNS_SA": "serviceaccount/x", "KNS_CLEANUP_TIMEOUT_S": "4"},
+            "ServiceAccount",
+        ),
+    ],
+)
+def test_kube_namespace_access_step_failures(api, fakebin, name, setup, extra_env, needle):
+    for key, value in (setup or {}).items():
+        setattr(api, key, value)
+    r = _run(api, fakebin, "any-mcp: x - Connected", extra_env=extra_env)
+    assert r.returncode != 0, f"{name}: smoke passed\n{r.stdout}"
+    assert "kube namespace access:" in r.stderr and needle in r.stderr, f"{name}: {r.stderr}"
+    assert ("DELETE", "/api/v1/sessions/sid-1") in api.methods()
+    assert ("kns" in api.option_specs) is ("sid-kns" in api.option_deleted)
 
 
 def test_session_messaging_step(api, fakebin):
@@ -1721,7 +1785,7 @@ def test_session_option_sessions_cleaned_up(api, fakebin, fail):
     api.message_status = "queued" if fail else "sent"
     r = _run(api, fakebin, "any-mcp: x - Connected", smoke_timeout="6" if fail else "20")
     assert (r.returncode != 0) is fail, r.stdout + r.stderr
-    expected = {"sid-kube", "sid-msg-a", "sid-msg-b", "sid-src"}
+    expected = {"sid-kube", "sid-kns", "sid-msg-a", "sid-msg-b", "sid-src"}
     assert api.option_deleted == (expected if fail else expected | {"sid-cont"})
     assert not r.stderr.count("cleanup failed")
     for kind in ("kube", "msg-a", "msg-b"):
@@ -1988,7 +2052,7 @@ def test_continuity_deletes_only_smoke_pod(api, fakebin):
     (line,) = _deletes(fakebin)
     assert line.split()[-3:] == ["delete", f"pod/agent-{slug}-0", "--wait=false"], line
     # the hive session's pod and every other smoke session's pod are never deleted
-    assert not re.search(r"pod/agent-smoke-(\d+|kube|msg|src)", line)
+    assert not re.search(r"pod/agent-smoke-(\d+|kube|kns|msg|src)", line)
     # the only kubectl delete in the script targets the continuity pod, guarded by the smoke-cont name
     src = [x for x in SCRIPT.read_text().splitlines() if not x.lstrip().startswith("#")]
     deletes = [x for x in src if re.search(r"\bkubectl\b.*\bdelete\b", x)]
