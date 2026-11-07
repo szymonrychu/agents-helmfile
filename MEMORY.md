@@ -111,3 +111,5 @@ Lessons that outlive a session. Newest first.
 - 2026-11-04: **agents-web 0.20.0 to 0.20.1 pin** (chart `0.1.0-main.3dceb7f`): chat preset blank-page fix. Pins only; not applied here.
 
 - 2026-11-04: agents-matrix-connector pinned to image 0.7.0 with chart `0.1.0-main.35961ce` (tag v0.7.0 = 35961ce). `anonymize.admins` (MATRIX_ANONYMIZE_ADMINS) holds the owner's numeric Facebook id: admin-<sha> in anonymized rooms and fully trusted (role="admin"). Chart existence not verified (no helm here). Not applied.
+
+- 2026-11-07: **agents-app-connector 2.0.1 to 2.1.0 pin (T-46 P3).** Image `2.1.0` and chart `0.1.0-main.d1c7b55` (tag v2.1.0 = d1c7b55, `git ls-remote --tags`): notebook layouts, edit ops, region images, migration 0006. No new values needed.
