@@ -142,7 +142,7 @@ Applies are manual and local, run from this directory.
   roll back (`helmDefaults`); the hook creates the regcred and raw manifests.
 - `mise run smoke` - proves the UI on agents-web answers with the agents-web index and a `config.json` listing the orchestrator
   backend, that the host routes `/` to agents-web and `/api` to `agents-orchestrator`, that a fresh session lists `any-mcp`, that the
-  session is created with wrapper settings, `leader_lease_seconds` and `autoclose_after_seconds` (3600) and its view echoes them with `closes_at` equal to `created_at` plus 3600 s and a `leader_since` once led (the trap discards it long before the autoclose), that the
+  session is created with wrapper settings and `autoclose_after_seconds` (3600) and its view echoes them with `closes_at` equal to `created_at` plus 3600 s and a `leader_since` once led (the trap discards it long before the autoclose), that the
   session's init scripts ran once and succeeded (`GET /api/v1/sessions/{id}/init-scripts`), that an agent pod reaches `/agent/v1/me`
   with `X-Orch-Session` from `ORCH_SESSION_ID`, then scales a 1-replica session (cap 2) to 2,
   makes pod-1's agent the leader (`POST /api/v1/sessions/{id}/leader`, 202) and scales back to 1 through `POST /api/v1/sessions/{id}/scale`:
