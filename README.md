@@ -165,8 +165,8 @@ Applies are manual and local, run from this directory.
   `any-mcp --config /opt/any-mcp/etc/any-mcp.yaml --list-tools` must list `orchestrator_sessions_list`. Extra source: session
   `smoke-src-<ts>` (`any_mcp_sources` holding the `examples/petstore` source at the pinned any-mcp tag) gets a Ready pod whose
   `--list-tools` lists a `petstore_` tool; the trap deletes it on every exit. Neither step prints the pod config or tool lists.
-  Then the session options. Kubernetes access: `GET /api/v1/meta` must report `kube_access.available`; session `smoke-kube-<ts>`
-  (`kube_access` true) gets a Ready pod running as a ServiceAccount ending `-kube-access` with its token mounted, and from inside it
+  Then the session options. Kubernetes access: `GET /api/v1/meta` must report `kube_cluster_access.available`; session `smoke-kube-<ts>`
+  (`kube_cluster_access` true; with the stage 1 legacy flag it still runs as the shared SA) gets a Ready pod running as a ServiceAccount ending `-kube-access` with its token mounted, and from inside it
   (`kubectl exec -c ccw`, curl with the mounted token and CA against `KUBERNETES_SERVICE_HOST`/`PORT`, no kubectl in the pod) a
   SelfSubjectAccessReview for `*` on `*` must answer allowed true and `GET /api/v1/namespaces` 200, which is full Kubernetes access; the
   hive session's pod must have `automountServiceAccountToken` false and no token file. Cross-session messaging: superleader

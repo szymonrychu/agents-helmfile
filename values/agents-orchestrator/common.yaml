@@ -1,11 +1,11 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "4.4.0"
+  tag: "5.0.0"
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
-agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.9.0
+agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.10.0
 
 # Docker-in-Docker sidecar for sessions with docker: true. Semver-pinned dind image pulled through
 # the Harbor Docker Hub proxy project with the existing regcred pull secret; caps are the chart defaults.
@@ -96,7 +96,7 @@ env:
   # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods
   # reach the api port only through the sidecar's SSO.
   ORCH_ALLOWED_CIDRS: 127.0.0.1/32
-  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.9.0
+  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.10.0
   # WebSocket upgrades must carry an Origin in this list: the UI origin (the ingress host over https).
   ORCH_ALLOWED_ORIGINS: https://lab.szymonrichert.pl
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
@@ -104,7 +104,7 @@ env:
   ORCH_ANY_MCP_REF: v0.5.0
   # The reserved orchestrator plugin (the orchestrator tools) is installed from this repo at this tag.
   ORCH_ANY_MCP_PLUGINS_REPO: https://github.com/szymonrychu/any-mcp-tatara-plugins
-  ORCH_ANY_MCP_PLUGINS_REF: v0.17.0
+  ORCH_ANY_MCP_PLUGINS_REF: v0.18.0
   # Seconds a session with a requested self-close idles before the sweeper discards it, so readers
   # of the final answer get it first (orchestrator bounds 10..3600, default 30).
   ORCH_CLOSE_GRACE_SECONDS: "30"
@@ -114,6 +114,7 @@ env:
   ORCH_INACTIVITY_REMINDER_SECONDS: "3600"
   ORCH_INACTIVITY_CLOSE_SECONDS: "14400"
   ORCH_INACTIVITY_HANDOFF_SECONDS: "300"
+  ORCH_SESSION_REPLY_WINDOW_SECONDS: "86400"
 
 # Keycloak SSO via the oauth2-proxy admission webhook (same shape as the infrastructure
 # helmfile's searxng/comfyui). The agents-orchestrator-proxy Secret is created by the
@@ -186,6 +187,12 @@ cache:
     keepNewest: 3
     intervalSeconds: 21600
 
-# Sessions with kube_access get full Kubernetes access through the chart's kube-access ServiceAccount.
-kubeAccess:
+# Sessions with kube_cluster_access get Kubernetes API access through a per-session identity (T-55).
+kubeClusterAccess:
   enabled: true
+  # T-55 stage 1 only: keeps live pods on the old shared SA until the Replacer rolls them.
+  legacySharedServiceAccount: true
+# Namespace-scoped access for sessions with kube_namespace_access (T-55).
+kubeNamespaceAccess:
+  namespaces: [media]
+  tiers: [read, port-forward, exec, edit, admin]

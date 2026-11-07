@@ -11,10 +11,10 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "4.4.0"
-# The chart of the v4.4.0 release commit 16bf680: chart and image from one commit.
-CHART = "0.1.0-main.16bf680"
-WRAPPER_PIN = "0.9.0"
+PIN = "5.0.0"
+# The chart of the v5.0.0 release commit f86425f: chart and image from one commit.
+CHART = "0.1.0-main.f86425f"
+WRAPPER_PIN = "0.10.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
@@ -90,6 +90,7 @@ def test_inactivity_env_enabled(layered_values):
     assert env["ORCH_INACTIVITY_REMINDER_SECONDS"] == "3600"
     assert env["ORCH_INACTIVITY_CLOSE_SECONDS"] == "14400"
     assert env["ORCH_INACTIVITY_HANDOFF_SECONDS"] == "300"
+    assert env["ORCH_SESSION_REPLY_WINDOW_SECONDS"] == "86400"
     assert int(env["ORCH_INACTIVITY_REMINDER_SECONDS"]) < int(env["ORCH_INACTIVITY_CLOSE_SECONDS"])
 
 
@@ -254,8 +255,17 @@ def test_chat_url_and_token_render_together(repo_root):
     )
 
 
-def test_kube_access_enabled(layered_values):
-    assert layered_values(REL)["kubeAccess"]["enabled"] is True
+def test_kube_cluster_access_enabled_with_legacy_sa(layered_values):
+    values = layered_values(REL)
+    assert "kubeAccess" not in values
+    assert values["kubeClusterAccess"]["enabled"] is True
+    assert values["kubeClusterAccess"]["legacySharedServiceAccount"] is True
+
+
+def test_kube_namespace_access_media(layered_values):
+    ns = layered_values(REL)["kubeNamespaceAccess"]
+    assert ns["namespaces"] == ["media"]
+    assert ns["tiers"] == ["read", "port-forward", "exec", "edit", "admin"]
 
 
 def _release_block(repo_root, name: str) -> str:
