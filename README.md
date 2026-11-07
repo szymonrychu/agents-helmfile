@@ -165,11 +165,11 @@ Applies are manual and local, run from this directory.
   `any-mcp --config /opt/any-mcp/etc/any-mcp.yaml --list-tools` must list `orchestrator_sessions_list`. Extra source: session
   `smoke-src-<ts>` (`any_mcp_sources` holding the `examples/petstore` source at the pinned any-mcp tag) gets a Ready pod whose
   `--list-tools` lists a `petstore_` tool; the trap deletes it on every exit. Neither step prints the pod config or tool lists.
-  Then the session options. Kubernetes access: `GET /api/v1/meta` must report `kube_access.available`; session `smoke-kube-<ts>`
-  (`kube_access` true) gets a Ready pod running as a ServiceAccount ending `-kube-access` with its token mounted, and from inside it
+  Then the session options. Kubernetes access: `GET /api/v1/meta` must report `kube_cluster_access.available`; session `smoke-kube-<ts>`
+  (`kube_cluster_access` true) gets a Ready pod running as its own per-session ServiceAccount `agent-<slug>-<sid>` (slug `smoke-kube-<ts>`, sid 8 hex) with its token mounted, plus a ClusterRoleBinding labelled with the session slug naming `cluster-admin` (bound only for `kube_cluster_access` sessions), and from inside it
   (`kubectl exec -c ccw`, curl with the mounted token and CA against `KUBERNETES_SERVICE_HOST`/`PORT`, no kubectl in the pod) a
   SelfSubjectAccessReview for `*` on `*` must answer allowed true and `GET /api/v1/namespaces` 200, which is full Kubernetes access; the
-  hive session's pod must have `automountServiceAccountToken` false and no token file. Cross-session messaging: superleader
+  hive session's pod must have `automountServiceAccountToken` false and no token file. Sessions with `kube_namespace_access` (step 11a2, `smoke-kns-<ts>`, `{media: [read]}`) get RoleBindings per namespace tier instead, which the smoke checks from inside the pod and which are gone after the discard. Cross-session messaging: superleader
   `smoke-msg-a-<ts>` (`session_messaging` true) and plain `smoke-msg-b-<ts>`; from A's pod (its own `ORCH_AGENT_*` env, never printed)
   `GET /agent/v1/sessions` lists B and the hive session, `POST /agent/v1/sessions/<B>/messages` answers 202 with a `message_id`, the
   message reaches `sent` and B's events carry a `user_message` starting `<session-message from="<A>"`; from B's pod the list shows A and
