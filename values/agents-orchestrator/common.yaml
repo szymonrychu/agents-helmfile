@@ -104,7 +104,7 @@ env:
   ORCH_ANY_MCP_REF: v0.5.0
   # The reserved orchestrator plugin (the orchestrator tools) is installed from this repo at this tag.
   ORCH_ANY_MCP_PLUGINS_REPO: https://github.com/szymonrychu/any-mcp-tatara-plugins
-  ORCH_ANY_MCP_PLUGINS_REF: v0.18.0
+  ORCH_ANY_MCP_PLUGINS_REF: v0.22.0
   # Seconds a session with a requested self-close idles before the sweeper discards it, so readers
   # of the final answer get it first (orchestrator bounds 10..3600, default 30).
   ORCH_CLOSE_GRACE_SECONDS: "30"
