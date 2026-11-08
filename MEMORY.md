@@ -124,3 +124,4 @@ Lessons that outlive a session. Newest first.
 - 2026-11-08: **agents-vault 0.1.0 to 0.2.0 pin.** Image `0.2.0`, chart `0.1.0-main.0636e89`. 0.2.0 = multi-env entries (T-72); migration 0002 is strict (refuses if entries or pins exist; the live DB has none). Not applied.
 - 2026-11-08: **agents-app-connector 2.2.0 to 2.3.0 pin (T-78 Boox fixes).** Image `2.3.0` and chart `0.1.0-main.137496e` (tag v2.3.0 = 137496e, `git ls-remote --tags`; chart confirmed with `helm show chart`). No new values needed. Not applied here.
 - 2026-11-08: **agents-web 1.2.0 to 1.4.0 pin (T-18 stage B web: schedule proposals).** Image `1.4.0` and chart `0.1.0-main.99744c5` (tag v1.4.0 = 99744c5, `git ls-remote --tags`). No new values needed. Not applied here.
+- 2026-11-08: **agents-web 1.4.0 to 1.4.1 pin (T-18 proposal diff readable on desktop and mobile).** Image `1.4.1` and chart `0.1.0-main.7924dcc` (tag v1.4.1 = 7924dcc, `git ls-remote --tags`). No new values needed. Not applied here.
