@@ -54,6 +54,13 @@ APP_DB = "values/agents-app-connector-db/default.secrets.yaml"
 APP_FILES = (APP, APP_HASH)
 TB_DELEGATE = "values/agents-taskboard/delegate-token.secrets.yaml"
 APP_TB = "values/agents-app-connector/taskboard-token.secrets.yaml"
+VLT = "values/agents-vault/default.secrets.yaml"
+VLT_HASH = "values/agents-orchestrator/service-token-agents-vault.secrets.yaml"
+VLT_TOKENS = "values/agents-vault/raw/service-tokens.agents-vault.pre.secrets.yaml"
+VLT_ORCH = "values/agents-orchestrator/vault-token.secrets.yaml"
+VLT_DB = "values/agents-vault-db/default.secrets.yaml"
+# Every file the vault bootstraps write; the sandboxes of the other tests pre-create them all.
+VAULT_FILES = (VLT, VLT_HASH, VLT_TOKENS, VLT_ORCH)
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -91,6 +98,11 @@ def _load(rel: str) -> dict:
         (HIS_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (HIS_ORCH, {"admin.history.token"}),
         (HIS_TOKENS, SECRET_KEYS),
+        (VLT, {"orchestrator.token"}),
+        (VLT_HASH, {"serviceApi.tokenHashes.agents-vault"}),
+        (VLT_ORCH, {"vault.token"}),
+        (VLT_TOKENS, SECRET_KEYS),
+        (VLT_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (HIS_INGEST, (SECRET_KEYS - {"stringData.tokens"}) | {"stringData.token"}),
         (ADMIN_WH, SECRET_KEYS),
         (ADMIN_SCH, SECRET_KEYS),
@@ -168,6 +180,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         *TASKBOARD_FILES,
         *HISTORY_FILES,
         *APP_FILES,
+        *VAULT_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -189,6 +202,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         *TASKBOARD_FILES,
         *HISTORY_FILES,
         *APP_FILES,
+        *VAULT_FILES,
     ):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
@@ -240,6 +254,7 @@ def test_webhook_secrets_never_rotate(tmp_path):
         *TASKBOARD_FILES,
         *HISTORY_FILES,
         *APP_FILES,
+        *VAULT_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -294,6 +309,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
         *TASKBOARD_FILES,
         *HISTORY_FILES,
         *APP_FILES,
+        *VAULT_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -354,6 +370,7 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
         *TASKBOARD_FILES,
         *HISTORY_FILES,
         *APP_FILES,
+        *VAULT_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -753,6 +770,18 @@ def _app_sandbox(tmp_path: Path) -> Path:
     return bindir
 
 
+def _vault_sandbox(tmp_path: Path) -> Path:
+    """Every target present except the four vault files."""
+    bindir = _schedule_sandbox(tmp_path)
+    for rel in (SCH, SCH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    for rel in VAULT_FILES:
+        (tmp_path / rel).unlink()
+    return bindir
+
+
 def _history_sandbox(tmp_path: Path) -> Path:
     """Every target present except the three history files."""
     bindir = _schedule_sandbox(tmp_path)
@@ -903,6 +932,71 @@ def test_history_tokens_not_printed(tmp_path):
         for stream in (r.stdout, r.stderr):
             for value in secrets:
                 assert value not in stream, f"{name}: a history secret was printed"
+
+
+def test_vault_secrets_bootstrapped(tmp_path):
+    bindir = _vault_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == sorted(rel.replace("/", "_") for rel in VAULT_FILES)
+    for rel in VAULT_FILES:
+        assert (tmp_path / rel).read_text() == "sops: stub\n"
+    # orchestrator to vault: the raw tokens Secret and the orchestrator's copy, the same token
+    orch = _plain(tmp_path, VLT_ORCH)
+    assert set(orch) == {"vault"}
+    assert set(orch["vault"]) == {"token"}
+    token = orch["vault"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", token)
+    assert _plain(tmp_path, VLT_TOKENS) == _manifest("agents-vault-service-tokens", "tokens", token)
+    # vault to orchestrator: the vault's own token and the orchestrator's hash of it
+    vlt = _plain(tmp_path, VLT)
+    assert set(vlt) == {"orchestrator"}
+    assert set(vlt["orchestrator"]) == {"token"}
+    own = vlt["orchestrator"]["token"]
+    assert re.fullmatch(r"[0-9a-f]{64}", own)
+    assert own != token, "the service and orchestrator tokens must differ (serve-service exits 78)"
+    assert _plain(tmp_path, VLT_HASH) == {
+        "serviceApi": {"tokenHashes": {"agents-vault": hashlib.sha256(own.encode()).hexdigest()}}
+    }
+
+
+def test_vault_token_pairs_never_rotate(tmp_path):
+    bindir = _vault_sandbox(tmp_path)
+    assert _run(tmp_path, bindir).returncode == 0
+    for f in (tmp_path / "plain").iterdir():
+        f.unlink()
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+    for pair in ((VLT_TOKENS, VLT_ORCH), (VLT, VLT_HASH)):
+        for present, absent in (pair, pair[::-1]):
+            (tmp_path / absent).unlink()
+            (tmp_path / present).write_text("sentinel: keep\n")
+            r = _run(tmp_path, bindir)
+            assert r.returncode == 1
+            assert pair[0] in r.stderr and pair[1] in r.stderr
+            assert not (tmp_path / absent).exists()
+            assert (tmp_path / present).read_text() == "sentinel: keep\n"
+            assert _encrypted(tmp_path) == []
+            (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+def test_vault_tokens_not_printed(tmp_path):
+    for name, bash_args in (("plain-run", ()), ("traced-run", ("-x",))):
+        root = tmp_path / name
+        root.mkdir()
+        bindir = _vault_sandbox(root)
+        r = _run(root, bindir, *bash_args)
+        assert r.returncode == 0, r.stderr
+        own = _plain(root, VLT)["orchestrator"]["token"]
+        secrets = [
+            _plain(root, VLT_ORCH)["vault"]["token"],
+            own,
+            hashlib.sha256(own.encode()).hexdigest(),
+        ]
+        for stream in (r.stdout, r.stderr):
+            for value in secrets:
+                assert value not in stream, f"{name}: a vault secret was printed"
 
 
 @pytest.mark.needs_sops_key

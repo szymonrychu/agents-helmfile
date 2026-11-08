@@ -35,6 +35,10 @@ HIS_ORCH_FILE="values/agents-orchestrator/history-token.secrets.yaml"
 HIS_INGEST_FILE="values/agents-history/raw/ingest-token.agents-history.pre.secrets.yaml"
 APP_FILE="values/agents-app-connector/default.secrets.yaml"
 APP_HASH_FILE="values/agents-orchestrator/service-token-agents-app-connector.secrets.yaml"
+VLT_FILE="values/agents-vault/default.secrets.yaml"
+VLT_HASH_FILE="values/agents-orchestrator/service-token-agents-vault.secrets.yaml"
+VLT_TOKENS_FILE="values/agents-vault/raw/service-tokens.agents-vault.pre.secrets.yaml"
+VLT_ORCH_FILE="values/agents-orchestrator/vault-token.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
@@ -256,6 +260,29 @@ bootstrap_history_ingest_token() {
     encrypt_to "$HIS_INGEST_FILE"
 }
 
+# bootstrap_vault_token: both files or neither. The token the orchestrator sends to the vault
+# service listener: the raw Secret agents-vault-service-tokens (key tokens, applied by the
+# agents-vault release hook) and the orchestrator's copy (vault.token, stage 2). Generated
+# independently of the vault's own orchestrator token, so the two differ as serve-service
+# requires. Never rotates, never half-writes.
+bootstrap_vault_token() {
+  local token
+  if [[ -e "$VLT_TOKENS_FILE" && -e "$VLT_ORCH_FILE" ]]; then return 0; fi
+  if [[ -e "$VLT_TOKENS_FILE" || -e "$VLT_ORCH_FILE" ]]; then
+    die "exactly one of $VLT_TOKENS_FILE and $VLT_ORCH_FILE exists; refusing to rotate or half-write"
+  fi
+  token="$(openssl rand -hex 32)"
+  TOKEN="$token" jq -n '{
+      apiVersion: "v1", kind: "Secret", metadata: {name: "agents-vault-service-tokens"},
+      type: "Opaque", stringData: {tokens: $ENV.TOKEN}}' |
+    encrypt_to "$VLT_TOKENS_FILE"
+  if ! TOKEN="$token" jq -n '{vault: {token: $ENV.TOKEN}}' |
+    encrypt_to "$VLT_ORCH_FILE"; then
+    rm -f "$VLT_TOKENS_FILE"
+    die "writing $VLT_ORCH_FILE failed; removed $VLT_TOKENS_FILE"
+  fi
+}
+
 bootstrap_orchestrator
 bootstrap_database
 bootstrap_service_token agents-webhook "$WH_FILE" "$WH_TOKEN_FILE"
@@ -270,4 +297,6 @@ bootstrap_taskboard_relay_token
 bootstrap_history_token
 bootstrap_history_ingest_token
 bootstrap_service_token agents-app-connector "$APP_FILE" "$APP_HASH_FILE"
+bootstrap_service_token agents-vault "$VLT_FILE" "$VLT_HASH_FILE"
+bootstrap_vault_token
 echo "secrets bootstrap done (existing files left untouched)" >&2
