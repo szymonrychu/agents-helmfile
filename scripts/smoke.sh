@@ -231,7 +231,7 @@ fi
 # a leader lease and an autoclose (an hour: the cleanup trap discards the session long before it fires) through the public API.
 body=$(jq -n --arg slug "$SLUG" '{slug: $slug, spec: {replicas: 1, max_replicas: 2, init_scripts: ["echo smoke-init"],
   wrapper: {auto_compact: {idle_seconds: 1800}, hooks: {onTurnComplete: [{type: "command", run: "true"}]}},
-  leader_lease_seconds: 3600, autoclose_after_seconds: 3600}}')
+  autoclose_after_seconds: 3600}}')
 resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/sessions") ||
   fail "session create failed"
 SESSION_ID=$(echo "$resp" | jq -er '.id') || fail "create response carries no id"
@@ -240,8 +240,8 @@ log "created session ${SLUG} (${SESSION_ID})"
 # 2a. The session view echoes the configuration and closes_at is created_at plus the autoclose.
 view=$(curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${SESSION_ID}") || fail "config check: session view not reachable"
 echo "$view" | jq -e '.spec.wrapper.auto_compact.idle_seconds == 1800 and .spec.wrapper.hooks.onTurnComplete[0].run == "true"
-  and .spec.leader_lease_seconds == 3600 and .spec.autoclose_after_seconds == 3600' > /dev/null ||
-  fail "config check: view spec does not echo wrapper, leader_lease_seconds and autoclose_after_seconds: $(echo "$view" | jq -c '.spec')"
+  and .spec.autoclose_after_seconds == 3600' > /dev/null ||
+  fail "config check: view spec does not echo wrapper and autoclose_after_seconds: $(echo "$view" | jq -c '.spec')"
 echo "$view" | jq -e '.closes_at != null' > /dev/null || fail "config check: view has no closes_at"
 echo "$view" | jq -e 'def ts: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601; (.closes_at | ts) - (.created_at | ts) == 3600' > /dev/null ||
   fail "config check: closes_at is not created_at + 3600s (created_at $(echo "$view" | jq -r '.created_at'), closes_at $(echo "$view" | jq -r '.closes_at'))"

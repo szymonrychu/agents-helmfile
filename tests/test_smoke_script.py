@@ -799,7 +799,6 @@ def test_happy_path_exits_zero_and_cleans_up(api, fakebin):
             "auto_compact": {"idle_seconds": 1800},
             "hooks": {"onTurnComplete": [{"type": "command", "run": "true"}]},
         },
-        "leader_lease_seconds": 3600,
         "autoclose_after_seconds": 3600,
     }
     scales = [json.loads(b) for m, p, b in api.requests if p == "/api/v1/sessions/sid-1/scale"]
