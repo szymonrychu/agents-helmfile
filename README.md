@@ -297,3 +297,29 @@ writes `values/agents-app-connector/default.secrets.yaml` (`orchestrator.token`)
 `values/agents-app-connector-db/default.secrets.yaml` are a byte copy of the other databases' file.
 
 Since connector 2.0.1 (needs orchestrator 4.4.0) agent tokens are verified through the orchestrator's service port (`orchestrator.url`, 8002), so the connector has no `orchestrator.agentUrl` value.
+
+## agents-vault
+
+Releases: `agents-vault-db` (CNPG database `vault`, 5Gi) and `agents-vault` (deployments `-web`, `-service` and `-sweeper`). The web
+pod (port 8000) sits behind the same SSO as the orchestrator and is served at `https://lab.szymonrichert.pl/vault`; the service
+listener (port 8002, bearer tokens, for the orchestrator) is reached in-cluster through the `agents-vault-service` Service. The sweeper
+has no port. The vault stores secret values only as immutable Kubernetes Secrets; its Role allows create, patch and delete on
+Secrets, never get, list or watch.
+
+`scripts/bootstrap-secrets.sh` creates its secrets, each written once and never rotated or printed. The two tokens are generated
+independently, so they differ (`serve-service` exits 78 otherwise):
+
+- `bootstrap_service_token agents-vault` (both files or neither): the vault's own token toward the orchestrator
+  `values/agents-vault/default.secrets.yaml` (`orchestrator.token`) and its sha256
+  `values/agents-orchestrator/service-token-agents-vault.secrets.yaml`, listed on the orchestrator release.
+- `bootstrap_vault_token` (both files or neither): the orchestrator's bearer toward the vault service listener, the raw Secret
+  `agents-vault-service-tokens` (`values/agents-vault/raw/service-tokens.agents-vault.pre.secrets.yaml`, key `tokens`) and the same
+  value as `vault.token` in `values/agents-orchestrator/vault-token.secrets.yaml`. That file is deliberately not listed on the
+  orchestrator release until stage 2 (the orchestrator chart has no `vault.*` values yet).
+
+Restart gotcha: the vault reaches the orchestrator only after the `agents-orchestrator` release is applied (it renders the new hash
+into the Secret `agents-orchestrator-services`) and `kubectl -n agents rollout restart deploy/agents-orchestrator-api` makes the pods
+read it. Until then the vault gets 401 from the orchestrator (the sweeper releases nothing, which is the safe failure).
+
+The backup credentials `values/agents-vault-db/default.secrets.yaml` are a byte copy of the other databases' file (the S3 path
+differs through values).

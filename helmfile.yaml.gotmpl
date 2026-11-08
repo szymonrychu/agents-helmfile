@@ -89,6 +89,7 @@ releases:
     - values/agents-orchestrator/taskboard-token.secrets.yaml
     - values/agents-orchestrator/history-token.secrets.yaml
     - values/agents-orchestrator/service-token-agents-app-connector.secrets.yaml
+    - values/agents-orchestrator/service-token-agents-vault.secrets.yaml
 
   - name: agents-webhook-db
     namespace: agents
@@ -165,6 +166,17 @@ releases:
     labels:
       purpose: agents
       application: agents-app-connector
+    <<: *default
+
+  - name: agents-vault-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-vault
     <<: *default
 
   - name: agents-webhook
@@ -251,6 +263,19 @@ releases:
     labels:
       purpose: agents
       application: agents-history
+    <<: *default
+
+  - name: agents-vault
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-vault
+    version: 0.1.0-main.30c9f67
+    timeout: 600
+    needs:
+      - agents/agents-vault-db
+      - agents/agents-orchestrator
+    labels:
+      purpose: agents
+      application: agents-vault
     <<: *default
 
   - name: agents-matrix-connector
