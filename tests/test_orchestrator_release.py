@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "6.6.4"
-# The chart of the v6.6.4 release commit 8c9723b: chart and image from one commit.
-CHART = "0.1.0-main.8c9723b"
+PIN = "6.7.0"
+# The chart of the v6.7.0 release commit 0fbde1c: chart and image from one commit.
+CHART = "0.1.0-main.0fbde1c"
 WRAPPER_PIN = "0.10.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
