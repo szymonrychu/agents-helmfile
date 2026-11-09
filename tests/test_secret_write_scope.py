@@ -42,7 +42,7 @@ def test_policy_and_binding_shape(repo_root):
     assert policy["kind"] == "ValidatingAdmissionPolicy"
     assert binding["kind"] == "ValidatingAdmissionPolicyBinding"
     assert binding["spec"]["policyName"] == policy["metadata"]["name"]
-    assert "Deny" in binding["spec"]["validationActions"]
+    assert binding["spec"]["validationActions"] == ["Warn", "Audit"]
     assert binding["spec"]["matchResources"]["namespaceSelector"]["matchLabels"] == {
         "kubernetes.io/metadata.name": "agents"
     }
