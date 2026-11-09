@@ -11,10 +11,10 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "6.8.2"
-# The chart of the v6.8.2 release commit 2ee1b9e: chart and image from one commit.
-CHART = "0.1.0-main.2ee1b9e"
-WRAPPER_PIN = "0.10.0"
+PIN = "7.1.0"
+# The chart of the v7.1.0 release (main b001e96): chart and image from one commit.
+CHART = "0.1.0-main.b001e96"
+WRAPPER_PIN = "0.12.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
@@ -403,7 +403,7 @@ def test_discard_hook_to_history(layered_values):
 def test_plugins_ref_is_a_tag(layered_values):
     ref = layered_values(REL)["env"]["ORCH_ANY_MCP_PLUGINS_REF"]
     assert re.fullmatch(r"v\d+\.\d+\.\d+", ref)
-    assert _semver(ref.lstrip("v")) >= (0, 17, 0)
+    assert _semver(ref.lstrip("v")) >= (0, 29, 0)
 
 
 def test_close_grace_is_set(layered_values):

@@ -13,10 +13,10 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The chart version the agents-vault main build publishes for the v0.3.0 release commit:
+# The chart version the agents-vault main build publishes for the v0.5.0 release commit:
 # 0.1.0-main.<sha7>.
-CHART = "0.1.0-main.e3cdb30"
-TAG = "0.3.0"
+CHART = "0.1.0-main.4c5cbcc"
+TAG = "0.5.0"
 
 
 def _block(repo_root, name: str) -> str:
@@ -121,10 +121,22 @@ def test_bootstrap_has_vault_tokens(repo_root):
     }
 
 
-def test_orchestrator_lists_the_vault_hash_only(repo_root):
+def test_orchestrator_lists_the_vault_hash_and_token(repo_root):
     secrets = _orchestrator_secrets(repo_root)
     hash_file = "values/agents-orchestrator/service-token-agents-vault.secrets.yaml"
+    token_file = "values/agents-orchestrator/vault-token.secrets.yaml"
     assert hash_file in secrets
-    assert secrets[-1] == hash_file
-    # stage 2: the orchestrator chart has no vault.* values yet
-    assert "values/agents-orchestrator/vault-token.secrets.yaml" not in secrets
+    # stage 2: the orchestrator holds the vault bearer (vault.token), listed after the hash file
+    assert secrets[-2:] == [hash_file, token_file]
+
+
+def test_orchestrator_vault_upstream_and_scopes(layered_values):
+    v = layered_values("agents-orchestrator")
+    assert v["vault"]["url"] == "http://agents-vault-service:8002"
+    # the bearer comes only from the SOPS file, never plain values or an existing Secret
+    assert not v["vault"].get("token")
+    assert not v["vault"].get("existingSecret")
+    # the vault lists presets (attachments) and sessions (sweeper releases pins of discarded sessions)
+    assert v["serviceApi"]["scopes"] == {
+        "agents-vault": ["GET /api/v1/presets", "GET /api/v1/sessions"]
+    }

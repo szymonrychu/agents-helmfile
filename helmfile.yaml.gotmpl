@@ -68,7 +68,7 @@ releases:
   - name: agents-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-orchestrator
-    version: 0.1.0-main.2ee1b9e
+    version: 0.1.0-main.b001e96
     timeout: 600
     needs:
       - agents/agents-orchestrator-db
@@ -90,6 +90,7 @@ releases:
     - values/agents-orchestrator/history-token.secrets.yaml
     - values/agents-orchestrator/service-token-agents-app-connector.secrets.yaml
     - values/agents-orchestrator/service-token-agents-vault.secrets.yaml
+    - values/agents-orchestrator/vault-token.secrets.yaml
 
   - name: agents-webhook-db
     namespace: agents
@@ -268,7 +269,7 @@ releases:
   - name: agents-vault
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-vault
-    version: 0.1.0-main.e3cdb30
+    version: 0.1.0-main.4c5cbcc
     timeout: 600
     needs:
       - agents/agents-vault-db
@@ -298,7 +299,7 @@ releases:
   - name: agents-web
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-web
-    version: 0.1.0-main.40344ed
+    version: 0.1.0-main.13efc37
     timeout: 600
     needs:
       - agents/agents-webhook

@@ -1,11 +1,11 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "6.8.2"
+  tag: "7.1.0"
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
-agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.10.0
+agentImage: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.12.0
 
 # Docker-in-Docker sidecar for sessions with docker: true. Semver-pinned dind image pulled through
 # the Harbor Docker Hub proxy project with the existing regcred pull secret; caps are the chart defaults.
@@ -21,6 +21,13 @@ postgres:
 # Service port for in-cluster callers (agents-webhook); the token hashes are in the secrets files.
 serviceApi:
   port: 8002
+  # Per-caller route scopes. The vault lists presets (attachments) and sessions: its sweeper must
+  # list sessions to release the pins of discarded sessions (the orchestrator calls DELETE /pins
+  # only on a failed create).
+  scopes:
+    agents-vault:
+      - GET /api/v1/presets
+      - GET /api/v1/sessions
 
 # masterKey.value and claude.token come from default.secrets.yaml (SOPS).
 
@@ -56,6 +63,13 @@ usageQuotaDefault: 95
 # value as relayToken. The chart fails the render for a url without a token source.
 taskboard:
   url: http://agents-taskboard-service:8002
+
+# Vault upstream (secret references in session specs): the agents-vault service listener (port 8002).
+# The bearer (vault.token) comes from vault-token.secrets.yaml (SOPS); agents-vault holds the same
+# value in its service tokens Secret. No needs on agents-vault (it needs the orchestrator): a down
+# vault answers 503 on creates and saves with refs only.
+vault:
+  url: http://agents-vault-service:8002
 
 # Seconds between two restarts an agent asks for on its own session.
 selfRestartCooldownSeconds: 600
@@ -96,7 +110,7 @@ env:
   # 127.0.0.1, and so does `kubectl port-forward` (scripts/smoke.sh). Ingress and agent pods
   # reach the api port only through the sidecar's SSO.
   ORCH_ALLOWED_CIDRS: 127.0.0.1/32
-  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.10.0
+  ORCH_AGENT_IMAGES: harbor.szymonrichert.pl/containers/claude-code-wrapper:0.12.0
   # WebSocket upgrades must carry an Origin in this list: the UI origin (the ingress host over https).
   ORCH_ALLOWED_ORIGINS: https://lab.szymonrichert.pl
   # Every new session starts with any-mcp, installed by the rendered onStart hook (pinned tag).
@@ -104,7 +118,7 @@ env:
   ORCH_ANY_MCP_REF: v0.5.0
   # The reserved orchestrator plugin (the orchestrator tools) is installed from this repo at this tag.
   ORCH_ANY_MCP_PLUGINS_REPO: https://github.com/szymonrychu/any-mcp-tatara-plugins
-  ORCH_ANY_MCP_PLUGINS_REF: v0.27.0
+  ORCH_ANY_MCP_PLUGINS_REF: v0.29.0
   # Seconds a session with a requested self-close idles before the sweeper discards it, so readers
   # of the final answer get it first (orchestrator bounds 10..3600, default 30).
   ORCH_CLOSE_GRACE_SECONDS: "30"
