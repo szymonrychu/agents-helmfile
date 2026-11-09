@@ -173,7 +173,7 @@ Applies are manual and local, run from this directory.
   `smoke-msg-a-<ts>` (`session_messaging` true) and plain `smoke-msg-b-<ts>`; from A's pod (its own `ORCH_AGENT_*` env, never printed)
   `GET /agent/v1/sessions` lists B and the hive session, `POST /agent/v1/sessions/<B>/messages` answers 202 with a `message_id`, the
   message reaches `sent` and B's events carry a `user_message` starting `<session-message from="<A>"`; from B's pod the list shows A and
-  not the hive session and a send to the hive session answers 403 `target_not_superleader`. The three sessions are deleted on every exit.
+  not the hive session and a send to the hive session answers 403 `project_forbidden`: B is created in the project `smoke-proj-<ts>` (made through `POST /api/v1/projects`, the session's `project` and the project's `archived` flag are read back, the project is archived on every exit) while the hive session sits in `default`; same-project sessions are peers, so only a different project walls B off. The three sessions are deleted on every exit.
   Last, session continuity: session `smoke-cont-<ts>` (1 replica) gets a Ready pod and one completed turn (a message that reaches `sent`
   and a stored `turn_completed`); the smoke reads the agent's `wrapper_session_id` from `GET /api/v1/sessions/{id}/events?agent_id=...`,
   deletes that pod and only that pod (`kubectl delete pod/agent-smoke-cont-<ts>-0`, refused unless the name is a smoke-cont pod), and
@@ -323,3 +323,5 @@ read it. Until then the vault gets 401 from the orchestrator (the sweeper releas
 
 The backup credentials `values/agents-vault-db/default.secrets.yaml` are a byte copy of the other databases' file (the S3 path
 differs through values).
+
+Projects stage 1 apply order: agents-orchestrator (6.8.1), then agents-taskboard (0.4.0, needs the orchestrator's `X-Orch-Projects` header), then agents-web (1.6.0). Releases are git tags: verify a pin with `git ls-remote --tags https://github.com/szymonrychu/<repo> v<ver>`.
