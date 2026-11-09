@@ -1,0 +1,27 @@
+# NOT applied: the name does not match the hook's *.pre.yaml pattern. Opt-in NetworkPolicy for the
+# agents-vault service listener (port 8002), allowing only the agents-orchestrator pods. To enable,
+# first confirm the CNI enforces NetworkPolicy (the lab runs flannel, which does not on its own) and
+# that no other pod calls vault-service, then rename to vault-service-ingress.pre.yaml.
+# Not covered here: the orchestrator service port and the Postgres clusters, whose callers (trigger
+# services, hostNetwork ingress nodes, agent session pods, CNPG operator) are not derivable from this repo.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-vault-service-ingress
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-vault
+      app.kubernetes.io/instance: agents-vault
+      app.kubernetes.io/component: service
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agents-orchestrator
+              app.kubernetes.io/instance: agents-orchestrator
+      ports:
+        - protocol: TCP
+          port: http
