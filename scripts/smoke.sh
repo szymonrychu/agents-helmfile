@@ -41,7 +41,9 @@
 # Cross-session messaging: superleader smoke-msg-a-<ts> (session_messaging true) and plain smoke-msg-b-<ts> get Ready pods; from A's pod
 # (its own ORCH_AGENT_* env, never printed) GET /agent/v1/sessions lists B and the hive session, a send to B answers 202 with a message_id,
 # the message reaches sent and B's events carry a user_message framed <session-message from="<A slug>"; from B's pod the list shows A and
-# not the hive session and a send to the hive session answers 403 target_not_superleader. The trap deletes all three sessions.
+# not the hive session and a send to the hive session answers 403 project_forbidden: B lives in the project smoke-proj-<ts> (created through
+# POST /api/v1/projects, GET shows it with the session counted, archived by the trap), the hive session in default, and sessions of
+# different projects are peers only through a superleader (same-project sessions are peers). The trap deletes all three sessions.
 # Plugin tools steps: in the hive session's pod (container ccw) the any-mcp-tatara-orchestrator distribution is installed (pip show), the
 # rendered /opt/any-mcp/etc/any-mcp.yaml names any-mcp-tatara-plugins//orchestration/orchestrator at the pinned ORCH_ANY_MCP_PLUGINS_REF and
 # `any-mcp --list-tools` lists orchestrator_sessions_list and orchestrator_activity; a session smoke-src-<ts> created with any_mcp_sources holding the petstore example at
@@ -87,6 +89,7 @@ SCHED_SESSION_ID=""
 CACHE_KEY="smoke-workspace-cache"
 CACHE_SESSION_IDS=""
 OPTION_SESSION_IDS=""
+PROJECT_SLUG=""
 if [ -z "${HOST:-}" ]; then
   HOST="127.0.0.1:${SMOKE_LOCAL_PORT:-18000}"
   WEB_HOST="127.0.0.1:${SMOKE_WEB_LOCAL_PORT:-18080}"
@@ -128,6 +131,14 @@ cleanup() {
       echo "smoke: cleanup failed, API unreachable; delete option session id ${oid} manually" >&2
     fi
   done
+  if [ -n "$PROJECT_SLUG" ]; then
+    # Projects are archived, never deleted; the sessions above are already discarded.
+    if curl -fsS --max-time 20 -X PATCH -H 'Content-Type: application/json' -d '{"archived": true}' -o /dev/null "${BASE}/api/v1/projects/${PROJECT_SLUG}"; then
+      log "archived project ${PROJECT_SLUG}"
+    else
+      echo "smoke: cleanup failed, API unreachable; archive project '${PROJECT_SLUG}' manually" >&2
+    fi
+  fi
   for cid in $CACHE_SESSION_IDS; do
     if curl -fsS --max-time 20 -X DELETE -o /dev/null "${BASE}/api/v1/sessions/${cid}"; then
       log "discarded cache session ${cid}"
@@ -766,10 +777,10 @@ cache_discard "$cache_b"
 TS=${SLUG#smoke-}
 SA_DIR=/var/run/secrets/kubernetes.io/serviceaccount
 
-# option_create <slug> <spec json>: creates the session and sets OPT_NEW_ID.
+# option_create <slug> <spec json> <check name> [project]: creates the session (in the project when given) and sets OPT_NEW_ID.
 option_create() {
   local body resp
-  body=$(jq -cn --arg slug "$1" --argjson spec "$2" '{slug: $slug, spec: $spec}')
+  body=$(jq -cn --arg slug "$1" --argjson spec "$2" --arg project "${4:-}" '{slug: $slug, spec: $spec} + (if $project == "" then {} else {project: $project} end)')
   resp=$(curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$body" "${BASE}/api/v1/sessions") ||
     fail "$3: create of session $1 failed"
   OPT_NEW_ID=$(echo "$resp" | jq -er '.id') || fail "$3: create response of $1 carries no id"
@@ -883,12 +894,24 @@ while :; do
 done
 log "discard of ${KNS_SLUG} removed its RoleBinding in media and its ServiceAccount"
 
-# 11b. Cross-session messaging (superleader model): A is a superleader, B is a plain session, the hive session is plain.
+# 11b. Cross-session messaging (superleader model): A is a superleader, B is a plain session in a second project, the hive session is
+# plain in default. Same-project sessions are peers (stage 1 of projects), so B must live in another project to be walled off from the hive.
 A_SLUG="smoke-msg-a-${TS}"
 B_SLUG="smoke-msg-b-${TS}"
+B_PROJECT="smoke-proj-${TS}"
+proj_body=$(jq -cn --arg slug "$B_PROJECT" '{slug: $slug, name: $slug, description: "smoke messaging scope, archived by the smoke"}')
+curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' -d "$proj_body" -o /dev/null "${BASE}/api/v1/projects" ||
+  fail "messaging: create of project ${B_PROJECT} failed"
+PROJECT_SLUG=$B_PROJECT
+log "created project ${B_PROJECT}"
 option_create "$A_SLUG" '{"replicas": 1, "session_messaging": true}' "messaging"
-option_create "$B_SLUG" '{"replicas": 1}' "messaging"
+option_create "$B_SLUG" '{"replicas": 1}' "messaging" "$B_PROJECT"
 B_ID=$OPT_NEW_ID
+curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${B_ID}" | jq -e --arg p "$B_PROJECT" '.project == $p' > /dev/null 2>&1 ||
+  fail "messaging: session ${B_SLUG} is not in project ${B_PROJECT}"
+curl -fsS --max-time 20 "${BASE}/api/v1/projects/${B_PROJECT}" | jq -e '.archived_at == null' > /dev/null 2>&1 ||
+  fail "messaging: project ${B_PROJECT} is missing or archived"
+log "session ${B_SLUG} is in project ${B_PROJECT}"
 option_pod "$A_SLUG" "messaging"
 a_pod=$OPT_POD
 option_pod "$B_SLUG" "messaging"
@@ -933,13 +956,13 @@ log "${B_SLUG} received a user_message framed from ${A_SLUG}"
 b_list=$(agent_call "$b_pod" GET /agent/v1/sessions)
 [ "${b_list%% *}" = "200" ] || fail "messaging: GET /agent/v1/sessions from ${b_pod} answered '${b_list%% *}', expected 200"
 echo "${b_list#* }" | jq -e --arg a "$A_SLUG" --arg hive "$SLUG" '[.sessions[].slug] | (index($a) != null) and (index($hive) == null)' > /dev/null ||
-  fail "messaging: plain ${B_SLUG} must list ${A_SLUG} and not the hive session ${SLUG}: $(echo "${b_list#* }" | jq -c '[.sessions[]?.slug]' 2> /dev/null)"
-log "plain ${B_SLUG} lists ${A_SLUG} and not the hive session"
+  fail "messaging: ${B_SLUG} (project ${B_PROJECT}) must list ${A_SLUG} and not the hive session ${SLUG}: $(echo "${b_list#* }" | jq -c '[.sessions[]?.slug]' 2> /dev/null)"
+log "${B_SLUG} lists ${A_SLUG} and not the hive session (other project)"
 denied=$(agent_call "$b_pod" POST "/agent/v1/sessions/${SLUG}/messages" "$send_body")
-if [ "${denied%% *}" != "403" ] || ! echo "${denied#* }" | jq -e '.error.code == "target_not_superleader"' > /dev/null 2>&1; then
-  fail "messaging: send from ${B_SLUG} to the hive session ${SLUG} answered '${denied%% *}', expected 403 target_not_superleader: ${denied#* }"
+if [ "${denied%% *}" != "403" ] || ! echo "${denied#* }" | jq -e '.error.code == "project_forbidden"' > /dev/null 2>&1; then
+  fail "messaging: send from ${B_SLUG} to the hive session ${SLUG} answered '${denied%% *}', expected 403 project_forbidden: ${denied#* }"
 fi
-log "send from ${B_SLUG} to the hive session refused: 403 target_not_superleader"
+log "send from ${B_SLUG} to the hive session refused: 403 project_forbidden"
 
 # 12. Session continuity: a session the smoke creates (smoke-cont-<ts>, deleted by the trap) has one real turn, then only its own pod is
 # deleted. The pod must come back Ready with a new uid, the agent must leave (or never enter) `dead`, a second message must reach `sent`

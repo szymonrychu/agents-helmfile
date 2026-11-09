@@ -109,7 +109,7 @@ elif side == "a":
     print(env.get("FAKE_SEND_STATUS", "202"), json.dumps({"message_id": MESSAGE_ID}))
 else:
     assert path == f"/agent/v1/sessions/{hive}/messages", path
-    code = env.get("FAKE_B_SEND_CODE", "target_not_superleader")
+    code = env.get("FAKE_B_SEND_CODE", "project_forbidden")
     print(env.get("FAKE_B_SEND_STATUS", "403"), json.dumps({"error": {"code": code}}))
 """.replace("MESSAGE_ID", str(42))
 
@@ -183,6 +183,8 @@ class _Api:
         self.kns_namespaces = ["media"]
         self.option_specs: dict[str, dict] = {}
         self.option_deleted: set[str] = set()
+        self.projects: dict[str, dict] = {}
+        self.b_project_ok = True
         self.message_status = "sent"
         self.frame_in_events = True
         # session continuity fakes (smoke-cont-<ts>, same server): the fake kubectl marks the restart in the state dir
@@ -315,6 +317,14 @@ class _Api:
                         "kube_namespace_access": {"namespaces": api.kns_namespaces},
                     }
                     self._send(200, json.dumps(meta))
+                elif path.startswith("/api/v1/projects/"):
+                    view = api.projects.get(path.rsplit("/", 1)[1])
+                    self._send(200 if view else 404, json.dumps(view or {}))
+                elif path == "/api/v1/sessions/sid-msg-b":
+                    project = api.option_specs["msg-b"].get("project") or "default"
+                    if not api.b_project_ok:
+                        project = "default"
+                    self._send(200, json.dumps({"id": "sid-msg-b", "project": project}))
                 elif path == f"/api/v1/messages/{MESSAGE_ID}":
                     self._send(200, json.dumps({"id": MESSAGE_ID, "status": api.message_status}))
                 elif path == "/api/v1/sessions/sid-msg-b/events":
@@ -518,8 +528,23 @@ class _Api:
                 else:
                     self._send(404, "{}")
 
+            def do_PATCH(self):
+                self._record()
+                slug = self.path.rsplit("/", 1)[1]
+                if self.path.startswith("/api/v1/projects/") and slug in api.projects:
+                    if json.loads(api.requests[-1][2]).get("archived"):
+                        api.projects[slug]["archived_at"] = "2026-11-09T10:00:00Z"
+                    self._send(200, json.dumps(api.projects[slug]))
+                    return
+                self._send(404, "{}")
+
             def do_POST(self):
                 self._record()
+                if self.path == "/api/v1/projects":
+                    created = json.loads(api.requests[-1][2])
+                    api.projects[created["slug"]] = {**created, "archived_at": None}
+                    self._send(201, json.dumps(api.projects[created["slug"]]))
+                    return
                 if self.path.startswith("/schedules/"):
                     self._schedule_post()
                     return
@@ -1738,6 +1763,11 @@ def test_session_messaging_step(api, fakebin):
     assert re.fullmatch(r"smoke-msg-b-\d+", b["slug"])
     assert a["spec"] == {"replicas": 1, "session_messaging": True}
     assert b["spec"] == {"replicas": 1}
+    assert "project" not in a
+    assert b["project"] == f"smoke-proj-{b['slug'].rsplit('-', 1)[1]}"
+    project = api.projects[b["project"]]
+    assert project["archived_at"], "the smoke must archive its project"
+    assert ("PATCH", f"/api/v1/projects/{b['project']}") in api.methods()
     ts = a["slug"].rsplit("-", 1)[1]
     log = _option_log(fakebin)
     assert re.search(
@@ -1754,7 +1784,7 @@ def test_session_messaging_step(api, fakebin):
         "/api/v1/sessions/sid-msg-b/events?types=user_message&limit=200",
     ) in api.methods()
     assert f"message {MESSAGE_ID} reached sent" in r.stdout
-    assert "403 target_not_superleader" in r.stdout
+    assert "403 project_forbidden" in r.stdout
 
 
 @pytest.mark.parametrize(
@@ -1766,8 +1796,14 @@ def test_session_messaging_step(api, fakebin):
         ("failed-message", {"message_status": "failed"}, None, "failed"),
         ("no-frame-in-events", {"frame_in_events": False}, None, "user_message"),
         ("b-lists-hive", None, {"FAKE_B_LISTS_HIVE": "1"}, "hive"),
-        ("b-send-allowed", None, {"FAKE_B_SEND_STATUS": "202"}, "target_not_superleader"),
-        ("b-send-wrong-code", None, {"FAKE_B_SEND_CODE": "not_leader"}, "target_not_superleader"),
+        ("b-send-allowed", None, {"FAKE_B_SEND_STATUS": "202"}, "project_forbidden"),
+        (
+            "b-send-wrong-code",
+            None,
+            {"FAKE_B_SEND_CODE": "target_not_superleader"},
+            "project_forbidden",
+        ),
+        ("b-not-in-project", {"b_project_ok": False}, None, "not in project"),
     ],
 )
 def test_session_messaging_step_failures(api, fakebin, name, setup, extra_env, needle):
@@ -1787,6 +1823,7 @@ def test_session_option_sessions_cleaned_up(api, fakebin, fail):
     expected = {"sid-kube", "sid-kns", "sid-msg-a", "sid-msg-b", "sid-src"}
     assert api.option_deleted == (expected if fail else expected | {"sid-cont"})
     assert not r.stderr.count("cleanup failed")
+    assert api.projects and all(p["archived_at"] for p in api.projects.values())
     for kind in ("kube", "msg-a", "msg-b"):
         assert ("DELETE", f"/api/v1/sessions/sid-{kind}") in api.methods()
 
