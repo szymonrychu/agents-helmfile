@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "6.8.2"
-# The chart of the v6.8.2 release commit 2ee1b9e: chart and image from one commit.
-CHART = "0.1.0-main.2ee1b9e"
+PIN = "7.1.0"
+# The chart of the v7.1.0 release (main b001e96): chart and image from one commit.
+CHART = "0.1.0-main.b001e96"
 WRAPPER_PIN = "0.12.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
@@ -259,7 +259,7 @@ def test_kube_cluster_access_enabled_with_legacy_sa(layered_values):
     values = layered_values(REL)
     assert "kubeAccess" not in values
     assert values["kubeClusterAccess"]["enabled"] is True
-    assert values["kubeClusterAccess"]["legacySharedServiceAccount"] is True
+    assert values["kubeClusterAccess"]["legacySharedServiceAccount"] is False
 
 
 def test_kube_namespace_access_media(layered_values):
