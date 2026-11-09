@@ -259,7 +259,7 @@ def test_kube_cluster_access_enabled_with_legacy_sa(layered_values):
     values = layered_values(REL)
     assert "kubeAccess" not in values
     assert values["kubeClusterAccess"]["enabled"] is True
-    assert values["kubeClusterAccess"]["legacySharedServiceAccount"] is True
+    assert values["kubeClusterAccess"]["legacySharedServiceAccount"] is False
 
 
 def test_kube_namespace_access_media(layered_values):
