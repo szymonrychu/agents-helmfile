@@ -909,7 +909,7 @@ option_create "$B_SLUG" '{"replicas": 1}' "messaging" "$B_PROJECT"
 B_ID=$OPT_NEW_ID
 curl -fsS --max-time 20 "${BASE}/api/v1/sessions/${B_ID}" | jq -e --arg p "$B_PROJECT" '.project == $p' > /dev/null 2>&1 ||
   fail "messaging: session ${B_SLUG} is not in project ${B_PROJECT}"
-curl -fsS --max-time 20 "${BASE}/api/v1/projects/${B_PROJECT}" | jq -e '.archived_at == null' > /dev/null 2>&1 ||
+curl -fsS --max-time 20 "${BASE}/api/v1/projects/${B_PROJECT}" | jq -e '.archived == false' > /dev/null 2>&1 ||
   fail "messaging: project ${B_PROJECT} is missing or archived"
 log "session ${B_SLUG} is in project ${B_PROJECT}"
 option_pod "$A_SLUG" "messaging"

@@ -533,7 +533,7 @@ class _Api:
                 slug = self.path.rsplit("/", 1)[1]
                 if self.path.startswith("/api/v1/projects/") and slug in api.projects:
                     if json.loads(api.requests[-1][2]).get("archived"):
-                        api.projects[slug]["archived_at"] = "2026-11-09T10:00:00Z"
+                        api.projects[slug]["archived"] = True
                     self._send(200, json.dumps(api.projects[slug]))
                     return
                 self._send(404, "{}")
@@ -542,7 +542,7 @@ class _Api:
                 self._record()
                 if self.path == "/api/v1/projects":
                     created = json.loads(api.requests[-1][2])
-                    api.projects[created["slug"]] = {**created, "archived_at": None}
+                    api.projects[created["slug"]] = {**created, "archived": False}
                     self._send(201, json.dumps(api.projects[created["slug"]]))
                     return
                 if self.path.startswith("/schedules/"):
@@ -1766,7 +1766,7 @@ def test_session_messaging_step(api, fakebin):
     assert "project" not in a
     assert b["project"] == f"smoke-proj-{b['slug'].rsplit('-', 1)[1]}"
     project = api.projects[b["project"]]
-    assert project["archived_at"], "the smoke must archive its project"
+    assert project["archived"], "the smoke must archive its project"
     assert ("PATCH", f"/api/v1/projects/{b['project']}") in api.methods()
     ts = a["slug"].rsplit("-", 1)[1]
     log = _option_log(fakebin)
@@ -1823,7 +1823,7 @@ def test_session_option_sessions_cleaned_up(api, fakebin, fail):
     expected = {"sid-kube", "sid-kns", "sid-msg-a", "sid-msg-b", "sid-src"}
     assert api.option_deleted == (expected if fail else expected | {"sid-cont"})
     assert not r.stderr.count("cleanup failed")
-    assert api.projects and all(p["archived_at"] for p in api.projects.values())
+    assert api.projects and all(p["archived"] for p in api.projects.values())
     for kind in ("kube", "msg-a", "msg-b"):
         assert ("DELETE", f"/api/v1/sessions/sid-{kind}") in api.methods()
 
