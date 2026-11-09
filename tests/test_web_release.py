@@ -99,6 +99,7 @@ def test_usage_backend_configured(layered_values):
         "taskboard",
         "history",
         "devices",
+        "vault",
     ]
 
 
@@ -110,6 +111,11 @@ def test_history_backend(layered_values):
 def test_devices_backend(layered_values):
     backends = layered_values(REL)["backends"]
     assert {"id": "devices", "label": "Devices", "basePath": "/app/admin/v1"} in backends
+
+
+def test_vault_backend(layered_values):
+    backends = layered_values(REL)["backends"]
+    assert {"id": "vault", "label": "Vault", "basePath": "/vault/v1"} in backends
 
 
 def test_web_release_needs_matrix_connector(repo_root):

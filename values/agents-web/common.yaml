@@ -36,6 +36,9 @@ backends:
   - id: devices
     label: Devices
     basePath: /app/admin/v1
+  - id: vault
+    label: Vault
+    basePath: /vault/v1
 
 # The UI owns "/" of the host. The orchestrator ingress owns /api and the only
 # cert-manager annotations, so there is one Certificate for agents-orchestrator-tls.
