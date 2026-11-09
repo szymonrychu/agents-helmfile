@@ -21,3 +21,13 @@ Run `mise run test`, `mise run lint` and `mise run fmt` from this directory.
 - Enforced by `tests/test_semver_pins.py` (every harbor.szymonrichert.pl/containers image of every installed
   release, under `mise run test`) and `mise run check-pins` (an X.Y.Z pin resolves through git tag vX.Y.Z and its
   checks must be green); both are dependencies of `mise run apply`.
+
+## Secret write scope
+
+- `raw/secret-write-scope.pre.yaml` (ValidatingAdmissionPolicy plus binding, applied by `.hook.sh` at
+  presync of any release) limits Secret create, update and delete in namespace agents by name prefix:
+  `agents-vault` to `vault-`, `agents-orchestrator-api` to `ps-` and `webhook-`,
+  `agents-orchestrator-reconciler` to `agent-`. A service that starts writing a new Secret name needs
+  its prefix added there first, or its writes are refused.
+- `raw/vault-service-ingress.disabled.yaml` is an opt-in NetworkPolicy for the vault service port; it is
+  not applied (see its header). `tests/test_secret_write_scope.py` guards both.

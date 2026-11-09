@@ -1,0 +1,25 @@
+# Opt-in ingress policy for the agents-vault service listener (port 8002), allowing only the
+# agents-orchestrator pods. Not applied by default (the name does not match the *.pre.yaml hook
+# pattern). Enable it once the network plugin of the Kubernetes environment enforces NetworkPolicy and the caller list is
+# complete, by renaming it to vault-service-ingress.pre.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-vault-service-ingress
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-vault
+      app.kubernetes.io/instance: agents-vault
+      app.kubernetes.io/component: service
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agents-orchestrator
+              app.kubernetes.io/instance: agents-orchestrator
+      ports:
+        - protocol: TCP
+          port: http
