@@ -13,10 +13,10 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The chart version the agents-vault main build publishes for the v0.5.0 release commit:
+# The chart version the agents-vault main build publishes for the v0.6.0 release commit:
 # 0.1.0-main.<sha7>.
-CHART = "0.1.0-main.4c5cbcc"
-TAG = "0.5.0"
+CHART = "0.1.0-main.f9b95e9"
+TAG = "0.6.0"
 
 
 def _block(repo_root, name: str) -> str:
