@@ -68,7 +68,7 @@ releases:
   - name: agents-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-orchestrator
-    version: 0.1.0-main.6395c5b
+    version: 0.1.0-main.5d4a90b
     timeout: 600
     needs:
       - agents/agents-orchestrator-db
@@ -209,7 +209,7 @@ releases:
   - name: agents-taskboard
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-taskboard
-    version: 0.1.0-main.fa727e8
+    version: 0.1.0-main.71e3e86
     timeout: 600
     needs:
       - agents/agents-taskboard-db
@@ -299,7 +299,7 @@ releases:
   - name: agents-web
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-web
-    version: 0.1.0-main.13efc37
+    version: 0.1.0-main.3701c3c
     timeout: 600
     needs:
       - agents/agents-webhook
