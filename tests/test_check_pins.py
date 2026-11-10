@@ -286,10 +286,10 @@ def test_every_pin_resolved(tree):
 
 
 def test_deployed_orchestrator_and_wrapper_pins_resolve(tree):
-    """The orchestrator 7.2.0 and wrapper 0.12.0 pins resolve through their v tags and pass."""
+    """The orchestrator 7.3.0 and wrapper 0.12.0 pins resolve through their v tags and pass."""
     expected = expected_pins(tree)
-    assert expected["agents-orchestrator:image.tag"] == ("agents-orchestrator", "7.2.0")
-    assert expected["agents-orchestrator"] == ("agents-orchestrator", "0.1.0-main.6395c5b")
+    assert expected["agents-orchestrator:image.tag"] == ("agents-orchestrator", "7.3.0")
+    assert expected["agents-orchestrator"] == ("agents-orchestrator", "0.1.0-main.5d4a90b")
     wrapper = [label for label, (repo, _) in expected.items() if repo == "claude-code-wrapper"]
     assert len(wrapper) == 2
     assert {expected[label] for label in wrapper} == {("claude-code-wrapper", "0.12.0")}
@@ -297,8 +297,8 @@ def test_deployed_orchestrator_and_wrapper_pins_resolve(tree):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     paths = {next(a for a in call if a.startswith("repos/")).split("?")[0] for call in calls}
     assert "repos/szymonrychu/claude-code-wrapper/commits/v0.12.0" in paths
-    assert "repos/szymonrychu/agents-orchestrator/commits/v7.2.0" in paths
-    assert "repos/szymonrychu/agents-orchestrator/commits/6395c5b" in paths
+    assert "repos/szymonrychu/agents-orchestrator/commits/v7.3.0" in paths
+    assert "repos/szymonrychu/agents-orchestrator/commits/5d4a90b" in paths
 
 
 def test_green_pins_pass(tree):
