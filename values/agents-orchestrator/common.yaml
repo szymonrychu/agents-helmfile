@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-orchestrator
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "7.5.0"
+  tag: "7.5.1"
 
 # claude-code-wrapper image of the agent pods (becomes ORCH_AGENT_IMAGE). A release tag: Harbor
 # prunes the sha7 tags, so a sha7 pin stops pulling.
@@ -204,9 +204,6 @@ cache:
 # Sessions with kube_cluster_access get Kubernetes API access through a per-session identity (T-55).
 kubeClusterAccess:
   enabled: true
-  # T-55 stage 2: the legacy shared SA agents-orchestrator-kube-access and its cluster-admin ClusterRoleBinding
-  # are removed; no pod uses them (verified live 2026-11-09). The key stays until the chart template is removed.
-  legacySharedServiceAccount: false
 # Namespace-scoped access for sessions with kube_namespace_access (T-55).
 kubeNamespaceAccess:
   namespaces: [media]
