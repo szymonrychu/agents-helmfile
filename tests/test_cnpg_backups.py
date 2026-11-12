@@ -60,7 +60,7 @@ def test_same_bucket_and_path(layered_values, release):
 
 def test_every_db_release_covered(repo_root):
     text = (repo_root / "helmfile.yaml.gotmpl").read_text()
-    names = re.findall(r"- name: (\S+)\n(?:(?!\n  - name:).)*?chart: cnpg/cluster", text, re.S)
+    names = re.findall(r"- name: (\S+)\n(?:(?!\n  - name:).)*?chart: cnpg/cluster", text, re.DOTALL)
     assert sorted(names) == sorted(DB_RELEASES)
 
 
