@@ -6,8 +6,7 @@ import pytest
 
 PLUGIN = "barman-cloud.cloudnative-pg.io"
 DB_RELEASES = [
-    "agent-"
-    + "orchestrator-db",  # the hibernated old release; split so the nomenclature guard stays clean
+    "agent-orchestrator-db",  # the hibernated old release, still declared (D6)
     "agents-orchestrator-db",
     "agents-app-connector-db",
     "agents-history-db",
