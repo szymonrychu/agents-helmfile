@@ -2,6 +2,7 @@
 
 Lessons that outlive a session. Newest first.
 
+- 2026-11-12: **agents-web 1.15.0 to 1.16.0 pin (T-137 Restart item, last-talked and attention pins, decisions preview).** Image `1.16.0` and chart `0.1.0-main.fd55105` (tag v1.16.0 = fd55105, `git ls-remote --tags`). Reads `last_user_message_at` from orchestrator 7.16.0, so apply after the orchestrator pin. Not applied here.
 - 2026-11-12: **agents-matrix-connector 0.9.0 to 0.11.0 pin (T-138 agent aliases, migration 0009).** Image `0.11.0` and chart `0.1.0-main.8d40c59` (tag v0.11.0 = 8d40c59, `git ls-remote --tags`; chart confirmed with `helm show chart`). The connector applies migration 0009_agent_aliases on start. Not applied here.
 - 2026-11-12: **agents-web 1.14.3 to 1.15.0 pin (T-138 agent aliases field in the chat room drawer).** Image `1.15.0` and chart `0.1.0-main.bf4363d` (tag v1.15.0 = bf4363d, `git ls-remote --tags`; chart confirmed with `helm show chart`). No web release between 1.14.3 and 1.15.0 (`git log v1.14.3..v1.15.0`: only #75); 1.14.2 and 1.14.3 were already pinned. Not applied here.
 - 2026-11-12: **any-mcp-tatara-plugins v0.41.0 to v0.41.1 pin (T-138).** `ORCH_ANY_MCP_PLUGINS_REF` v0.41.1 (description-only fix for the admin room tools, from the T-138 final review; tag confirmed with `git ls-remote --tags`). The ref changes every session's rendered on-start, so live sessions roll once on the orchestrator apply. Not applied here.
