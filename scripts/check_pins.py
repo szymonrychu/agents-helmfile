@@ -20,6 +20,11 @@ red although the build was published. So a check run that is not green still cou
 the job of the same name succeeded in an earlier attempt of the same workflow run (the run id is
 read from the check run's Actions URL, the attempts from the run's per-attempt jobs). A job that
 never succeeded in any attempt, or a check run that is not an Actions job, refuses the pin.
+
+Non-harbor exception: the agents-embeddings release runs the upstream Hugging Face TEI image
+(ghcr.io/huggingface/text-embeddings-inference), pinned by exact tag plus sha256 digest. It is
+not a szymonrychu build, so it has no commit to check here; tests/test_semver_pins.py
+(NON_HARBOR_EXCEPTIONS) and tests/test_embeddings_release.py guard its pin instead.
 """
 
 from __future__ import annotations

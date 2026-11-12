@@ -308,3 +308,13 @@ releases:
       purpose: agents
       application: agents-web
     <<: *default
+
+  # Local chart (no upstream chart fits): TEI embedding server for agents-mindmap, no database.
+  - name: agents-embeddings
+    namespace: agents
+    chart: charts/agents-embeddings
+    timeout: 900
+    labels:
+      purpose: agents
+      application: agents-embeddings
+    <<: *default

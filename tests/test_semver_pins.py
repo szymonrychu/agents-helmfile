@@ -48,7 +48,14 @@ RELEASES = (
     "agents-vault",
     "agents-matrix-connector",
     "agents-web",
+    "agents-embeddings",
 )
+# Releases whose image is not a harbor containers build and so is outside the X.Y.Z rule above:
+# pinned instead by exact upstream tag plus sha256 digest (test_non_harbor_exceptions_pinned).
+NON_HARBOR_EXCEPTIONS = {
+    "agents-embeddings": "ghcr.io/huggingface/text-embeddings-inference",
+}
+NON_HARBOR_IMAGE = re.compile(r"^(?P<repo>[^:@\s]+):(?P<tag>[^@\s]+)@sha256:[0-9a-f]{64}$")
 
 
 def _installed_releases(helmfile_build) -> list[str]:
@@ -96,3 +103,11 @@ def test_release_images_are_semver(release, layered_values):
 def test_every_component_has_a_containers_image(layered_values):
     for component in COMPONENTS:
         assert _image_refs(layered_values(component)), f"{component}: no containers image found"
+
+
+@pytest.mark.parametrize(("release", "repo"), sorted(NON_HARBOR_EXCEPTIONS.items()))
+def test_non_harbor_exceptions_pinned(release, repo, layered_values):
+    match = NON_HARBOR_IMAGE.match(layered_values(release)["image"])
+    assert match, f"{release}: image must be <repo>:<tag>@sha256:<digest>"
+    assert match["repo"] == repo
+    assert not _image_refs(layered_values(release)), "a harbor image would belong in COMPONENTS"

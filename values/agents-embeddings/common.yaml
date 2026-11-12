@@ -1,0 +1,46 @@
+# Hugging Face text-embeddings-inference (CPU) serving the multilingual e5 model for
+# agents-mindmap (POST /v1/embeddings, 1024-dim vectors). Not a harbor build: pinned by exact
+# upstream tag plus sha256 digest (the one exception in tests/test_semver_pins.py).
+# The model is public: no Secret, no token. Spike numbers: .scratchpad/research-mindmaps/tei-spike.md.
+image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d
+
+# The served model name stays the full model id (no --served-model-name); it is the mindmap
+# embedder_model setting.
+args:
+  - --model-id
+  - intfloat/multilingual-e5-large-instruct
+  - --port
+  - "80"
+
+# ClusterIP only, no ingress: reached as http://agents-embeddings.agents.svc.
+service:
+  type: ClusterIP
+  port: 80
+
+# Spike: RSS 4.34 GiB after batches, VmHWM 4.53 GB.
+resources:
+  requests:
+    cpu: "2"
+    memory: 5Gi
+  limits:
+    memory: 6Gi
+
+# HF cache (/data): the cold download is about 160 s, a warm restart about 6 s.
+persistence:
+  enabled: true
+  mountPath: /data
+  size: 10Gi
+  storageClass: rook-ceph
+
+probes:
+  startup:
+    path: /health
+    periodSeconds: 10
+    failureThreshold: 60
+  readiness:
+    path: /health
+    periodSeconds: 10
+  liveness:
+    path: /health
+    periodSeconds: 20
+    failureThreshold: 6
