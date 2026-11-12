@@ -72,7 +72,8 @@ def test_pull_secret_for_plugin_sidecar(layered_values, release):
 
 
 # Tag only: a digest breaks the harbor webhook exclude (the tag is dropped, the exclude misses).
-STANDARD_IMAGE = "ghcr.io/cloudnative-pg/postgresql:16.15-standard-bookworm"
+# Direct ghcr pull is 403 with regcred; the harbor proxy is the path here, and an explicit harbor host avoids the webhook rewrite mismatch
+STANDARD_IMAGE = "harbor.szymonrichert.pl/proxy-ghcr/cloudnative-pg/postgresql:16.15-standard-bookworm"
 
 
 @pytest.mark.parametrize("release", DB_RELEASES)
