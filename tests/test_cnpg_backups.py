@@ -68,3 +68,15 @@ def test_every_db_release_covered(repo_root):
 def test_pull_secret_for_plugin_sidecar(layered_values, release):
     """The injected plugin sidecar image is pulled through the Harbor proxy."""
     assert {"name": "regcred"} in layered_values(release)["cluster"]["imagePullSecrets"]
+
+
+STANDARD_IMAGE = re.compile(
+    r"^ghcr\.io/cloudnative-pg/postgresql:16\.15-standard-bookworm@sha256:[0-9a-f]{64}$"
+)
+
+
+@pytest.mark.parametrize("release", DB_RELEASES)
+def test_standard_image_pinned(layered_values, release):
+    v = layered_values(release)
+    assert STANDARD_IMAGE.match(v["cluster"]["imageName"])
+    assert v["version"]["postgresql"] == "16"

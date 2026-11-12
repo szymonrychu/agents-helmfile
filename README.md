@@ -347,8 +347,9 @@ Order: unused/low-risk first, `agents-orchestrator-db` and `agents-history-db` l
 4. Check `ContinuousArchiving` is true, then take a plugin backup (`kubectl cnpg backup <name>-db-cluster -n agents -m plugin
    --plugin-name barman-cloud.cloudnative-pg.io`) and confirm it completes.
 
-Image move to `standard` (separate change, after the plugin is live on that CNPG cluster): `standard` images carry no Barman
-binaries, so the plugin must come first. Before each switch run `SELECT datname, datcollate, datctype FROM pg_database`
+Image: every `*-db` sets the chart's `imageName` to `ghcr.io/cloudnative-pg/postgresql:16.15-standard-bookworm@sha256:<digest>`,
+the digest of the multi-arch index resolved once from ghcr.io; `version.postgresql` stays "16". Applied per database after the plugin is live on it.
+`standard` images carry no Barman binaries, so the plugin must come first. Before each switch run `SELECT datname, datcollate, datctype FROM pg_database`
 (all checked databases are C/C). Rollback order: revert the image first, then the backup method.
 
 Metric rename: `cnpg_collector_last_failed_backup_timestamp` becomes
