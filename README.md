@@ -326,6 +326,32 @@ differs through values).
 
 Projects stage 1 apply order: agents-orchestrator (6.8.1), then agents-taskboard (0.4.0, needs the orchestrator's `X-Orch-Projects` header), then agents-web (1.6.0). Releases are git tags: verify a pin with `git ls-remote --tags https://github.com/szymonrychu/<repo> v<ver>`.
 
+## agents-mindmap
+
+Releases: `agents-mindmap-db` (CNPG database `mindmap`, 5Gi, `postInitApplicationSQL` creates `vector`; the service's own
+migration creates `pg_trgm`) and `agents-mindmap` (deployments `-web`, `-service` and the `-notifier` worker). The web pod sits
+behind the same SSO as the orchestrator (oauth2-proxy annotations from the `oauth2Proxy` values) and is served at
+`https://lab.szymonrichert.pl/mindmap`; the service listener (port 8082, bearer relay token) is reached in-cluster through the
+`agents-mindmap-service` Service. The embedder stays off until the embeddings rollout PR; the delegate listener is not rendered (no caller).
+
+The chart renders no Secret, so the three tokens are raw Secrets applied by the release hook from `values/agents-mindmap/raw/`.
+`bootstrap_mindmap` in `scripts/bootstrap-secrets.sh` writes each pair once (both files or neither, never rotated, never printed):
+
+- mindmap to orchestrator: Secret `agents-mindmap-orchestrator-token`, and the orchestrator's sha256
+  `values/agents-orchestrator/service-token-agents-mindmap.secrets.yaml` (listed on the orchestrator release).
+- orchestrator relay to mindmap: Secret `agents-mindmap-relay-token`, and the same value as `mindmap.token` in
+  `values/agents-orchestrator/mindmap-token.secrets.yaml`. That file is deliberately not listed on the orchestrator release until the
+  relay wiring PR sets `mindmap.url` too (the chart wants URL and token together).
+- mindmap to taskboard delegate listener: Secret `agents-mindmap-taskboard-token`, and the same value as `mindmapTokens` in
+  `values/agents-taskboard/mindmap-token.secrets.yaml` (listed on the taskboard release; accepted on the external-changes route only).
+
+The backup credentials `values/agents-mindmap-db/default.secrets.yaml` are a byte copy of the other databases' file (the S3 path
+differs through values).
+
+Apply order (one release at a time, `-- --selector name=<release>`): the standard-image move for the databases must be complete first
+(pgvector), then `agents-mindmap-db`, `agents-taskboard` (0.10.0, mindmap token and external-changes route), `agents-orchestrator`
+(7.17.0 and the mindmap verifier hash), then `agents-mindmap`. After the orchestrator apply, restart its api pods so they read the hash.
+
 ## CNPG plugin backups and standard image
 
 All ten `*-db` releases (chart `cnpg/cluster` 0.9.0) back up through the Barman Cloud plugin

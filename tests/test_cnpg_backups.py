@@ -11,6 +11,7 @@ DB_RELEASES = [
     "agents-app-connector-db",
     "agents-history-db",
     "agents-matrix-connector-db",
+    "agents-mindmap-db",
     "agents-schedule-db",
     "agents-taskboard-db",
     "agents-usage-db",
