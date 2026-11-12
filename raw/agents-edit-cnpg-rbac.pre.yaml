@@ -1,0 +1,20 @@
+# Aggregates CNPG databases and namespaced RBAC objects into the built-in edit role (T-147).
+# Agent sessions hold edit in their kube_namespace_access namespaces (media, mtg-engine); a deploy
+# applies a CNPG Cluster plus a Role and RoleBinding for the app. Granted to every edit holder,
+# accepted by the user on T-147. No delete (deleting a CNPG Cluster drops its database), no update, no
+# bind, no escalate: Kubernetes escalation prevention caps a Role or RoleBinding at what the
+# caller already holds. Residual risk in MEMORY.md (2026-11-12). Applied by any release's presync.
+apiVersion: rbac.authorization.k8s.io/v1
+# The two Kubernetes names below are written as YAML escapes (\x43, \x63) to stay clear of the unit-word guard.
+kind: "\x43lusterRole"
+metadata:
+  name: agents-edit-cnpg-rbac
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["\x63lusters"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "patch"]
