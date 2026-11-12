@@ -354,3 +354,20 @@ binaries, so the plugin must come first. Before each switch run `SELECT datname,
 Metric rename: `cnpg_collector_last_failed_backup_timestamp` becomes
 `barman_cloud_cloudnative_pg_io_last_failed_backup_timestamp` (and two more); update alerts and dashboards that read them.
 `agent-orchestrator-db` is hibernated: its values change but nothing rolls until it is woken.
+
+## agents-embeddings
+
+A local chart (`charts/agents-embeddings/`: Deployment, Service, PVC) running Hugging Face
+text-embeddings-inference (CPU) with `intfloat/multilingual-e5-large-instruct` for agents-mindmap.
+OpenAI-shaped `POST /v1/embeddings` returns 1024-dim vectors; reached in-cluster as
+`http://agents-embeddings.agents.svc` (internal Service on port 80, no ingress, no Secret, no database).
+
+- Image pinned by upstream tag plus digest (`cpu-1.9.4@sha256:...`), the one non-harbor exception to the
+  X.Y.Z rule. To bump: pull the new tag, read its digest, change `values/agents-embeddings/common.yaml`.
+- Runs non-root (uid 10001, read-only root filesystem, no capabilities, seccomp RuntimeDefault); the container listens on 8080 behind Service port 80, `/data` and `/tmp` are writable.
+- Model served under its full id (no `--served-model-name`); it must equal the mindmap `embedder_model`.
+- Resources from the spike: requests 5Gi memory, limits 6Gi. The 10Gi `rook-ceph` PVC at `/data` caches the
+  weights: first start downloads about 160 s (startup probe allows 10 min), later restarts about 6 s.
+- Apply alone: `mise run apply -- --selector name=agents-embeddings`. Check from a pod in `agents`:
+  `curl -s -X POST http://agents-embeddings/v1/embeddings -H 'Content-Type: application/json' -d '{"input":"hello","model":"intfloat/multilingual-e5-large-instruct"}'`
+  returns a 1024-element vector.

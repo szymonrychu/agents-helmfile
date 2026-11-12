@@ -1,0 +1,6 @@
+apiVersion: v2
+name: agents-embeddings
+description: Hugging Face text-embeddings-inference serving a public embedding model (OpenAI-shaped /v1/embeddings), no database, no Secret
+type: application
+version: 0.1.0
+appVersion: "cpu-1.9.4"
