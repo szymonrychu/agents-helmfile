@@ -10,12 +10,29 @@ args:
   - --model-id
   - intfloat/multilingual-e5-large-instruct
   - --port
-  - "80"
+  - "8080"
 
-# ClusterIP only, no ingress: reached as http://agents-embeddings.agents.svc.
+# Internal Service only (the default type), no ingress: reached as http://agents-embeddings.agents.svc.
+# The container listens on 8080 so it needs no root; the Service keeps port 80.
 service:
-  type: ClusterIP
   port: 80
+  containerPort: 8080
+
+# TEI runs as an arbitrary non-root uid: it only writes the model cache (/data, group-writable
+# through fsGroup) and a tmp dir, so the root filesystem is read-only.
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
 
 # Spike: RSS 4.34 GiB after batches, VmHWM 4.53 GB.
 resources:

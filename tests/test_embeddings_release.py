@@ -69,7 +69,7 @@ def test_embeddings_image_tag_and_digest(layered_values):
 def test_embeddings_no_ingress(layered_values):
     values = _values(layered_values)
     assert not values.get("ingress", {}).get("enabled", False)
-    assert values["service"] == {"type": "ClusterIP", "port": 80}
+    assert values["service"] == {"port": 80, "containerPort": 8080}
 
 
 def test_embeddings_resources_set(layered_values):
@@ -120,7 +120,42 @@ def test_chart_renders(repo_root):
     assert IMAGE_RE.match(ctr["image"])
     assert ctr["args"][ctr["args"].index("--model-id") + 1] == MODEL
     assert ctr["readinessProbe"]["httpGet"]["path"] == "/health"
-    assert {m["mountPath"] for m in ctr["volumeMounts"]} == {"/data"}
+    assert {m["mountPath"] for m in ctr["volumeMounts"]} == {"/data", "/tmp"}
     assert docs["Service"]["spec"]["ports"][0]["port"] == 80
-    assert docs["Service"]["spec"]["type"] == "ClusterIP"
+    assert "type" not in docs["Service"]["spec"]
     assert docs["Deployment"]["spec"]["strategy"]["type"] == "Recreate"
+
+
+def test_embeddings_security_context(layered_values):
+    sc = _values(layered_values)["securityContext"]
+    pod, ctr = sc["pod"], sc["container"]
+    assert pod["runAsNonRoot"] is True
+    assert pod["runAsUser"] > 0
+    assert pod["fsGroup"] > 0
+    assert pod["seccompProfile"] == {"type": "RuntimeDefault"}
+    assert ctr["allowPrivilegeEscalation"] is False
+    assert ctr["readOnlyRootFilesystem"] is True
+    assert ctr["capabilities"] == {"drop": ["ALL"]}
+    args = _values(layered_values)["args"]
+    assert int(args[args.index("--port") + 1]) >= 1024
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm not on PATH")
+def test_chart_renders_security_context(repo_root):
+    out = subprocess.run(
+        [
+            "helm", "template", REL, str(repo_root / "charts" / REL),
+            "-f", str(repo_root / "values" / REL / "common.yaml"),
+        ],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    docs = {d["kind"]: d for d in yaml.safe_load_all(out) if d}
+    spec = docs["Deployment"]["spec"]["template"]["spec"]
+    assert spec["securityContext"]["runAsNonRoot"] is True
+    assert spec["securityContext"]["seccompProfile"]["type"] == "RuntimeDefault"
+    ctr = spec["containers"][0]
+    assert ctr["securityContext"]["readOnlyRootFilesystem"] is True
+    assert ctr["securityContext"]["capabilities"]["drop"] == ["ALL"]
+    assert ctr["ports"][0]["containerPort"] == 8080
+    assert {m["mountPath"] for m in ctr["volumeMounts"]} == {"/data", "/tmp"}
+    assert docs["Service"]["spec"]["ports"][0]["targetPort"] == "http"

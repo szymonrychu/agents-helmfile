@@ -20,14 +20,18 @@ spec:
         app.kubernetes.io/name: {{ .Chart.Name }}
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
       containers:
         - name: tei
           image: {{ .Values.image | quote }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
           args:
             {{- toYaml .Values.args | nindent 12 }}
           ports:
             - name: http
-              containerPort: {{ .Values.service.port }}
+              containerPort: {{ .Values.service.containerPort }}
           # A cold start downloads the ONNX weights (about 3 minutes); the startup probe covers it.
           startupProbe:
             httpGet: {path: {{ .Values.probes.startup.path }}, port: http}
@@ -45,7 +49,11 @@ spec:
           volumeMounts:
             - name: data
               mountPath: {{ .Values.persistence.mountPath }}
+            - name: tmp
+              mountPath: /tmp
       volumes:
+        - name: tmp
+          emptyDir: {}
         - name: data
           {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:
