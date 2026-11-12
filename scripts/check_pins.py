@@ -7,7 +7,7 @@ Pin sources: the chart `version:` of the main-built releases in helmfile.yaml.go
 image tags in values/agents-orchestrator/common.yaml (`image.tag`, `agentImage`,
 `env.ORCH_AGENT_IMAGES`), values/agents-web/common.yaml, values/agents-usage/common.yaml,
 values/agents-taskboard/common.yaml, values/agents-history/common.yaml,
-values/agents-app-connector/common.yaml and values/agents-vault/common.yaml (`image.tag`). A chart maps to the
+values/agents-app-connector/common.yaml, values/agents-vault/common.yaml and values/agents-mindmap/common.yaml (`image.tag`). A chart maps to the
 repo named by its chart path, an image to the repo named by its image name, both under
 szymonrychu. `0.1.0-main.<sha7>` and an image sha7 resolve to that commit, a release version
 `X.Y.Z` through tag `vX.Y.Z`. A pin passes only when its commit has at least one check run and
@@ -47,6 +47,7 @@ TASKBOARD_VALUES = Path("values/agents-taskboard/common.yaml")
 HISTORY_VALUES = Path("values/agents-history/common.yaml")
 APP_CONNECTOR_VALUES = Path("values/agents-app-connector/common.yaml")
 VAULT_VALUES = Path("values/agents-vault/common.yaml")
+MINDMAP_VALUES = Path("values/agents-mindmap/common.yaml")
 CHART_RELEASES = (
     "agents-orchestrator",
     "agents-web",
@@ -58,6 +59,7 @@ CHART_RELEASES = (
     "agents-history",
     "agents-app-connector",
     "agents-vault",
+    "agents-mindmap",
 )
 GREEN = frozenset({"success", "neutral", "skipped"})
 MAIN_BUILD = re.compile(r"\d+\.\d+\.\d+-main\.([0-9a-f]{7,40})")
@@ -197,6 +199,13 @@ def _values_pins() -> list[Pin]:
         pins.append(_tag_pin("agents-vault:image.tag", "agents-vault", _dig(vault, "image.tag")))
     except Refused as exc:
         pins.append(Pin("agents-vault:image.tag", None, None, str(exc)))
+    try:
+        mindmap = _load(MINDMAP_VALUES)
+        pins.append(
+            _tag_pin("agents-mindmap:image.tag", "agents-mindmap", _dig(mindmap, "image.tag"))
+        )
+    except Refused as exc:
+        pins.append(Pin("agents-mindmap:image.tag", None, None, str(exc)))
     return pins
 
 

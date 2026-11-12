@@ -11,9 +11,9 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The v0.9.0 release commit afc42d0: chart and image from one commit.
-CHART = "0.1.0-main.afc42d0"
-TAG = "0.9.0"
+# The v0.10.0 release commit 2baf1a7 (external-changes route, PR #12): chart and image from one commit.
+CHART = "0.1.0-main.2baf1a7"
+TAG = "0.10.0"
 
 
 def _block(repo_root, name: str) -> str:
@@ -40,6 +40,7 @@ def test_taskboard_release_declared_with_db_need(repo_root):
     assert "purpose: agents" in block
     assert "values/agents-taskboard/default.secrets.yaml" in block
     assert "values/agents-taskboard/relay-token.secrets.yaml" in block
+    assert "values/agents-taskboard/mindmap-token.secrets.yaml" in block
     # the release is listed after the database it needs
     text = (repo_root / "helmfile.yaml.gotmpl").read_text()
     assert "  - name: agents-taskboard-db\n" in text

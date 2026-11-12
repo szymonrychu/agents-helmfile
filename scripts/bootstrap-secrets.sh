@@ -39,6 +39,12 @@ VLT_FILE="values/agents-vault/default.secrets.yaml"
 VLT_HASH_FILE="values/agents-orchestrator/service-token-agents-vault.secrets.yaml"
 VLT_TOKENS_FILE="values/agents-vault/raw/service-tokens.agents-vault.pre.secrets.yaml"
 VLT_ORCH_FILE="values/agents-orchestrator/vault-token.secrets.yaml"
+MM_ORCH_FILE="values/agents-mindmap/raw/orchestrator-token.agents-mindmap.pre.secrets.yaml"
+MM_HASH_FILE="values/agents-orchestrator/service-token-agents-mindmap.secrets.yaml"
+MM_RELAY_FILE="values/agents-mindmap/raw/relay-token.agents-mindmap.pre.secrets.yaml"
+MM_RELAY_ORCH_FILE="values/agents-orchestrator/mindmap-token.secrets.yaml"
+MM_TB_RAW_FILE="values/agents-mindmap/raw/taskboard-token.agents-mindmap.pre.secrets.yaml"
+MM_TB_FILE="values/agents-taskboard/mindmap-token.secrets.yaml"
 TOKEN_KEY="${BOOTSTRAP_TOKEN_KEY:-CLAUDE_CODE_OAUTH_TOKEN}"
 # Namespaces searched in order; the first holding the key name wins (tatara, magic-trainer, mtg-engine).
 read -r -a NAMESPACES <<<"${BOOTSTRAP_NAMESPACES:-tatara magic-trainer mtg-engine}"
@@ -283,6 +289,42 @@ bootstrap_vault_token() {
   fi
 }
 
+# bootstrap_mindmap_pair <raw file> <raw Secret name> <peer file> <peer jq program>:
+# both files or neither. One new token goes to the raw Secret (key token) agents-mindmap reads and
+# to the peer file; the peer program gets it as $ENV.TOKEN (peers hold a hash, the orchestrator's
+# copy or the taskboard's list). Never rotates, never half-writes.
+bootstrap_mindmap_pair() {
+  local raw_file="$1" secret_name="$2" peer_file="$3" peer_program="$4" tk
+  if [[ -e "$raw_file" && -e "$peer_file" ]]; then return 0; fi
+  if [[ -e "$raw_file" || -e "$peer_file" ]]; then
+    die "exactly one of $raw_file and $peer_file exists; refusing to rotate or half-write"
+  fi
+  tk="$(openssl rand -hex 32)"
+  TOKEN="$tk" NAME="$secret_name" jq -n '{
+      apiVersion: "v1", kind: "Secret", metadata: {name: $ENV.NAME},
+      type: "Opaque", stringData: {token: $ENV.TOKEN}}' |
+    encrypt_to "$raw_file"
+  if ! TOKEN="$tk" DIGEST="$(printf '%s' "$tk" | openssl dgst -sha256 -r | cut -d' ' -f1)" \
+    jq -n "$peer_program" |
+    encrypt_to "$peer_file"; then
+    rm -f "$raw_file"
+    die "writing $peer_file failed; removed $raw_file"
+  fi
+}
+
+# bootstrap_mindmap: the three tokens of agents-mindmap, each its own value (secrets invariant 9):
+# mindmap to orchestrator (the orchestrator holds the sha256), the orchestrator relay to mindmap
+# (the orchestrator's copy lands with the relay wiring) and mindmap to the taskboard delegate
+# listener (the taskboard's mindmapTokens). No mindmap delegate token: that listener has no caller.
+bootstrap_mindmap() {
+  bootstrap_mindmap_pair "$MM_ORCH_FILE" agents-mindmap-orchestrator-token "$MM_HASH_FILE" \
+    '{serviceApi: {tokenHashes: {"agents-mindmap": $ENV.DIGEST}}}'
+  bootstrap_mindmap_pair "$MM_RELAY_FILE" agents-mindmap-relay-token "$MM_RELAY_ORCH_FILE" \
+    '{mindmap: {token: $ENV.TOKEN}}'
+  bootstrap_mindmap_pair "$MM_TB_RAW_FILE" agents-mindmap-taskboard-token "$MM_TB_FILE" \
+    '{mindmapTokens: $ENV.TOKEN}'
+}
+
 bootstrap_orchestrator
 bootstrap_database
 bootstrap_service_token agents-webhook "$WH_FILE" "$WH_TOKEN_FILE"
@@ -299,4 +341,5 @@ bootstrap_history_ingest_token
 bootstrap_service_token agents-app-connector "$APP_FILE" "$APP_HASH_FILE"
 bootstrap_service_token agents-vault "$VLT_FILE" "$VLT_HASH_FILE"
 bootstrap_vault_token
+bootstrap_mindmap
 echo "secrets bootstrap done (existing files left untouched)" >&2

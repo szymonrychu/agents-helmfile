@@ -11,9 +11,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "7.16.0"
-# The chart of the v7.16.0 release (main 28bd033): chart and image from one commit.
-CHART = "0.1.0-main.28bd033"
+PIN = "7.17.0"
+# The chart of the v7.17.0 release (main b99feda): chart and image from one commit.
+CHART = "0.1.0-main.b99feda"
 WRAPPER_PIN = "0.14.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
@@ -358,8 +358,10 @@ def test_values_dir_moved(repo_root):
         f"values/{REL}/common.yaml",
         f"values/{REL}/default.secrets.yaml",
         f"values/{REL}/history-token.secrets.yaml",
+        f"values/{REL}/mindmap-token.secrets.yaml",
         f"values/{REL}/service-token-agents-app-connector.secrets.yaml",
         f"values/{REL}/service-token-agents-matrix-connector.secrets.yaml",
+        f"values/{REL}/service-token-agents-mindmap.secrets.yaml",
         f"values/{REL}/service-token-agents-schedule.secrets.yaml",
         f"values/{REL}/service-token-agents-taskboard.secrets.yaml",
         f"values/{REL}/service-token-agents-usage.secrets.yaml",

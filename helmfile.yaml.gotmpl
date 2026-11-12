@@ -68,7 +68,7 @@ releases:
   - name: agents-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-orchestrator
-    version: 0.1.0-main.28bd033
+    version: 0.1.0-main.b99feda
     timeout: 600
     needs:
       - agents/agents-orchestrator-db
@@ -89,6 +89,7 @@ releases:
     - values/agents-orchestrator/taskboard-token.secrets.yaml
     - values/agents-orchestrator/history-token.secrets.yaml
     - values/agents-orchestrator/service-token-agents-app-connector.secrets.yaml
+    - values/agents-orchestrator/service-token-agents-mindmap.secrets.yaml
     - values/agents-orchestrator/service-token-agents-vault.secrets.yaml
     - values/agents-orchestrator/vault-token.secrets.yaml
 
@@ -180,6 +181,17 @@ releases:
       application: agents-vault
     <<: *default
 
+  - name: agents-mindmap-db
+    namespace: agents
+    chart: cnpg/cluster
+    version: 0.9.0
+    force: false
+    timeout: 600
+    labels:
+      purpose: agents
+      application: agents-mindmap
+    <<: *default
+
   - name: agents-webhook
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
@@ -209,7 +221,7 @@ releases:
   - name: agents-taskboard
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-taskboard
-    version: 0.1.0-main.afc42d0
+    version: 0.1.0-main.2baf1a7
     timeout: 600
     needs:
       - agents/agents-taskboard-db
@@ -218,11 +230,12 @@ releases:
       purpose: agents
       application: agents-taskboard
     <<: *default
-    # Overrides the default anchor's list: the relay and delegate token files come after default.
+    # Overrides the default anchor's list: the relay, delegate and mindmap token files come after default.
     secrets:
     - values/agents-taskboard/default.secrets.yaml
     - values/agents-taskboard/relay-token.secrets.yaml
     - values/agents-taskboard/delegate-token.secrets.yaml
+    - values/agents-taskboard/mindmap-token.secrets.yaml
 
   - name: agents-app-connector
     namespace: agents
@@ -277,6 +290,19 @@ releases:
     labels:
       purpose: agents
       application: agents-vault
+    <<: *default
+
+  - name: agents-mindmap
+    namespace: agents
+    chart: oci://harbor.szymonrichert.pl/charts/agents-mindmap
+    version: 0.1.0-main.b6fdd1f
+    timeout: 600
+    needs:
+      - agents/agents-mindmap-db
+      - agents/agents-orchestrator
+    labels:
+      purpose: agents
+      application: agents-mindmap
     <<: *default
 
   - name: agents-matrix-connector

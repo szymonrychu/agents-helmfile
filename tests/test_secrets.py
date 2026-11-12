@@ -61,6 +61,15 @@ VLT_ORCH = "values/agents-orchestrator/vault-token.secrets.yaml"
 VLT_DB = "values/agents-vault-db/default.secrets.yaml"
 # Every file the vault bootstraps write; the sandboxes of the other tests pre-create them all.
 VAULT_FILES = (VLT, VLT_HASH, VLT_TOKENS, VLT_ORCH)
+MM_ORCH = "values/agents-mindmap/raw/orchestrator-token.agents-mindmap.pre.secrets.yaml"
+MM_RELAY = "values/agents-mindmap/raw/relay-token.agents-mindmap.pre.secrets.yaml"
+MM_TB = "values/agents-mindmap/raw/taskboard-token.agents-mindmap.pre.secrets.yaml"
+MM_HASH = "values/agents-orchestrator/service-token-agents-mindmap.secrets.yaml"
+MM_RELAY_ORCH = "values/agents-orchestrator/mindmap-token.secrets.yaml"
+MM_TB_FILE = "values/agents-taskboard/mindmap-token.secrets.yaml"
+MM_DB = "values/agents-mindmap-db/default.secrets.yaml"
+# Every file the mindmap bootstrap writes; the sandboxes of the other tests pre-create them all.
+MINDMAP_FILES = (MM_ORCH, MM_RELAY, MM_TB, MM_HASH, MM_RELAY_ORCH, MM_TB_FILE)
 SECRET_VARS = ("token", "master", "access", "secret", "plain", "value")
 
 
@@ -102,6 +111,13 @@ def _load(rel: str) -> dict:
         (VLT_HASH, {"serviceApi.tokenHashes.agents-vault"}),
         (VLT_ORCH, {"vault.token"}),
         (VLT_TOKENS, SECRET_KEYS),
+        (MM_ORCH, (SECRET_KEYS - {"stringData.tokens"}) | {"stringData.token"}),
+        (MM_RELAY, (SECRET_KEYS - {"stringData.tokens"}) | {"stringData.token"}),
+        (MM_TB, (SECRET_KEYS - {"stringData.tokens"}) | {"stringData.token"}),
+        (MM_HASH, {"serviceApi.tokenHashes.agents-mindmap"}),
+        (MM_RELAY_ORCH, {"mindmap.token"}),
+        (MM_TB_FILE, {"mindmapTokens"}),
+        (MM_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (VLT_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (HIS_INGEST, (SECRET_KEYS - {"stringData.tokens"}) | {"stringData.token"}),
         (ADMIN_WH, SECRET_KEYS),
@@ -181,6 +197,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
+        *MINDMAP_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -203,6 +220,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
+        *MINDMAP_FILES,
     ):
         assert (tmp_path / rel).read_text() == "sentinel: keep\n"
     assert not (tmp_path / "calls").exists(), "touched kubectl/sops/openssl despite existing files"
@@ -255,6 +273,7 @@ def test_webhook_secrets_never_rotate(tmp_path):
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
+        *MINDMAP_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -310,6 +329,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
+        *MINDMAP_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -371,6 +391,7 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
+        *MINDMAP_FILES,
     ):
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -782,6 +803,18 @@ def _vault_sandbox(tmp_path: Path) -> Path:
     return bindir
 
 
+def _mindmap_sandbox(tmp_path: Path) -> Path:
+    """Every target present except the six mindmap files."""
+    bindir = _schedule_sandbox(tmp_path)
+    for rel in (SCH, SCH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    for rel in MINDMAP_FILES:
+        (tmp_path / rel).unlink()
+    return bindir
+
+
 def _history_sandbox(tmp_path: Path) -> Path:
     """Every target present except the three history files."""
     bindir = _schedule_sandbox(tmp_path)
@@ -1074,3 +1107,74 @@ def test_delegate_tokens_not_printed():
         text = (ROOT / rel).read_text()
         assert not re.search(r"\b[0-9a-f]{64}\b", text), f"{rel} holds a plaintext token"
     assert "delegate-token" not in SCRIPT.read_text()
+
+
+def test_mindmap_secrets_bootstrapped(tmp_path):
+    bindir = _mindmap_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == sorted(rel.replace("/", "_") for rel in MINDMAP_FILES)
+    for rel in MINDMAP_FILES:
+        assert (tmp_path / rel).read_text() == "sops: stub\n"
+    # mindmap to orchestrator: the raw Secret and the orchestrator's sha256 of the token
+    own = _plain(tmp_path, MM_ORCH)["stringData"]["token"]
+    assert _plain(tmp_path, MM_ORCH) == _manifest("agents-mindmap-orchestrator-token", "token", own)
+    assert re.fullmatch(r"[0-9a-f]{64}", own)
+    assert _plain(tmp_path, MM_HASH) == {
+        "serviceApi": {"tokenHashes": {"agents-mindmap": hashlib.sha256(own.encode()).hexdigest()}}
+    }
+    # orchestrator relay to mindmap: the raw Secret and the orchestrator's copy, the same token
+    relay = _plain(tmp_path, MM_RELAY_ORCH)
+    assert relay == {"mindmap": {"token": relay["mindmap"]["token"]}}
+    assert _plain(tmp_path, MM_RELAY) == _manifest(
+        "agents-mindmap-relay-token", "token", relay["mindmap"]["token"]
+    )
+    # mindmap to taskboard delegate: the raw Secret and the taskboard's token list
+    tb = _plain(tmp_path, MM_TB_FILE)
+    assert set(tb) == {"mindmapTokens"}
+    assert _plain(tmp_path, MM_TB) == _manifest(
+        "agents-mindmap-taskboard-token", "token", tb["mindmapTokens"]
+    )
+    tokens = {own, relay["mindmap"]["token"], tb["mindmapTokens"]}
+    assert len(tokens) == 3, "one token, one caller, one verifier (invariant 9)"
+    assert all(re.fullmatch(r"[0-9a-f]{64}", t) for t in tokens)
+
+
+def test_mindmap_token_pairs_never_rotate(tmp_path):
+    bindir = _mindmap_sandbox(tmp_path)
+    assert _run(tmp_path, bindir).returncode == 0
+    for f in (tmp_path / "plain").iterdir():
+        f.unlink()
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+    for pair in ((MM_ORCH, MM_HASH), (MM_RELAY, MM_RELAY_ORCH), (MM_TB, MM_TB_FILE)):
+        for present, absent in (pair, pair[::-1]):
+            (tmp_path / absent).unlink()
+            (tmp_path / present).write_text("sentinel: keep\n")
+            r = _run(tmp_path, bindir)
+            assert r.returncode == 1
+            assert pair[0] in r.stderr and pair[1] in r.stderr
+            assert not (tmp_path / absent).exists()
+            assert (tmp_path / present).read_text() == "sentinel: keep\n"
+            assert _encrypted(tmp_path) == []
+            (tmp_path / absent).write_text("sentinel: keep\n")
+
+
+def test_mindmap_tokens_not_printed(tmp_path):
+    for name, bash_args in (("plain-run", ()), ("traced-run", ("-x",))):
+        root = tmp_path / name
+        root.mkdir()
+        bindir = _mindmap_sandbox(root)
+        r = _run(root, bindir, *bash_args)
+        assert r.returncode == 0, r.stderr
+        own = _plain(root, MM_ORCH)["stringData"]["token"]
+        secrets = [
+            own,
+            hashlib.sha256(own.encode()).hexdigest(),
+            _plain(root, MM_RELAY_ORCH)["mindmap"]["token"],
+            _plain(root, MM_TB_FILE)["mindmapTokens"],
+        ]
+        for stream in (r.stdout, r.stderr):
+            for value in secrets:
+                assert value not in stream, f"{name}: a mindmap secret was printed"

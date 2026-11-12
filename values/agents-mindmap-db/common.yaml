@@ -1,0 +1,63 @@
+version:
+  postgresql: "16"
+
+cluster:
+  # renovate: image=ghcr.io/cloudnative-pg/postgresql
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.15-standard-bookworm@sha256:4f151a9907fd7e8e487e4dc28c53e84b3bced2bd77a1590c0daaf237bd9bc4d9
+  # The barman cloud plugin sidecar image comes through the Harbor proxy.
+  imagePullSecrets:
+    - name: regcred
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+  enablePDB: false
+  instances: 1
+  storage:
+    size: 5Gi
+    storageClass: rook-ceph
+
+  walStorage:
+    enabled: true
+    size: 2Gi
+    storageClass: rook-ceph
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  monitoring:
+    enabled: false
+
+  # CNPG generates the agents-mindmap-db-cluster-app Secret (uri, host, port,
+  # dbname, user, password); the agents-mindmap release reads it.
+  initdb:
+    database: mindmap
+    owner: mindmap
+    # pgvector for the embedder; pg_trgm is created by the service's own migration. The standard
+    # image pinned above ships pgvector.
+    postInitApplicationSQL:
+      - CREATE EXTENSION IF NOT EXISTS vector
+
+backups:
+  enabled: true
+  provider: s3
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  s3:
+    region: eu-central-1
+    bucket: database-backup-szymonrychu
+    path: /agents-mindmap-db/
+    # accessKey / secretKey come from default.secrets.yaml (SOPS)
+  retentionPolicy: "30d"
+  scheduledBackups:
+    - name: daily-backup
+      schedule: "0 0 3 * * *"
+      backupOwnerReference: self
+      method: plugin
+      pluginConfiguration:
+        name: barman-cloud.cloudnative-pg.io

@@ -37,6 +37,7 @@ CHARTS = (
     "agents-history",
     "agents-app-connector",
     "agents-vault",
+    "agents-mindmap",
 )
 GREEN = (
     ("lint", "completed", "success"),
@@ -141,6 +142,7 @@ def tree(tmp_path):
         "agents-history",
         "agents-app-connector",
         "agents-vault",
+        "agents-mindmap",
     ):
         (root / "values" / release).mkdir()
         shutil.copy(ROOT / "values" / release / "common.yaml", root / "values" / release)
@@ -219,6 +221,8 @@ def expected_pins(tree: Path) -> dict[str, tuple[str, str]]:
     pins["agents-app-connector:image.tag"] = ("agents-app-connector", str(app["image"]["tag"]))
     vault = yaml.safe_load((tree / "values/agents-vault/common.yaml").read_text())
     pins["agents-vault:image.tag"] = ("agents-vault", str(vault["image"]["tag"]))
+    mindmap = yaml.safe_load((tree / "values/agents-mindmap/common.yaml").read_text())
+    pins["agents-mindmap:image.tag"] = ("agents-mindmap", str(mindmap["image"]["tag"]))
     agent = orch["agentImage"].rsplit("/", 1)[1].split(":")
     pins["agents-orchestrator:agentImage"] = (agent[0], agent[1])
     for image in orch["env"]["ORCH_AGENT_IMAGES"].split(","):
@@ -286,10 +290,10 @@ def test_every_pin_resolved(tree):
 
 
 def test_deployed_orchestrator_and_wrapper_pins_resolve(tree):
-    """The orchestrator 7.16.0 and wrapper 0.14.0 pins resolve through their v tags and pass."""
+    """The orchestrator 7.17.0 and wrapper 0.14.0 pins resolve through their v tags and pass."""
     expected = expected_pins(tree)
-    assert expected["agents-orchestrator:image.tag"] == ("agents-orchestrator", "7.16.0")
-    assert expected["agents-orchestrator"] == ("agents-orchestrator", "0.1.0-main.28bd033")
+    assert expected["agents-orchestrator:image.tag"] == ("agents-orchestrator", "7.17.0")
+    assert expected["agents-orchestrator"] == ("agents-orchestrator", "0.1.0-main.b99feda")
     wrapper = [label for label, (repo, _) in expected.items() if repo == "claude-code-wrapper"]
     assert len(wrapper) == 2
     assert {expected[label] for label in wrapper} == {("claude-code-wrapper", "0.14.0")}
@@ -297,8 +301,8 @@ def test_deployed_orchestrator_and_wrapper_pins_resolve(tree):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     paths = {next(a for a in call if a.startswith("repos/")).split("?")[0] for call in calls}
     assert "repos/szymonrychu/claude-code-wrapper/commits/v0.14.0" in paths
-    assert "repos/szymonrychu/agents-orchestrator/commits/v7.16.0" in paths
-    assert "repos/szymonrychu/agents-orchestrator/commits/28bd033" in paths
+    assert "repos/szymonrychu/agents-orchestrator/commits/v7.17.0" in paths
+    assert "repos/szymonrychu/agents-orchestrator/commits/b99feda" in paths
 
 
 def test_green_pins_pass(tree):
@@ -632,6 +636,18 @@ def test_release_version_resolves_through_tag(tree):
             "agents-vault",
             "helmfile.yaml.gotmpl",
             r"(charts/agents-vault\n)\s+version: \S+\n",
+            r"\1",
+        ),
+        (
+            "agents-mindmap:image.tag",
+            "values/agents-mindmap/common.yaml",
+            r'^(  tag: )"\S+"',
+            r"\g<1>1343836",
+        ),
+        (
+            "agents-mindmap",
+            "helmfile.yaml.gotmpl",
+            r"(charts/agents-mindmap\n)\s+version: \S+\n",
             r"\1",
         ),
     ],

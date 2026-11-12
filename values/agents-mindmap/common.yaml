@@ -1,0 +1,77 @@
+image:
+  repository: harbor.szymonrichert.pl/containers/agents-mindmap
+  # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
+  tag: "0.1.0"
+
+# Fallback links are <publicBaseUrl>/mindmaps/M-<n>: the agents-web host, not the /mindmap api.
+publicBaseUrl: https://lab.szymonrichert.pl
+
+# Connection URI from the CNPG app Secret made by the agents-mindmap-db release.
+postgres:
+  existingSecret: agents-mindmap-db-cluster-app
+  existingSecretKey: uri
+
+# The chart renders no Secret: the three tokens below are raw Secrets applied by the release hook
+# from values/agents-mindmap/raw/ (SOPS, made by scripts/bootstrap-secrets.sh). Each token has one
+# sender and one verifier (secrets invariant 9).
+#
+# Toward the orchestrator service port (8002 takes bearer service tokens; 8000 answers 403 from its
+# CIDR allowlist). The orchestrator holds its sha256 (service-token-agents-mindmap.secrets.yaml).
+orchestrator:
+  url: http://agents-orchestrator-services:8002
+  tokenSecret:
+    name: agents-mindmap-orchestrator-token
+    key: token
+
+# The bearer the service listener verifies: the orchestrator's mindmap relay sends it (its copy,
+# values/agents-orchestrator/mindmap-token.secrets.yaml, is wired together with the relay URL).
+relayTokenSecret:
+  name: agents-mindmap-relay-token
+  key: token
+
+# The notifier posts task changes to the taskboard delegate listener (port 8003, in-cluster only,
+# no ingress); the taskboard holds the same value as mindmapTokens and accepts it on the
+# external-changes route only. No mindmap delegate listener: it has no caller in this epic.
+taskboard:
+  url: http://agents-taskboard-delegate:8003
+  tokenSecret:
+    name: agents-mindmap-taskboard-token
+    key: token
+
+notifier:
+  enabled: true
+
+# The embedder (embedder.enabled, embedder.url http://agents-embeddings.agents.svc) is enabled by
+# the embeddings rollout PR, after the golden-set eval against the live TEI.
+
+# Only the oauth2-proxy sidecar (injected on the web pod from the oauth2Proxy annotations) reaches
+# the web api, over 127.0.0.1. Widening this bypasses SSO.
+allowedCidrs:
+  - 127.0.0.1/32
+
+# SSO on the web pod only; the service listener (orchestrator relay, bearer token) and the
+# notifier stay unannotated.
+oauth2Proxy:
+  enabled: true
+  redeemUrl: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
+  secretName: agents-orchestrator-proxy
+  secretNamespace: agents
+
+# Shares the lab host and its certificate with agents-orchestrator (agents-orchestrator-tls, owned
+# by that release's cert-manager annotation), so no cert-manager annotation here.
+ingress:
+  enabled: true
+  className: nginx
+  # The chart has no denySourceRanges key, so the ingress-nginx denylist is set directly. The
+  # cluster node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
+  annotations:
+    nginx.ingress.kubernetes.io/denylist-source-range: "192.168.1.26/32,192.168.1.27/32,192.168.1.28/32,192.168.1.29/32,192.168.1.65/32"
+  hosts:
+    - host: lab.szymonrichert.pl
+      paths:
+        - path: /mindmap
+          pathType: Prefix
+  tls:
+    - secretName: agents-orchestrator-tls
+      hosts:
+        - lab.szymonrichert.pl
