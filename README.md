@@ -348,8 +348,8 @@ The chart renders no Secret, so the three tokens are raw Secrets applied by the 
 The backup credentials `values/agents-mindmap-db/default.secrets.yaml` are a byte copy of the other databases' file (the S3 path
 differs through values).
 
-Apply order (one release at a time, `-- --selector name=<release>`): the standard-image move for the databases must be complete first
-(pgvector), then `agents-mindmap-db`, `agents-taskboard` (0.10.0, mindmap token and external-changes route), `agents-orchestrator`
+Apply order (one release at a time, `-- --selector name=<release>`): `agents-mindmap-db` (standard image, pgvector),
+then `agents-taskboard` (0.10.0, mindmap token and external-changes route), `agents-orchestrator`
 (7.17.0 and the mindmap verifier hash), then `agents-mindmap`. After the orchestrator apply, restart its api pods so they read the hash.
 
 ## CNPG plugin backups and standard image
