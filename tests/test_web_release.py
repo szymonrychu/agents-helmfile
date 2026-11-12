@@ -100,6 +100,7 @@ def test_usage_backend_configured(layered_values):
         "history",
         "devices",
         "vault",
+        "mindmap",
     ]
 
 
@@ -167,3 +168,8 @@ def test_web_release_chart_renders_unique_pull_secrets(repo_root):
                 f"{doc['kind']}/{doc['metadata']['name']}: {names}"
             )
     assert pods
+
+
+def test_web_mindmap_backend(layered_values):
+    backends = layered_values(REL)["backends"]
+    assert {"id": "mindmap", "label": "Mindmaps", "basePath": "/mindmap/api/v1"} in backends

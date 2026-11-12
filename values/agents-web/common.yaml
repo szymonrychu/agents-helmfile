@@ -39,6 +39,9 @@ backends:
   - id: vault
     label: Vault
     basePath: /vault/v1
+  - id: mindmap
+    label: Mindmaps
+    basePath: /mindmap/api/v1
 
 # The UI owns "/" of the host. The orchestrator ingress owns /api and the only
 # cert-manager annotations, so there is one Certificate for agents-orchestrator-tls.
