@@ -325,3 +325,30 @@ The backup credentials `values/agents-vault-db/default.secrets.yaml` are a byte 
 differs through values).
 
 Projects stage 1 apply order: agents-orchestrator (6.8.1), then agents-taskboard (0.4.0, needs the orchestrator's `X-Orch-Projects` header), then agents-web (1.6.0). Releases are git tags: verify a pin with `git ls-remote --tags https://github.com/szymonrychu/<repo> v<ver>`.
+
+## CNPG plugin backups and standard image
+
+All ten `*-db` releases (chart `cnpg/cluster` 0.9.0) back up through the Barman Cloud plugin
+(`barman-cloud.cloudnative-pg.io`, release `plugin-barman-cloud` in namespace `postgres-operator`), not the
+deprecated in-tree `barmanObjectStore` (removed in CNPG 1.32.0). Values per release: the CNPG Cluster `plugins`
+(`isWALArchiver: true`), `backups.method: plugin` with `pluginConfiguration`, and the same on each scheduled backup.
+Bucket, path, region, retention and `wal.maxParallel` are unchanged; the chart builds the `ObjectStore` from them.
+
+Per-database steps (one database at a time; each CNPG cluster has one instance, so each switch is a short outage of that database).
+Order: unused/low-risk first, `agents-orchestrator-db` and `agents-history-db` last.
+
+1. `kubectl cnpg status <name>-db-cluster -n agents` is healthy (release `<name>-db`); on-demand backup first
+   (`kubectl cnpg backup <name>-db-cluster -n agents`) and wait for `completed`.
+2. `mise run diff -- --selector name=<name>-db`: expect the CNPG Cluster gains `plugins` and loses `backup.barmanObjectStore`, an
+   `ObjectStore` appears, ScheduledBackup method changes, nothing else.
+3. `mise run apply -- --selector name=<name>-db`; the CNPG Cluster rolls once.
+4. Check `ContinuousArchiving` is true, then take a plugin backup (`kubectl cnpg backup <name>-db-cluster -n agents -m plugin
+   --plugin-name barman-cloud.cloudnative-pg.io`) and confirm it completes.
+
+Image move to `standard` (separate change, after the plugin is live on that CNPG cluster): `standard` images carry no Barman
+binaries, so the plugin must come first. Before each switch run `SELECT datname, datcollate, datctype FROM pg_database`
+(all checked databases are C/C). Rollback order: revert the image first, then the backup method.
+
+Metric rename: `cnpg_collector_last_failed_backup_timestamp` becomes
+`barman_cloud_cloudnative_pg_io_last_failed_backup_timestamp` (and two more); update alerts and dashboards that read them.
+`agent-orchestrator-db` is hibernated: its values change but nothing rolls until it is woken.
