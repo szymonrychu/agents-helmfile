@@ -146,14 +146,6 @@ def test_mindmap_tokens_distinct_secrets(repo_root):
     assert consumers == ["agents-taskboard"]
 
 
-def test_orchestrator_mindmap_relay_copy_not_yet_listed(repo_root, layered_values):
-    """The relay URL and token pair lands with Task 16 (plugin tools); until then nothing sends it."""
-    assert "values/agents-orchestrator/mindmap-token.secrets.yaml" not in _secrets_of(
-        repo_root, "agents-orchestrator"
-    )
-    assert not layered_values("agents-orchestrator").get("mindmap")
-
-
 def test_mindmap_ingress_path(layered_values):
     ing = layered_values(REL)["ingress"]
     assert ing["enabled"] is True

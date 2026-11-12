@@ -477,3 +477,20 @@ def test_usage_gate_on(repo_root, layered_values):
     assert token_file in _release_secrets(repo_root)
     enc = yaml.safe_load((repo_root / token_file).read_text())
     assert str(enc["usage"]["token"]).startswith("ENC[")
+
+
+def test_orchestrator_values_set_mindmap_relay(repo_root, layered_values):
+    v = layered_values(REL)
+    # the service listener Service is <release>-service; the bearer comes from the SOPS file
+    assert v["mindmap"]["url"] == "http://agents-mindmap-service:8082"
+    assert not v["mindmap"].get("existingSecret")
+    block = _release_block(repo_root, REL)
+    assert f"values/{REL}/mindmap-token.secrets.yaml" in block
+    # no needs on agents-mindmap (it needs the orchestrator): a down mindmap answers 503 on the relay
+    assert "- agents/agents-mindmap" not in block
+
+
+def test_plugins_ref_has_the_mindmap_tools(layered_values):
+    ref = layered_values(REL)["env"]["ORCH_ANY_MCP_PLUGINS_REF"]
+    # v0.43.0 introduced the orchestrator_mindmap_* tools; later minors keep them.
+    assert _semver(ref.lstrip("v")) >= (0, 43, 0)
