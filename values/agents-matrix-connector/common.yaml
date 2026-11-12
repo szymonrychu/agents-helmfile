@@ -24,6 +24,11 @@ matrix:
   bridgeBots:
     - "@facebookbot:szymonrichert.pl"
 
+# Extra MATRIX_* settings (chart `env`). 16 MP caps the inbound image decode peak near 140 MiB;
+# the connector default of 40 MP peaks at 340-390 MiB against the bot's 384Mi limit (OOM kill).
+env:
+  MATRIX_INBOUND_IMAGE_MAX_PIXELS: "16000000"
+
 policy:
   default: deny
 
