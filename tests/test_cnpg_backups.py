@@ -71,13 +71,13 @@ def test_pull_secret_for_plugin_sidecar(layered_values, release):
     assert {"name": "regcred"} in layered_values(release)["cluster"]["imagePullSecrets"]
 
 
-STANDARD_IMAGE = re.compile(
-    r"^ghcr\.io/cloudnative-pg/postgresql:16\.15-standard-bookworm@sha256:[0-9a-f]{64}$"
-)
+# Tag only: a digest breaks the harbor webhook exclude (the tag is dropped, the exclude misses).
+STANDARD_IMAGE = "ghcr.io/cloudnative-pg/postgresql:16.15-standard-bookworm"
 
 
 @pytest.mark.parametrize("release", DB_RELEASES)
 def test_standard_image_pinned(layered_values, release):
     v = layered_values(release)
-    assert STANDARD_IMAGE.match(v["cluster"]["imageName"])
+    assert v["cluster"]["imageName"] == STANDARD_IMAGE
+    assert "@" not in v["cluster"]["imageName"]
     assert v["version"]["postgresql"] == "16"
