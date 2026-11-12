@@ -3,6 +3,9 @@ version:
   postgresql: "16"
 
 cluster:
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
   # Kept hibernated as the pre-rename copy (PVCs and S3 backups retained). Delete
   # only on a user decision; remove this annotation to wake it.
   annotations:
@@ -38,6 +41,9 @@ cluster:
 backups:
   enabled: true
   provider: s3
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
   s3:
     region: eu-central-1
     bucket: database-backup-szymonrychu

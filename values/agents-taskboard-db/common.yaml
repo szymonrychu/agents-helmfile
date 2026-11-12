@@ -3,6 +3,9 @@ version:
   postgresql: "16"
 
 cluster:
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
   enablePDB: false
   instances: 1
   storage:
@@ -34,6 +37,9 @@ cluster:
 backups:
   enabled: true
   provider: s3
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
   s3:
     region: eu-central-1
     bucket: database-backup-szymonrychu
@@ -44,4 +50,6 @@ backups:
     - name: daily-backup
       schedule: "0 0 3 * * *"
       backupOwnerReference: self
-      method: barmanObjectStore
+      method: plugin
+      pluginConfiguration:
+        name: barman-cloud.cloudnative-pg.io
