@@ -99,11 +99,12 @@ def test_mindmap_wiring(layered_values):
     assert not v.get("delegate", {}).get("tokensSecret", {}).get("name")
 
 
-def test_notifier_on_and_embedder_left_to_task_21(layered_values):
+def test_notifier_and_embedder_on(layered_values):
     v = layered_values(REL)
     assert v["notifier"]["enabled"] is True
-    assert not v.get("embedder", {}).get("enabled")
-    assert not v.get("embedder", {}).get("url")
+    assert v["embedder"]["enabled"] is True
+    # the TEI Service of the agents-embeddings release (port 80, no ingress)
+    assert v["embedder"]["url"] == "http://agents-embeddings.agents.svc"
 
 
 def test_no_token_literal_in_plain_values(repo_root):
