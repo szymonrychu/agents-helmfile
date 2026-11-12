@@ -3,6 +3,9 @@ version:
   postgresql: "16"
 
 cluster:
+  # The barman cloud plugin sidecar image comes through the Harbor proxy.
+  imagePullSecrets:
+    - name: regcred
   plugins:
     - name: barman-cloud.cloudnative-pg.io
       isWALArchiver: true
