@@ -37,7 +37,7 @@ securityContext:
 # Spike: RSS 4.34 GiB after batches, VmHWM 4.53 GB.
 resources:
   requests:
-    cpu: "2"
+    cpu: "1"
     memory: 5Gi
   limits:
     memory: 6Gi
