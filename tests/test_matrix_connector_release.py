@@ -10,9 +10,9 @@ import yaml
 
 REL = "agents-matrix-connector"
 DB_REL = "agents-matrix-connector-db"
-# The v0.8.0 release commit: chart and image from one commit.
-SHA = "dcbe8d2"
-TAG = "0.8.0"
+# The v0.9.0 release commit: chart and image from one commit.
+SHA = "55339da"
+TAG = "0.9.0"
 BRIDGE_URL = "http://mautrix-meta.messaging.svc.cluster.local:29328/_matrix/provision"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
