@@ -261,9 +261,9 @@ def test_kube_cluster_access_enabled(layered_values):
     assert values["kubeClusterAccess"]["enabled"] is True
 
 
-def test_kube_namespace_access_media(layered_values):
+def test_kube_namespace_access_namespaces(layered_values):
     ns = layered_values(REL)["kubeNamespaceAccess"]
-    assert ns["namespaces"] == ["media"]
+    assert ns["namespaces"] == ["media", "mtg-engine"]
     assert ns["tiers"] == ["read", "port-forward", "exec", "edit", "admin"]
 
 

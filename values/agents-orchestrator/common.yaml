@@ -206,5 +206,5 @@ kubeClusterAccess:
   enabled: true
 # Namespace-scoped access for sessions with kube_namespace_access (T-55).
 kubeNamespaceAccess:
-  namespaces: [media]
+  namespaces: [media, mtg-engine]
   tiers: [read, port-forward, exec, edit, admin]
