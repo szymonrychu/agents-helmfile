@@ -28,7 +28,7 @@ version:
 
 cluster:
   # renovate: image=ghcr.io/cloudnative-pg/postgresql
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.15-standard-bookworm
+  imageName: harbor.szymonrichert.pl/proxy-ghcr/cloudnative-pg/postgresql:16.15-standard-bookworm
   # The barman cloud plugin sidecar image comes through the Harbor proxy.
   imagePullSecrets:
     - name: regcred
