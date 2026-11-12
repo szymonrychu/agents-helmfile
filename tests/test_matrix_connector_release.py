@@ -153,3 +153,8 @@ def test_db_secret_matches_rendered_cnpg_cluster_helmfile_build(layered_values, 
         layered_values(REL)["postgres"]["existingSecret"]
         == clusters[0]["metadata"]["name"] + "-app"
     )
+
+
+def test_inbound_image_pixel_cap_fits_bot_memory_limit(layered_values):
+    # 16 MP decodes at about 140 MiB; the 40 MP connector default peaks at 340-390 MiB (limit 384Mi).
+    assert layered_values(REL)["env"]["MATRIX_INBOUND_IMAGE_MAX_PIXELS"] == "16000000"
