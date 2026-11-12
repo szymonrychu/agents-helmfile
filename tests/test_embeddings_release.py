@@ -159,3 +159,19 @@ def test_chart_renders_security_context(repo_root):
     assert ctr["ports"][0]["containerPort"] == 8080
     assert {m["mountPath"] for m in ctr["volumeMounts"]} == {"/data", "/tmp"}
     assert docs["Service"]["spec"]["ports"][0]["targetPort"] == "http"
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="helm not on PATH")
+def test_embeddings_deployment_pulls_with_regcred(repo_root):
+    """The harbor proxy rewrite of the ghcr image needs the regcred pull secret."""
+    out = subprocess.run(
+        [
+            "helm", "template", REL, str(repo_root / "charts" / REL),
+            "-f", str(repo_root / "values" / "common.yaml"),
+            "-f", str(repo_root / "values" / REL / "common.yaml"),
+        ],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    docs = {d["kind"]: d for d in yaml.safe_load_all(out) if d}
+    spec = docs["Deployment"]["spec"]["template"]["spec"]
+    assert spec["imagePullSecrets"] == [{"name": "regcred"}]
