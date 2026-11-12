@@ -62,3 +62,9 @@ def test_every_db_release_covered(repo_root):
     text = (repo_root / "helmfile.yaml.gotmpl").read_text()
     names = re.findall(r"- name: (\S+)\n(?:(?!\n  - name:).)*?chart: cnpg/cluster", text, re.S)
     assert sorted(names) == sorted(DB_RELEASES)
+
+
+@pytest.mark.parametrize("release", DB_RELEASES)
+def test_pull_secret_for_plugin_sidecar(layered_values, release):
+    """The injected plugin sidecar image is pulled through the Harbor proxy."""
+    assert {"name": "regcred"} in layered_values(release)["cluster"]["imagePullSecrets"]

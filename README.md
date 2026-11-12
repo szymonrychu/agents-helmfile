@@ -333,6 +333,8 @@ All ten `*-db` releases (chart `cnpg/cluster` 0.9.0) back up through the Barman 
 deprecated in-tree `barmanObjectStore` (removed in CNPG 1.32.0). Values per release: the CNPG Cluster `plugins`
 (`isWALArchiver: true`), `backups.method: plugin` with `pluginConfiguration`, and the same on each scheduled backup.
 Bucket, path, region, retention and `wal.maxParallel` are unchanged; the chart builds the `ObjectStore` from them.
+Each release also sets the CNPG Cluster `imagePullSecrets: [{name: regcred}]`: the plugin injects a sidecar image pulled through the Harbor
+proxy (`proxy-ghcr/cloudnative-pg/plugin-barman-cloud-sidecar`), which fails with "no basic auth credentials" without it.
 
 Per-database steps (one database at a time; each CNPG cluster has one instance, so each switch is a short outage of that database).
 Order: unused/low-risk first, `agents-orchestrator-db` and `agents-history-db` last.
