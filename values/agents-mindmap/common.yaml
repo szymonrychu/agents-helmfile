@@ -60,6 +60,12 @@ oauth2Proxy:
   secretName: agents-orchestrator-proxy
   secretNamespace: agents
 
+# The chart renders only the four oauth2Proxy annotations above; api-routes (path regex answered
+# 401 instead of a login redirect, same value as every lab release) goes through api.podAnnotations.
+api:
+  podAnnotations:
+    oauth2-proxy-admission/api-routes: "^/(api|history|schedules|taskboard|usage|vault|mindmap|matrix/api|webhooks/api|app/admin)(/|$)"
+
 # Shares the lab host and its certificate with agents-orchestrator (agents-orchestrator-tls, owned
 # by that release's cert-manager annotation), so no cert-manager annotation here.
 ingress:
