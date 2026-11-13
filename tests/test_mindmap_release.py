@@ -13,9 +13,9 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The chart agents-mindmap main publishes for the v0.1.0 release commit b6fdd1f (the chart's own
+# The chart agents-mindmap main publishes for main commit 8b21030 (tag v0.2.0) (the chart's own
 # Chart.yaml version 0.1.0 is not what CI publishes: 0.1.0-main.<sha7>). Image: the release tag.
-CHART = "0.1.0-main.b6fdd1f"
+CHART = "0.1.0-main.g8b21030"
 TAG = "0.1.0"
 RAW = "values/agents-mindmap/raw"
 TOKEN_SECRETS = {
@@ -167,7 +167,7 @@ def test_mindmap_sso_on_web_only(layered_values):
     assert o["secretName"] == orch["oauth2-proxy-admission/secret-name"]
     assert o["secretNamespace"] == orch["oauth2-proxy-admission/secret-namespace"]
     assert v["allowedCidrs"] == ["127.0.0.1/32"]
-    assert v["api"]["podAnnotations"]["oauth2-proxy-admission/api-routes"] == (
+    assert o["apiRoutes"] == (
         orch["oauth2-proxy-admission/api-routes"]
     )
     for other in ("service", "delegate"):

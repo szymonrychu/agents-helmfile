@@ -232,7 +232,7 @@ def expected_pins(tree: Path) -> dict[str, tuple[str, str]]:
 
 
 def ref_of(version: str) -> str:
-    sha = re.fullmatch(r"\d+\.\d+\.\d+-main\.([0-9a-f]{7,40})", version)
+    sha = re.fullmatch(r"\d+\.\d+\.\d+-main\.g?([0-9a-f]{7,40})", version)
     if sha:
         return sha[1]
     if re.fullmatch(r"\d+\.\d+\.\d+", version):
