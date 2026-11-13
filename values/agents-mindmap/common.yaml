@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-mindmap
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.1.0"
+  tag: "0.2.1"
 
 # Fallback links are <publicBaseUrl>/mindmaps/M-<n>: the agents-web host, not the /mindmap api.
 publicBaseUrl: https://lab.szymonrichert.pl
