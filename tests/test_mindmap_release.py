@@ -13,9 +13,9 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The chart agents-mindmap main publishes for the v0.1.0 release commit b6fdd1f (the chart's own
+# The chart agents-mindmap main publishes for main commit 8b21030 (tag v0.2.0) (the chart's own
 # Chart.yaml version 0.1.0 is not what CI publishes: 0.1.0-main.<sha7>). Image: the release tag.
-CHART = "0.1.0-main.b6fdd1f"
+CHART = "0.1.0-main.g8b21030"
 TAG = "0.1.0"
 RAW = "values/agents-mindmap/raw"
 TOKEN_SECRETS = {

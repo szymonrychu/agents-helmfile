@@ -9,7 +9,7 @@ image tags in values/agents-orchestrator/common.yaml (`image.tag`, `agentImage`,
 values/agents-taskboard/common.yaml, values/agents-history/common.yaml,
 values/agents-app-connector/common.yaml, values/agents-vault/common.yaml and values/agents-mindmap/common.yaml (`image.tag`). A chart maps to the
 repo named by its chart path, an image to the repo named by its image name, both under
-szymonrychu. `0.1.0-main.<sha7>` and an image sha7 resolve to that commit, a release version
+szymonrychu. `0.1.0-main.<sha7>` (or `0.1.0-main.g<sha7>`) and an image sha7 resolve to that commit, a release version
 `X.Y.Z` through tag `vX.Y.Z`. A pin passes only when its commit has at least one check run and
 every one is completed with conclusion success, neutral or skipped. A missing or unparsable
 pin is a refusal.
@@ -62,7 +62,7 @@ CHART_RELEASES = (
     "agents-mindmap",
 )
 GREEN = frozenset({"success", "neutral", "skipped"})
-MAIN_BUILD = re.compile(r"\d+\.\d+\.\d+-main\.([0-9a-f]{7,40})")
+MAIN_BUILD = re.compile(r"\d+\.\d+\.\d+-main\.g?([0-9a-f]{7,40})")
 RELEASE = re.compile(r"\d+\.\d+\.\d+")
 SHA = re.compile(r"[0-9a-f]{7,40}")
 ACTIONS_JOB = re.compile(r"https://github\.com/[^/]+/[^/]+/actions/runs/(\d+)/job/\d+")
