@@ -51,6 +51,7 @@ components:
       oauth2-proxy-admission/redeem-url: "http://keycloak.authentication.svc.cluster.local/realms/master/protocol/openid-connect/token"
       oauth2-proxy-admission/secret-name: agents-orchestrator-proxy
       oauth2-proxy-admission/secret-namespace: agents
+      oauth2-proxy-admission/api-routes: "^/(api|history|schedules|taskboard|usage|vault|mindmap|matrix/api|webhooks/api|app/admin)(/|$)"
 
 # Shares the lab host and its certificate with agents-orchestrator (agents-orchestrator-tls, owned
 # by that release's cert-manager annotation), so no cert-manager annotation here.
