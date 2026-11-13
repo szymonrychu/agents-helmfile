@@ -41,8 +41,11 @@ taskboard:
 notifier:
   enabled: true
 
-# The embedder (embedder.enabled, embedder.url http://agents-embeddings.agents.svc) is enabled by
-# the embeddings rollout PR, after the golden-set eval against the live TEI.
+# The embedder process embeds node chunks through the agents-embeddings TEI Service (in-cluster,
+# no token). Apply agents-embeddings first; then run `mindmap reembed` once in the pod.
+embedder:
+  enabled: true
+  url: http://agents-embeddings.agents.svc
 
 # Only the oauth2-proxy sidecar (injected on the web pod from the oauth2Proxy annotations) reaches
 # the web api, over 127.0.0.1. Widening this bypasses SSO.

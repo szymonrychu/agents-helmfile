@@ -99,11 +99,12 @@ def test_mindmap_wiring(layered_values):
     assert not v.get("delegate", {}).get("tokensSecret", {}).get("name")
 
 
-def test_notifier_on_and_embedder_left_to_task_21(layered_values):
+def test_notifier_and_embedder_on(layered_values):
     v = layered_values(REL)
     assert v["notifier"]["enabled"] is True
-    assert not v.get("embedder", {}).get("enabled")
-    assert not v.get("embedder", {}).get("url")
+    assert v["embedder"]["enabled"] is True
+    # the TEI Service of the agents-embeddings release (port 80, no ingress)
+    assert v["embedder"]["url"] == "http://agents-embeddings.agents.svc"
 
 
 def test_no_token_literal_in_plain_values(repo_root):
@@ -144,14 +145,6 @@ def test_mindmap_tokens_distinct_secrets(repo_root):
         if "values/agents-taskboard/mindmap-token.secrets.yaml" in _block(repo_root, r)
     ]
     assert consumers == ["agents-taskboard"]
-
-
-def test_orchestrator_mindmap_relay_copy_not_yet_listed(repo_root, layered_values):
-    """The relay URL and token pair lands with Task 16 (plugin tools); until then nothing sends it."""
-    assert "values/agents-orchestrator/mindmap-token.secrets.yaml" not in _secrets_of(
-        repo_root, "agents-orchestrator"
-    )
-    assert not layered_values("agents-orchestrator").get("mindmap")
 
 
 def test_mindmap_ingress_path(layered_values):
