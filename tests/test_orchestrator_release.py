@@ -104,6 +104,10 @@ def test_api_pod_behind_oauth2_proxy_webhook(layered_values):
         ),
         "oauth2-proxy-admission/secret-name": "agents-orchestrator-proxy",
         "oauth2-proxy-admission/secret-namespace": "agents",
+        "oauth2-proxy-admission/api-routes": (
+            "^/(api|history|schedules|taskboard|usage|vault|mindmap"
+            "|matrix/api|webhooks/api|app/admin)(/|$)"
+        ),
     }
     # The webhook rejects annotated pods whose first container has no ports, so the
     # port-less dispatcher/ingester/reconciler must not carry the annotations.
