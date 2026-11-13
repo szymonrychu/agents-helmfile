@@ -15,8 +15,8 @@ NODE_IPS = [
 ]
 # The chart agents-mindmap main publishes for main commit 8b21030 (tag v0.2.0) (the chart's own
 # Chart.yaml version 0.1.0 is not what CI publishes: 0.1.0-main.<sha7>). Image: the release tag.
-CHART = "0.1.0-main.g8b21030"
-TAG = "0.1.0"
+CHART = "0.1.0-main.g6450b21"
+TAG = "0.2.1"
 RAW = "values/agents-mindmap/raw"
 TOKEN_SECRETS = {
     "orchestrator-token": "agents-mindmap-orchestrator-token",
