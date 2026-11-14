@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-schedule
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.6.0"
+  tag: "0.6.1"
 
 # Connection URI from the CNPG app Secret made by the agents-schedule-db release.
 postgres:
@@ -26,6 +26,8 @@ env:
   # Only the oauth2-proxy sidecar (podAnnotations below) reaches the api, over 127.0.0.1.
   # Widening this bypasses SSO.
   SCHED_ALLOWED_CIDRS: 127.0.0.1/32
+  # Global cap of in-progress runs (code default 3 queued runs behind long ones).
+  SCHED_MAX_IN_PROGRESS: "8"
 
 # SSO (oauth2-proxy admission webhook) on the api pod only, as for agents-orchestrator.
 components:
