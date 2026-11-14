@@ -14,7 +14,7 @@ OLD_REL = "agent-orchestrator"
 PIN = "7.22.2"
 # The chart of the v7.22.2 release (main a268076): chart and image from one commit.
 CHART = "0.1.0-main.a268076"
-WRAPPER_PIN = "0.15.0"
+WRAPPER_PIN = "0.16.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
