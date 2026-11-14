@@ -41,6 +41,11 @@ TB_ORCH = "values/agents-orchestrator/taskboard-token.secrets.yaml"
 TB_DB = "values/agents-taskboard-db/default.secrets.yaml"
 # Every file the taskboard bootstraps write; the sandboxes of the other tests pre-create them all.
 TASKBOARD_FILES = (TB, TB_HASH, TB_RELAY, TB_ORCH)
+# S-51: the taskboard's usage token (usage.token); its bootstrap also re-encrypts USG_TOKENS.
+TB_USAGE = "values/agents-taskboard/usage-token.secrets.yaml"
+TB_USAGE_FILES = (TB_USAGE,)
+# Placeholder line standing in for the orchestrator's token already in the raw tokens Secret.
+EXISTING_USAGE_LINE = "EXISTING-ORCHESTRATOR-LINE"
 HIS_TOKENS = "values/agents-history/raw/service-tokens.agents-history.pre.secrets.yaml"
 HIS_ORCH = "values/agents-orchestrator/history-token.secrets.yaml"
 HIS_INGEST = "values/agents-history/raw/ingest-token.agents-history.pre.secrets.yaml"
@@ -100,6 +105,7 @@ def _load(rel: str) -> dict:
         (TB_HASH, {"serviceApi.tokenHashes.agents-taskboard"}),
         (TB_RELAY, {"relayToken"}),
         (TB_ORCH, {"taskboard.token"}),
+        (TB_USAGE, {"usage.token"}),
         (TB_DB, {"backups.s3.accessKey", "backups.s3.secretKey"}),
         (APP, {"orchestrator.token"}),
         (APP_HASH, {"serviceApi.tokenHashes.agents-app-connector"}),
@@ -194,6 +200,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *TB_USAGE_FILES,
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
@@ -217,6 +224,7 @@ def test_script_does_not_overwrite_existing(tmp_path):
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *TB_USAGE_FILES,
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
@@ -270,6 +278,7 @@ def test_webhook_secrets_never_rotate(tmp_path):
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *TB_USAGE_FILES,
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
@@ -326,6 +335,7 @@ def test_webhook_bootstrap_writes_no_sources(tmp_path):
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *TB_USAGE_FILES,
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
@@ -372,6 +382,15 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
     plain.mkdir()
     (bindir / "sops").write_text(
         "#!/bin/sh\n"
+        # decrypt: the plaintext last encrypted for the file, else a one-line tokens manifest
+        'if [ "$1" = "--decrypt" ]; then\n'
+        "  for last; do :; done\n"
+        '  name="$(echo "$last" | tr / _)"\n'
+        f'  if [ -f "{plain}/$name" ]; then cat "{plain}/$name"; exit 0; fi\n'
+        '  echo \'{"apiVersion":"v1","kind":"Secret","metadata":'
+        f'{{"name":"agents-usage-service-tokens"}},"type":"Opaque","stringData":{{"tokens":"{EXISTING_USAGE_LINE}"}}}}\'\n'
+        "  exit 0\n"
+        "fi\n"
         'while [ "$1" != "--filename-override" ]; do shift; done\n'
         'name="$(echo "$2" | tr / _)"\n'
         f'cat > "{plain}/$name"\n'
@@ -388,6 +407,7 @@ def _schedule_sandbox(tmp_path: Path) -> Path:
         CHAT_HASH,
         *USAGE_FILES,
         *TASKBOARD_FILES,
+        *TB_USAGE_FILES,
         *HISTORY_FILES,
         *APP_FILES,
         *VAULT_FILES,
@@ -888,6 +908,74 @@ def test_taskboard_tokens_not_printed(tmp_path):
         for stream in (r.stdout, r.stderr):
             for value in secrets:
                 assert value not in stream, f"{name}: a taskboard secret was printed"
+
+
+def _taskboard_usage_sandbox(tmp_path: Path) -> Path:
+    """Every target present except the taskboard's usage token file."""
+    bindir = _schedule_sandbox(tmp_path)
+    for rel in (SCH, SCH_TOKEN):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("sentinel: keep\n")
+    for rel in TB_USAGE_FILES:
+        (tmp_path / rel).unlink()
+    return bindir
+
+
+def test_taskboard_usage_token_bootstrapped(tmp_path):
+    bindir = _taskboard_usage_sandbox(tmp_path)
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    # the taskboard file is written and the raw tokens Secret re-encrypted, nothing else
+    assert _encrypted(tmp_path) == sorted(rel.replace("/", "_") for rel in (TB_USAGE, USG_TOKENS))
+    token = _plain(tmp_path, TB_USAGE)["usage"]["token"]
+    assert set(_plain(tmp_path, TB_USAGE)) == {"usage"}
+    assert re.fullmatch(r"[0-9a-f]{64}", token)
+    # the existing line survives and the new token is appended as its own line
+    assert _plain(tmp_path, USG_TOKENS) == _manifest(
+        "agents-usage-service-tokens", "tokens", f"{EXISTING_USAGE_LINE}\n{token}"
+    )
+
+
+def test_taskboard_usage_token_listed(repo_root):
+    text = (repo_root / "helmfile.yaml.gotmpl").read_text()
+    match = re.search(r"  - name: agents-taskboard\n(.*?)(?=\n  - name: |\Z)", text, re.DOTALL)
+    assert match
+    assert TB_USAGE in match.group(1)
+    assert (repo_root / TB_USAGE).is_file()
+
+
+def test_taskboard_usage_token_never_appended_twice(tmp_path):
+    bindir = _taskboard_usage_sandbox(tmp_path)
+    assert _run(tmp_path, bindir).returncode == 0
+    for f in (tmp_path / "plain").iterdir():
+        f.unlink()
+    # the taskboard file exists now (stub content): the second run touches nothing
+    assert (tmp_path / TB_USAGE).read_text() == "sops: stub\n"
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 0, r.stderr
+    assert _encrypted(tmp_path) == []
+
+
+def test_taskboard_usage_token_needs_the_tokens_file(tmp_path):
+    bindir = _taskboard_usage_sandbox(tmp_path)
+    (tmp_path / USG_TOKENS).unlink()
+    r = _run(tmp_path, bindir)
+    assert r.returncode == 1
+    assert USG_TOKENS in r.stderr
+
+
+def test_taskboard_usage_token_not_printed(tmp_path):
+    for name, bash_args in (("plain-run", ()), ("traced-run", ("-x",))):
+        root = tmp_path / name
+        root.mkdir()
+        bindir = _taskboard_usage_sandbox(root)
+        r = _run(root, bindir, *bash_args)
+        assert r.returncode == 0, r.stderr
+        token = _plain(root, TB_USAGE)["usage"]["token"]
+        for stream in (r.stdout, r.stderr):
+            assert token not in stream, f"{name}: the usage token was printed"
+            assert EXISTING_USAGE_LINE not in stream
 
 
 def test_history_secrets_bootstrapped(tmp_path):

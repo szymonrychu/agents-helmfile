@@ -11,9 +11,9 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The v0.11.0 release commit ab4c740 (spec auto-approve gate, S-34): chart and image from one commit.
-CHART = "0.1.0-main.ab4c740"
-TAG = "0.11.0"
+# The v0.12.1 release commit 61bc6a6 (spec autostart, S-51): chart and image from one commit.
+CHART = "0.1.0-main.61bc6a6"
+TAG = "0.12.1"
 
 
 def _block(repo_root, name: str) -> str:
@@ -66,6 +66,16 @@ def test_taskboard_wiring(layered_values):
     assert not v["orchestrator"].get("token")
     assert not v["orchestrator"].get("existingSecret")
     assert not v.get("relayExistingSecret")
+
+
+def test_taskboard_usage_gate_wired(repo_root, layered_values):
+    v = layered_values(REL)
+    assert v["usage"]["url"] == "http://agents-usage:8001"
+    # the token comes from a SOPS file, never a plain value or an existing secret
+    assert not v["usage"].get("token")
+    assert not v["usage"].get("existingSecret")
+    assert "values/agents-taskboard/usage-token.secrets.yaml" in _block(repo_root, REL)
+    assert (repo_root / "values/agents-taskboard/usage-token.secrets.yaml").is_file()
 
 
 def test_taskboard_orchestrator_url_configured_for_label_lookup(layered_values):

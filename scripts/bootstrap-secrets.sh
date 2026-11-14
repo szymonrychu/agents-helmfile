@@ -26,6 +26,7 @@ USG_HASH_FILE="values/agents-orchestrator/service-token-agents-usage.secrets.yam
 USG_TOKENS_FILE="values/agents-usage/raw/service-tokens.agents-usage.pre.secrets.yaml"
 USG_ORCH_FILE="values/agents-orchestrator/usage-token.secrets.yaml"
 USG_INGEST_FILE="values/agents-usage/raw/ingest-token.agents-usage.pre.secrets.yaml"
+TB_USAGE_FILE="values/agents-taskboard/usage-token.secrets.yaml"
 TB_FILE="values/agents-taskboard/default.secrets.yaml"
 TB_HASH_FILE="values/agents-orchestrator/service-token-agents-taskboard.secrets.yaml"
 TB_RELAY_FILE="values/agents-taskboard/relay-token.secrets.yaml"
@@ -202,6 +203,31 @@ bootstrap_usage_token() {
   fi
 }
 
+# bootstrap_taskboard_usage_token: both files or neither. The token the taskboard's autostart gate
+# sends to the usage service listener (S-51): a new line appended to key tokens of the raw Secret
+# agents-usage-service-tokens (the orchestrator's existing line is kept; the decrypted list stays
+# in a shell variable and goes straight into the re-encryption) and the taskboard's copy
+# (usage.token). The taskboard file is the marker: present means done, so re-running never adds a
+# second line. agents-usage reads its tokens file at start, so it needs a restart after the apply.
+bootstrap_taskboard_usage_token() {
+  local token current updated
+  [[ -e "$TB_USAGE_FILE" ]] && return 0
+  [[ -e "$USG_TOKENS_FILE" ]] || die "$USG_TOKENS_FILE is missing; run bootstrap_usage_token first"
+  current="$(sops --decrypt --output-type json "$USG_TOKENS_FILE")" ||
+    die "decrypting $USG_TOKENS_FILE failed"
+  token="$(openssl rand -hex 32)"
+  updated="$(CURRENT="$current" TOKEN="$token" jq -n '
+      ($ENV.CURRENT | fromjson) as $doc
+      | $doc | .stringData.tokens = (($doc.stringData.tokens | rtrimstr("\n")) + "\n" + $ENV.TOKEN)')" ||
+    die "building the new tokens list failed"
+  TOKEN="$token" jq -n '{usage: {token: $ENV.TOKEN}}' |
+    encrypt_to "$TB_USAGE_FILE"
+  if ! encrypt_to "$USG_TOKENS_FILE" <<<"$updated"; then
+    rm -f "$TB_USAGE_FILE"
+    die "re-encrypting $USG_TOKENS_FILE failed; removed $TB_USAGE_FILE"
+  fi
+}
+
 # bootstrap_usage_ingest_token: one raw Secret agents-usage-ingest (key token) holding the single
 # shared token the agents' wrapper sends to the usage ingest port (CCW_USAGE_TOKEN). No trailing
 # newline, so the value works as a tokens file line and as an env value. Never rotates.
@@ -333,6 +359,7 @@ bootstrap_matrix_connector
 bootstrap_chat_token
 bootstrap_service_token agents-usage "$USG_FILE" "$USG_HASH_FILE"
 bootstrap_usage_token
+bootstrap_taskboard_usage_token
 bootstrap_usage_ingest_token
 bootstrap_service_token agents-taskboard "$TB_FILE" "$TB_HASH_FILE"
 bootstrap_taskboard_relay_token

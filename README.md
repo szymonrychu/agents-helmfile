@@ -284,6 +284,12 @@ through the `agents-taskboard-service` Service.
 - `bootstrap_taskboard_relay_token` (both files or neither): the orchestrator relay's bearer, `relayToken` in
   `values/agents-taskboard/relay-token.secrets.yaml` and the same value as `taskboard.token` in
   `values/agents-orchestrator/taskboard-token.secrets.yaml`. It differs from the notifier's service token.
+- `bootstrap_taskboard_usage_token` (S-51, spec autostart usage gate): the taskboard's bearer for the agents-usage service
+  listener, `usage.token` in `values/agents-taskboard/usage-token.secrets.yaml` (listed on the taskboard release), appended as a
+  new line to key `tokens` of the raw Secret `agents-usage-service-tokens` (the orchestrator's line stays). The taskboard file is
+  the marker, so re-running never appends a second line. Chart value `usage.url` is `http://agents-usage:8001`; a missing usage
+  service holds the autostart queues. Apply order: agents-usage first (new token line, then `kubectl -n agents rollout restart
+  deploy/agents-usage`, it reads the tokens file at start), then agents-orchestrator, agents-taskboard, agents-web.
 
 The backup credentials `values/agents-taskboard-db/default.secrets.yaml` are a byte copy of the other databases' file, as for `agents-schedule-db`.
 

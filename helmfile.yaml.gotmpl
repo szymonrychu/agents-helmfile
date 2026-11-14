@@ -222,7 +222,7 @@ releases:
   - name: agents-taskboard
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-taskboard
-    version: 0.1.0-main.ab4c740
+    version: 0.1.0-main.61bc6a6
     timeout: 600
     needs:
       - agents/agents-taskboard-db
@@ -231,12 +231,13 @@ releases:
       purpose: agents
       application: agents-taskboard
     <<: *default
-    # Overrides the default anchor's list: the relay, delegate and mindmap token files come after default.
+    # Overrides the default anchor's list: the relay, delegate, mindmap and usage token files come after default.
     secrets:
     - values/agents-taskboard/default.secrets.yaml
     - values/agents-taskboard/relay-token.secrets.yaml
     - values/agents-taskboard/delegate-token.secrets.yaml
     - values/agents-taskboard/mindmap-token.secrets.yaml
+    - values/agents-taskboard/usage-token.secrets.yaml
 
   - name: agents-app-connector
     namespace: agents
@@ -326,7 +327,7 @@ releases:
   - name: agents-web
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-web
-    version: 0.1.0-main.be51127
+    version: 0.1.0-main.1c8b8ab
     timeout: 600
     needs:
       - agents/agents-webhook
