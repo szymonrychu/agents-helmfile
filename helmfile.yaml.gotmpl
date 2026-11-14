@@ -196,7 +196,7 @@ releases:
   - name: agents-webhook
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
-    version: 0.1.0-main.f720309
+    version: 0.1.0-main.f665f11
     timeout: 600
     needs:
       - agents/agents-webhook-db
@@ -209,7 +209,7 @@ releases:
   - name: agents-schedule
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-schedule
-    version: 0.1.0-main.f0f7654
+    version: 0.1.0-main.7a850a2
     timeout: 600
     needs:
       - agents/agents-schedule-db
