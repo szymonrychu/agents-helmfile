@@ -2,6 +2,7 @@
 
 Lessons that outlive a session. Newest first.
 
+- 2026-11-14 (session-rotation, T-362): ORCH_INACTIVITY_* comment in values/agents-orchestrator/common.yaml now describes ask-then-fallback closes (activity includes tool/subagent events; discard only when idle after the 300 s answer window). Comment only, values unchanged; orchestrator PR agents-orchestrator#137.
 - 2026-11-13: **agents-web 1.20.0 to 1.20.1 pin (cookie-too-large fix).** Image `1.20.1` (confirmed with `regctl manifest head`) and chart `0.1.0-main.b22e26d` (tag v1.20.1 = b22e26d, `git ls-remote --tags`; chart confirmed with `helm show chart`; the chart moved too). Test constants updated first. Not applied here.
 - 2026-11-13: **agents-web 1.19.0 to 1.20.0 pin (T-129 Task 19 mind map panel, agents-web #81).** Image `1.20.0` and chart `0.1.0-main.99a200c` (tag v1.20.0 = 99a200c, `git ls-remote --tags`; chart confirmed with `helm show chart`). Adds the mind map panel. Not applied here.
 - 2026-11-12: **agents-web 1.16.0 to 1.19.0 pin (T-168 proposal diff, agents-web #80).** Image `1.19.0` and chart `0.1.0-main.e79d5a0` (tag v1.19.0 = e79d5a0, `git rev-list -n1`; main was 1.16.0, ours is newer). Proposals render file-block diffs on @codemirror/merge (split from md up, unified below). Test constants updated first. Not applied here; the leader applies `--selector name=agents-web`.
