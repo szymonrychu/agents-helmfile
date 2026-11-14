@@ -141,7 +141,9 @@ def test_mindmap_tokens_distinct_secrets(repo_root):
         assert (repo_root / rel).is_file(), rel
     consumers = [
         r
-        for r in re.findall(r"^  - name: (\S+)", (repo_root / "helmfile.yaml.gotmpl").read_text(), re.M)
+        for r in re.findall(
+            r"^  - name: (\S+)", (repo_root / "helmfile.yaml.gotmpl").read_text(), re.MULTILINE
+        )
         if "values/agents-taskboard/mindmap-token.secrets.yaml" in _block(repo_root, r)
     ]
     assert consumers == ["agents-taskboard"]
@@ -167,9 +169,7 @@ def test_mindmap_sso_on_web_only(layered_values):
     assert o["secretName"] == orch["oauth2-proxy-admission/secret-name"]
     assert o["secretNamespace"] == orch["oauth2-proxy-admission/secret-namespace"]
     assert v["allowedCidrs"] == ["127.0.0.1/32"]
-    assert o["apiRoutes"] == (
-        orch["oauth2-proxy-admission/api-routes"]
-    )
+    assert o["apiRoutes"] == (orch["oauth2-proxy-admission/api-routes"])
     for other in ("service", "delegate"):
         assert not v.get("components", {}).get(other, {}).get("podAnnotations")
 
