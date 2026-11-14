@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-schedule
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.6.1"
+  tag: "0.9.0"
 
 # Connection URI from the CNPG app Secret made by the agents-schedule-db release.
 postgres:
@@ -14,8 +14,10 @@ orchestrator:
   url: http://agents-orchestrator-services:8002
 
 # Token-gated admin listener (port 8001) for the orchestrator's superleader relay. The tokens
-# Secret is values/agents-schedule/raw/admin-tokens.agents-schedule.pre.secrets.yaml (SOPS); the orchestrator holds the
-# same token in its default.secrets.yaml (admin.schedule.token).
+# Secret is values/agents-schedule/raw/admin-tokens.agents-schedule.pre.secrets.yaml (SOPS), two lines: the
+# orchestrator's token (default.secrets.yaml, admin.schedule.token) and agents-webhook's token
+# (values/agents-webhook/raw/schedule-token.agents-webhook.pre.secrets.yaml). Apply agents-schedule and
+# agents-orchestrator back to back: the relay token rotated.
 admin:
   enabled: true
   tokensSecret:

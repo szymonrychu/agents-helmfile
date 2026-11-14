@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-webhook
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.4.0"
+  tag: "0.5.0"
 
 # Connection URI from the CNPG app Secret made by the agents-webhook-db release.
 postgres:
@@ -20,6 +20,14 @@ admin:
   tokensSecret:
     name: agents-webhook-admin-tokens
     key: tokens
+
+# Chaining: agents-schedule's admin listener and the Secret holding webhook's own bearer token
+# (second line of agents-schedule-admin-tokens), from raw/schedule-token.agents-webhook.pre.secrets.yaml (SOPS).
+schedule:
+  url: http://agents-schedule-api:8001
+  tokenSecret:
+    name: agents-webhook-schedule-token
+    key: token
 
 publicBaseUrl: https://lab.szymonrichert.pl
 
