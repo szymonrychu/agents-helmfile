@@ -11,10 +11,10 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "7.21.0"
-# The chart of the v7.21.0 release (main f6a135b): chart and image from one commit.
-CHART = "0.1.0-main.f6a135b"
-WRAPPER_PIN = "0.14.0"
+PIN = "7.22.2"
+# The chart of the v7.22.2 release (main a268076): chart and image from one commit.
+CHART = "0.1.0-main.a268076"
+WRAPPER_PIN = "0.15.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
@@ -498,3 +498,8 @@ def test_plugins_ref_has_the_mindmap_tools(layered_values):
     ref = layered_values(REL)["env"]["ORCH_ANY_MCP_PLUGINS_REF"]
     # v0.43.0 introduced the orchestrator_mindmap_* tools; later minors keep them.
     assert _semver(ref.lstrip("v")) >= (0, 43, 0)
+
+
+def test_agent_termination_grace_is_explicit(layered_values):
+    # The graceful handover budget of the agent pods, visible in the deployed values.
+    assert layered_values(REL)["env"]["ORCH_AGENT_TERMINATION_GRACE_SECONDS"] == "420"
