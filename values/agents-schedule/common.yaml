@@ -26,6 +26,8 @@ env:
   # Only the oauth2-proxy sidecar (podAnnotations below) reaches the api, over 127.0.0.1.
   # Widening this bypasses SSO.
   SCHED_ALLOWED_CIDRS: 127.0.0.1/32
+  # Global cap of in-progress runs (code default 3 queued runs behind long ones).
+  SCHED_MAX_IN_PROGRESS: "8"
 
 # SSO (oauth2-proxy admission webhook) on the api pod only, as for agents-orchestrator.
 components:
