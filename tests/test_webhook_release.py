@@ -132,7 +132,9 @@ def test_no_sources_value_and_no_plaintext_secrets(repo_root, layered_values):
                 assert "sources" not in key.lower().split("."), key
                 last = key.rsplit(".", 1)[-1].lower()
                 if last in ("token", "password", "accesskey", "secretkey", "url"):
-                    assert not val or key.endswith("orchestrator.url"), f"{path}: {key}"
+                    assert not val or key.endswith((".orchestrator.url", ".schedule.url")), (
+                        f"{path}: {key}"
+                    )
     assert not v["orchestrator"].get("token")
     assert not v["orchestrator"].get("tokenSecret", {}).get("name")
 
@@ -183,3 +185,17 @@ def test_allowed_authors_not_set(layered_values):
     env = layered_values(REL)["env"]
     assert "WEBHOOK_ALLOWED_AUTHORS" not in env
     assert "WEBHOOK_BOT_LOGINS" in env
+
+
+def test_schedule_chaining_wired(layered_values):
+    sched = layered_values(REL)["schedule"]
+    assert sched["url"] == "http://agents-schedule-api:8001"
+    assert sched["tokenSecret"] == {"name": "agents-webhook-schedule-token", "key": "token"}
+
+
+def test_schedule_token_secret_is_sops_and_name_matches(repo_root):
+    path = repo_root / "values/agents-webhook/raw/schedule-token.agents-webhook.pre.secrets.yaml"
+    doc = yaml.safe_load(path.read_text())
+    assert "sops" in doc
+    assert set(doc["stringData"]) == {"token"}
+    assert str(doc["stringData"]["token"]).startswith("ENC[")
