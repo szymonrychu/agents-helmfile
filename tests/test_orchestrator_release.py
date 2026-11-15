@@ -11,10 +11,10 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "7.25.0"
-# The chart of the v7.25.0 release (main 5565983): chart and image from one commit.
-CHART = "0.1.0-main.5565983"
-WRAPPER_PIN = "0.16.0"
+PIN = "7.26.0"
+# The chart of the v7.26.0 release (main 0f19ec1): chart and image from one commit.
+CHART = "0.1.0-main.0f19ec1"
+WRAPPER_PIN = "0.17.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
@@ -503,3 +503,13 @@ def test_plugins_ref_has_the_mindmap_tools(layered_values):
 def test_agent_termination_grace_is_explicit(layered_values):
     # The graceful handover budget of the agent pods, visible in the deployed values.
     assert layered_values(REL)["env"]["ORCH_AGENT_TERMINATION_GRACE_SECONDS"] == "420"
+
+
+def test_guard_section_needs_wrapper_0_17(layered_values):
+    """The orchestrator renders the strict wrapper `guard` section (T-224): every agent image must be >= 0.17.0."""
+    images = [
+        layered_values(REL)["agentImage"],
+        *layered_values(REL)["env"]["ORCH_AGENT_IMAGES"].split(","),
+    ]
+    for image in images:
+        assert _semver(image.rsplit(":", 1)[1]) >= (0, 17, 0), image
