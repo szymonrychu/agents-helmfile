@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime, timedelta
 
 import pytest
 import yaml
@@ -513,3 +514,13 @@ def test_guard_section_needs_wrapper_0_17(layered_values):
     ]
     for image in images:
         assert _semver(image.rsplit(":", 1)[1]) >= (0, 17, 0), image
+
+
+def test_claude_credential_end_value(layered_values):
+    v = layered_values(REL)
+    raw = v["claude"]["credentialExpiresAt"]
+    parsed = datetime.fromisoformat(raw)
+    assert parsed.utcoffset() == timedelta(0)
+    # Provisional until the user confirms the real mint date (T-225).
+    assert raw == "2027-10-23T00:00:00Z"
+    assert v["credentialNoticeProject"] == "agents"

@@ -31,6 +31,16 @@ serviceApi:
 
 # masterKey.value and claude.token come from default.secrets.yaml (SOPS).
 
+# Claude credential end date (T-225): when the long-lived OAuth token in claude.token stops
+# working. The orchestrator warns 10 days before it and refuses new sessions 24 h before it (chart
+# defaults, not set here). Provisional: the SOPS token file was first written 2026-10-23, so
+# this is the LATEST possible end (+ 365 days); correct it to the real mint date + 365 days.
+# scripts/bootstrap-secrets.sh rewrites it when it creates the token file (README, "Claude
+# credential end date"). Notices go to a task in credentialNoticeProject.
+claude:
+  credentialExpiresAt: "2027-10-23T00:00:00Z"
+credentialNoticeProject: agents
+
 # Chat upstream of the agent chat relay: the connector's agent listener Service. The bearer
 # (chat.token) comes from chat-token.secrets.yaml (SOPS); the connector holds only its sha256.
 chat:

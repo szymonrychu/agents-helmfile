@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Creates the SOPS-encrypted secrets files the releases need.
-# The orchestrator file has the chart values shape (claude.token, masterKey.value).
+# The orchestrator file has the chart values shape (claude.token, masterKey.value); when it writes
+# that file it also records claude.credentialExpiresAt in values/agents-orchestrator/common.yaml.
 # Values only ever travel between processes (pipes, env of a single command);
 # nothing is echoed, traced or written to disk unencrypted.
 # A target that already exists is never touched, so re-running never rotates.
@@ -12,6 +13,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 ORCH_FILE="values/agents-orchestrator/default.secrets.yaml"
+ORCH_VALUES_FILE="values/agents-orchestrator/common.yaml"
 DB_FILE="values/agents-orchestrator-db/default.secrets.yaml"
 WH_FILE="values/agents-webhook/default.secrets.yaml"
 WH_TOKEN_FILE="values/agents-orchestrator/service-token-agents-webhook.secrets.yaml"
@@ -87,9 +89,29 @@ find_token_secret() {
   return 1
 }
 
+# claude_expiry: prints CLAUDE_CREDENTIAL_MINTED_AT (YYYY-MM-DD, default today UTC) + 365 days as
+# YYYY-MM-DDT00:00:00Z; dies on a malformed date. jq only, so it runs on macOS and Linux.
+claude_expiry() {
+  local minted="${CLAUDE_CREDENTIAL_MINTED_AT:-$(date -u +%Y-%m-%d)}"
+  [[ "$minted" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "CLAUDE_CREDENTIAL_MINTED_AT must be YYYY-MM-DD"
+  jq -rn --arg d "$minted" '($d + "T00:00:00Z" | fromdateiso8601) + 365 * 86400 | todateiso8601' ||
+    die "CLAUDE_CREDENTIAL_MINTED_AT is not a valid date"
+}
+
+# record_claude_expiry <instant>: writes claude.credentialExpiresAt into ORCH_VALUES_FILE with
+# yq -i (comments kept) and prints only the date to stderr.
+record_claude_expiry() {
+  local instant="$1"
+  EXPIRES="$instant" yq -i '.claude.credentialExpiresAt = strenv(EXPIRES)' "$ORCH_VALUES_FILE" ||
+    die "writing claude.credentialExpiresAt into $ORCH_VALUES_FILE failed"
+  echo "claude credential end recorded: $instant (minted ${CLAUDE_CREDENTIAL_MINTED_AT:-$(date -u +%Y-%m-%d)} + 365 days)" >&2
+}
+
 bootstrap_orchestrator() {
   [[ -e "$ORCH_FILE" ]] && return 0
-  local FOUND_NS FOUND_SECRET oauth_value key_value
+  local FOUND_NS FOUND_SECRET oauth_value key_value expires
+  # Before the token is read: a bad CLAUDE_CREDENTIAL_MINTED_AT writes nothing.
+  expires="$(claude_expiry)" || exit 1
   find_token_secret || die "no secret with key $TOKEN_KEY in namespaces: ${NAMESPACES[*]}"
   oauth_value="$(kubectl -n "$FOUND_NS" get secret "$FOUND_SECRET" \
     -o jsonpath="{.data['$TOKEN_KEY']}" | base64 -d)"
@@ -98,6 +120,7 @@ bootstrap_orchestrator() {
   OAUTH_VALUE="$oauth_value" KEY_VALUE="$key_value" \
     jq -n '{claude: {token: $ENV.OAUTH_VALUE}, masterKey: {value: $ENV.KEY_VALUE}}' |
     encrypt_to "$ORCH_FILE"
+  record_claude_expiry "$expires"
 }
 
 bootstrap_database() {

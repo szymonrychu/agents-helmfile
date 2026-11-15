@@ -55,6 +55,31 @@ The `agents-orchestrator` chart renders them as the Secrets `agents-orchestrator
 `agents-orchestrator-master-key` and `agents-orchestrator-services` (the service token hashes);
 the database URI comes from the CNPG Secret `agents-orchestrator-db-cluster-app`.
 
+### Claude credential end date
+
+`claude.credentialExpiresAt` in `values/agents-orchestrator/common.yaml` is the instant the
+long-lived Claude OAuth token (`claude.token`, `claude setup-token`) stops working: the mint date
+plus 365 days, as `YYYY-MM-DDT00:00:00Z`. The orchestrator warns 10 days before it, refuses new
+sessions 24 h before it and notifies a task in `credentialNoticeProject` (`agents`); the margins
+stay at the chart defaults. The value is plain (it is a date, not a secret). The seeded
+`2027-10-23` is provisional: the SOPS token file was first written 2026-10-23, so it is the latest
+possible end; correct it to the real mint date plus 365 days.
+
+`scripts/bootstrap-secrets.sh` writes it, with `yq -i` (comments kept), only when it creates
+`default.secrets.yaml`: `CLAUDE_CREDENTIAL_MINTED_AT=YYYY-MM-DD` (default today UTC) plus 365 days.
+A malformed date stops the script before anything is written; an existing token file leaves the
+date untouched. The script prints only the instant, never a token.
+
+Manual rotation:
+
+1. `claude setup-token` and note the day (the new mint date).
+2. Replace `claude.token` in `values/agents-orchestrator/default.secrets.yaml` with the
+   SOPS helper (never decrypt it by hand).
+3. Set `claude.credentialExpiresAt` in `values/agents-orchestrator/common.yaml` to the mint date
+   plus 365 days.
+4. Apply `agents-orchestrator` and `agents-usage` (`mise run apply`, diff first).
+5. Restart running sessions: agents read the token at start.
+
 ## Cutover to agents-orchestrator
 
 The rename to `agents-orchestrator` is a new release set, applied in selector-scoped steps:
