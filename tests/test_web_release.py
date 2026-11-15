@@ -32,9 +32,9 @@ def _chart_version(repo_root) -> str:
 def test_web_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"\d+\.\d+\.\d+", tag)
-    # The chart of the v1.21.0 release (main be51127): chart and image from one commit.
-    assert _chart_version(repo_root) == "0.1.0-main.be51127"
-    assert tag == "1.21.0"
+    # The chart of the v1.22.0 release (main 1c8b8ab): chart and image from one commit.
+    assert _chart_version(repo_root) == "0.1.0-main.1c8b8ab"
+    assert tag == "1.22.0"
 
 
 def test_web_behind_oauth2_proxy_with_orchestrator_secret(layered_values):
