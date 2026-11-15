@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -1266,3 +1267,110 @@ def test_mindmap_tokens_not_printed(tmp_path):
         for stream in (r.stdout, r.stderr):
             for value in secrets:
                 assert value not in stream, f"{name}: a mindmap secret was printed"
+
+
+COMMON = "values/agents-orchestrator/common.yaml"
+CLAUDE_CANARY = "CANARY-claude-0001"
+
+
+def _expiry_sandbox(tmp_path: Path) -> tuple[Path, bytes]:
+    """Every target present except ORCH; a real yq edits a copy of the orchestrator common.yaml."""
+    bindir = _schedule_sandbox(tmp_path)
+    real_yq = shutil.which("yq")
+    if real_yq is None and shutil.which("mise"):
+        out = subprocess.run(["mise", "which", "yq"], capture_output=True, text=True, check=False)
+        real_yq = out.stdout.strip() or None
+    if not real_yq:
+        pytest.skip("no real yq on PATH (mise install pins it)")
+    (bindir / "yq").unlink()
+    (bindir / "yq").symlink_to(real_yq)
+    (tmp_path / ORCH).unlink()
+    shutil.copy(ROOT / COMMON, tmp_path / COMMON)
+    b64 = base64.b64encode(CLAUDE_CANARY.encode()).decode()
+    (bindir / "kubectl").write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        "  *jsonpath*) printf '%s' '" + b64 + "' ;;\n"
+        '  *) echo \'{"items":[{"data":{"CLAUDE_CODE_OAUTH_TOKEN":"x"},'
+        '"metadata":{"name":"claude"}}]}\'\n'
+        "      ;;\n"
+        "esac\n"
+    )
+    (bindir / "kubectl").chmod(0o755)
+    return bindir, (tmp_path / COMMON).read_bytes()
+
+
+def _run_minted(tmp_path: Path, bindir: Path, minted: str | None) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items() if k not in ("BASH_ENV", "ENV")}
+    env["PATH"] = f"{bindir}:/usr/bin:/bin"
+    env.pop("CLAUDE_CREDENTIAL_MINTED_AT", None)
+    if minted is not None:
+        env["CLAUDE_CREDENTIAL_MINTED_AT"] = minted
+    return subprocess.run(
+        ["bash", str(tmp_path / "scripts" / "bootstrap-secrets.sh")],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_bootstrap_records_claude_expiry_from_minted_date(tmp_path):
+    bindir, before = _expiry_sandbox(tmp_path)
+    original = yaml.safe_load(before)
+    r = _run_minted(tmp_path, bindir, "2026-10-23")
+    assert r.returncode == 0, r.stderr
+    text = (tmp_path / COMMON).read_text()
+    doc = yaml.safe_load(text)
+    assert doc["claude"]["credentialExpiresAt"] == "2027-10-23T00:00:00Z"
+    original["claude"]["credentialExpiresAt"] = "2027-10-23T00:00:00Z"
+    assert doc == original
+    assert "# Release tag X.Y.Z (git tag vX.Y.Z), never a sha7" in text
+    assert "claude credential end recorded: 2027-10-23T00:00:00Z (minted 2026-10-23" in r.stderr
+
+
+def test_bootstrap_records_claude_expiry_default_today(tmp_path):
+    bindir, _ = _expiry_sandbox(tmp_path)
+    r = _run_minted(tmp_path, bindir, None)
+    assert r.returncode == 0, r.stderr
+    expected = (datetime.now(UTC).date() + timedelta(days=365)).isoformat() + "T00:00:00Z"
+    assert (
+        yaml.safe_load((tmp_path / COMMON).read_text())["claude"]["credentialExpiresAt"] == expected
+    )
+
+
+def test_bootstrap_bad_minted_date_refused(tmp_path):
+    bindir, before = _expiry_sandbox(tmp_path)
+    r = _run_minted(tmp_path, bindir, "23.10.2026")
+    assert r.returncode == 1
+    assert "CLAUDE_CREDENTIAL_MINTED_AT must be YYYY-MM-DD" in r.stderr
+    assert not (tmp_path / ORCH).exists()
+    assert (tmp_path / COMMON).read_bytes() == before
+
+
+def test_bootstrap_impossible_minted_date_refused(tmp_path):
+    bindir, before = _expiry_sandbox(tmp_path)
+    r = _run_minted(tmp_path, bindir, "2026-13-45")
+    assert r.returncode == 1
+    assert "CLAUDE_CREDENTIAL_MINTED_AT" in r.stderr
+    assert not (tmp_path / ORCH).exists()
+    assert (tmp_path / COMMON).read_bytes() == before
+
+
+def test_existing_orchestrator_file_leaves_expiry_untouched(tmp_path):
+    bindir, before = _expiry_sandbox(tmp_path)
+    (tmp_path / ORCH).write_text("sentinel: keep\n")
+    r = _run_minted(tmp_path, bindir, "2026-10-23")
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / COMMON).read_bytes() == before
+
+
+def test_bootstrap_expiry_never_prints_token(tmp_path):
+    bindir, _ = _expiry_sandbox(tmp_path)
+    r = _run_minted(tmp_path, bindir, "2026-10-23")
+    assert r.returncode == 0, r.stderr
+    b64 = base64.b64encode(CLAUDE_CANARY.encode()).decode()
+    for stream in (r.stdout, r.stderr):
+        assert CLAUDE_CANARY not in stream
+        assert b64 not in stream

@@ -5,16 +5,17 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime, timedelta
 
 import pytest
 import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "7.26.0"
-# The chart of the v7.26.0 release (main 0f19ec1): chart and image from one commit.
-CHART = "0.1.0-main.0f19ec1"
-WRAPPER_PIN = "0.17.0"
+PIN = "7.27.0"
+# The chart of the v7.27.0 release (main 139032d): chart and image from one commit.
+CHART = "0.1.0-main.139032d"
+WRAPPER_PIN = "0.18.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [
@@ -513,3 +514,13 @@ def test_guard_section_needs_wrapper_0_17(layered_values):
     ]
     for image in images:
         assert _semver(image.rsplit(":", 1)[1]) >= (0, 17, 0), image
+
+
+def test_claude_credential_end_value(layered_values):
+    v = layered_values(REL)
+    raw = v["claude"]["credentialExpiresAt"]
+    parsed = datetime.fromisoformat(raw)
+    assert parsed.utcoffset() == timedelta(0)
+    # Provisional until the user confirms the real mint date (T-225).
+    assert raw == "2027-10-23T00:00:00Z"
+    assert v["credentialNoticeProject"] == "agents"
