@@ -11,9 +11,9 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The v0.12.2 release commit 61bc6a6 (spec autostart, S-51): chart and image from one commit.
-CHART = "0.1.0-main.a7af27d"
-TAG = "0.12.2"
+# The v0.12.3 release commit 26cb857 (spec autostart, S-51): chart and image from one commit.
+CHART = "0.1.0-main.26cb857"
+TAG = "0.12.3"
 
 
 def _block(repo_root, name: str) -> str:
