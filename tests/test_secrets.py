@@ -60,6 +60,7 @@ APP_DB = "values/agents-app-connector-db/default.secrets.yaml"
 APP_FILES = (APP, APP_HASH)
 TB_DELEGATE = "values/agents-taskboard/delegate-token.secrets.yaml"
 APP_TB = "values/agents-app-connector/taskboard-token.secrets.yaml"
+MX_TB = "values/agents-matrix-connector/taskboard-token.secrets.yaml"
 VLT = "values/agents-vault/default.secrets.yaml"
 VLT_HASH = "values/agents-orchestrator/service-token-agents-vault.secrets.yaml"
 VLT_TOKENS = "values/agents-vault/raw/service-tokens.agents-vault.pre.secrets.yaml"
@@ -777,7 +778,8 @@ def test_chat_token_files_listed_on_releases(helmfile_build):
     orch = _secrets_of(docs, "agents-orchestrator")
     assert CHAT in orch and orch.index(CHAT) > orch.index(ORCH)
     assert CHAT_HASH not in orch
-    assert _secrets_of(docs, "agents-matrix-connector") == [MX, CHAT_HASH]
+    assert _secrets_of(docs, "agents-matrix-connector") == [MX, CHAT_HASH, MX_TB]
+    assert _secrets_of(docs, "agents-app-connector") == [APP, APP_TB]
 
 
 @pytest.mark.needs_sops_key
