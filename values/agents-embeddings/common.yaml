@@ -35,9 +35,10 @@ securityContext:
       drop: [ALL]
 
 # Spike: RSS 4.34 GiB after batches, VmHWM 4.53 GB.
+# Lowered 2026-11-16 to free CPU on worker-jtw3f33 for CI runners (T-420 decision 750).
 resources:
   requests:
-    cpu: "1"
+    cpu: "500m"
     memory: 5Gi
   limits:
     memory: 6Gi
