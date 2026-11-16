@@ -10,9 +10,9 @@ import yaml
 
 REL = "agents-matrix-connector"
 DB_REL = "agents-matrix-connector-db"
-# The v0.16.0 release commit: chart and image from one commit.
-SHA = "63c1ffe"
-TAG = "0.16.0"
+# The v0.17.0 release commit: chart and image from one commit.
+SHA = "15707cc"
+TAG = "0.17.0"
 BRIDGE_URL = "http://mautrix-meta.messaging.svc.cluster.local:29328/_matrix/provision"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
@@ -158,3 +158,13 @@ def test_db_secret_matches_rendered_cnpg_cluster_helmfile_build(layered_values, 
 def test_inbound_image_pixel_cap_fits_bot_memory_limit(layered_values):
     # 16 MP decodes at about 140 MiB; the 40 MP connector default peaks at 340-390 MiB (limit 384Mi).
     assert layered_values(REL)["env"]["MATRIX_INBOUND_IMAGE_MAX_PIXELS"] == "16000000"
+
+
+def test_approvals_room_and_approver(layered_values):
+    approvals = layered_values(REL)["approvals"]
+    assert approvals["room"] == "!iLWrAwaTMYnINJsyNv:szymonrichert.pl"
+    assert approvals["approverIds"] == ["@facebook_100000241356957:szymonrichert.pl"]
+    assert approvals["taskboard"]["url"] == "http://agents-taskboard-delegate:8003"
+    matrix = layered_values(REL)["matrix"]
+    bot_identities = {matrix["userId"], *matrix["selfIdentities"], *matrix["bridgeBots"]}
+    assert not set(approvals["approverIds"]) & bot_identities

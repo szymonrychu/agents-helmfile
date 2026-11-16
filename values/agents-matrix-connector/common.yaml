@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-matrix-connector
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "0.16.0"
+  tag: "0.17.0"
 
 # Connection URI from the CNPG app Secret made by the agents-matrix-connector-db release.
 postgres:
@@ -28,6 +28,18 @@ matrix:
 # the connector default of 40 MP peaks at 340-390 MiB against the bot's 384Mi limit (OOM kill).
 env:
   MATRIX_INBOUND_IMAGE_MAX_PIXELS: "16000000"
+
+# Approvals (S-63): the bot mirrors open taskboard approvals into the owner's Messenger DM room and
+# turns the owner's reaction or quoted reply into an answer through the taskboard delegate listener
+# (port 8003, in-namespace). The approver is the owner's bridged Facebook puppet, which is not the
+# bot, a self identity or a bridge bot. The delegate token (approvals.taskboard.token) is its own
+# value in a SOPS file, listed in the taskboard's delegateTokens (one token per caller).
+approvals:
+  room: "!iLWrAwaTMYnINJsyNv:szymonrichert.pl"
+  approverIds:
+    - "@facebook_100000241356957:szymonrichert.pl"
+  taskboard:
+    url: http://agents-taskboard-delegate:8003
 
 policy:
   default: deny
