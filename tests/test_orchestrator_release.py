@@ -12,9 +12,9 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "8.2.0"
-# The chart of the v8.2.0 release (main 11583e1): chart and image from one commit.
-CHART = "0.1.0-main.11583e1"
+PIN = "8.3.1"
+# The chart of the v8.3.1 release (main beba7fe): chart and image from one commit.
+CHART = "0.1.0-main.beba7fe"
 WRAPPER_PIN = "0.22.0"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
@@ -250,7 +250,13 @@ def test_chat_url_and_token_render_together(repo_root):
             )
             if "ORCH_CHAT_URL" in env:
                 carriers[f"{dep['metadata']['name']}/{ctr['name']}"] = env["ORCH_CHAT_URL"]["value"]
-    assert carriers == {f"{REL}-api/api": CHAT_URL}
+    # Since chart 8.3.1 the ingester (envelope relay worker) and reconciler (envelope prompt and
+    # hook) carry the pair too; the dispatcher and migrate init containers never do.
+    assert carriers == {
+        f"{REL}-api/api": CHAT_URL,
+        f"{REL}-ingester/ingester": CHAT_URL,
+        f"{REL}-reconciler/reconciler": CHAT_URL,
+    }
     secrets = [
         d for d in docs if d.get("kind") == "Secret" and d["metadata"]["name"].endswith("-chat")
     ]
