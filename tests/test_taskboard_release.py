@@ -11,9 +11,9 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The v0.13.0 release commit 4b01a70 (approvals, S-63): chart and image from one commit.
+# Chart 0.1.0-main.4b01a70 is the v0.13.0 release commit (approvals, S-63); image 0.13.1 (tag v0.13.1 = 9ed1329) is pinned alone, chart unchanged.
 CHART = "0.1.0-main.4b01a70"
-TAG = "0.13.0"
+TAG = "0.13.1"
 
 
 def _block(repo_root, name: str) -> str:
