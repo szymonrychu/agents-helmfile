@@ -15,7 +15,7 @@ OLD_REL = "agent-orchestrator"
 PIN = "9.0.1"
 # The chart of the v9.0.1 release (main 989b6e2): chart and image from one commit.
 CHART = "0.1.0-main.989b6e2"
-WRAPPER_PIN = "0.23.0"
+WRAPPER_PIN = "0.23.1"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [

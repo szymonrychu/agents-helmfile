@@ -10,9 +10,9 @@ import yaml
 
 REL = "agents-matrix-connector"
 DB_REL = "agents-matrix-connector-db"
-# The v1.0.0 release commit: chart and image from one commit.
-SHA = "8af3db4"
-TAG = "1.0.0"
+# The v2.0.0 release commit: chart and image from one commit.
+SHA = "8f824a0"
+TAG = "2.0.0"
 BRIDGE_URL = "http://mautrix-meta.messaging.svc.cluster.local:29328/_matrix/provision"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
@@ -168,3 +168,10 @@ def test_approvals_room_and_approver(layered_values):
     matrix = layered_values(REL)["matrix"]
     bot_identities = {matrix["userId"], *matrix["selfIdentities"], *matrix["bridgeBots"]}
     assert not set(approvals["approverIds"]) & bot_identities
+
+
+def test_connector_notes_caps(layered_values):
+    # S-79 decision 9: whole-room cap 20000, per-section cap 4000 (chart limits.* feed MATRIX_ROOM_NOTES_*).
+    limits = layered_values(REL)["limits"]
+    assert limits["roomNotesMaxChars"] == 20000
+    assert limits["roomNotesSectionMaxChars"] == 4000

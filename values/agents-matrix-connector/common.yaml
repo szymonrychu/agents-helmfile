@@ -1,7 +1,7 @@
 image:
   repository: harbor.szymonrichert.pl/containers/agents-matrix-connector
   # Release tag X.Y.Z (git tag vX.Y.Z), never a sha7: Harbor retention prunes sha7 tags.
-  tag: "1.0.0"
+  tag: "2.0.0"
 
 # Connection URI from the CNPG app Secret made by the agents-matrix-connector-db release.
 postgres:
@@ -77,3 +77,10 @@ ingress:
     - 192.168.1.28/32
     - 192.168.1.29/32
     - 192.168.1.65/32
+
+# Room notes caps (S-79 decisions 5, 6 and 9): the whole room holds at most 20000 characters across its
+# sections, one section at most 4000 (chart limits.* feed MATRIX_ROOM_NOTES_MAX_CHARS and
+# MATRIX_ROOM_NOTES_SECTION_MAX_CHARS).
+limits:
+  roomNotesMaxChars: 20000
+  roomNotesSectionMaxChars: 4000
