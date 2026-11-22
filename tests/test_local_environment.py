@@ -135,7 +135,8 @@ def test_hook_local_skips_secrets_and_marked_files(repo_root, tmp_path):
 def test_hook_default_env_still_applies_secrets(repo_root, tmp_path):
     calls = _run_presync(repo_root, tmp_path, "default")
     assert "sops -d" in calls and "regcred.pre.secrets.yaml" in calls
-    assert "marked.pre.yaml" in calls
+    # Every raw file is applied: the stubs read stdin, so a loop fed on stdin lost the rest.
+    assert "marked.pre.yaml" in calls and "plain.pre.yaml" in calls
 
 
 # Local values layers, raw manifests and traefik config (S-82 T-644): one render of

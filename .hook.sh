@@ -118,7 +118,9 @@ apply_dir() {
     if [[ "${HELMFILE_ENV}" == "local" ]] && [[ "${mode}" == "secrets" ]]; then
         return 0
     fi
-    while IFS= read -r -d '' f; do
+    # The list arrives on fd 3: a command in the loop that reads stdin (`kubectl apply -f -`,
+    # a hook script) must not swallow the remaining file names.
+    while IFS= read -r -d '' f <&3; do
         if [[ "${HELMFILE_ENV}" == "local" ]] && grep -qx '# agents-local: skip' "${f}"; then
             printf "Skipping '%s' in the local environment\n" "${f}"
             continue
@@ -128,7 +130,7 @@ apply_dir() {
             hook) run_hook_script "${f}" ;;
             *) run_kubectl "${f}" ;;
         esac
-    done < <(find "${dir}" -name "${pattern}" -print0)
+    done 3< <(find "${dir}" -name "${pattern}" -print0)
 }
 
 readonly HELMFILE_DIR="${1:-}"
