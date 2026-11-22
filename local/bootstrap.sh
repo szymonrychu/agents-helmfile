@@ -55,11 +55,14 @@ x kubectl create namespace agents --dry-run=client -o yaml | x kubectl apply -f 
 x python local/tokens.py --state "$STATE" --profiles "${AGENTS_LOCAL_PROFILES:-}" --http-port "$HTTP_PORT"
 
 log "storage and policies"
-# k3s restores its own local-path-config on restart, so re-apply every run and restart the
-# provisioner so it rereads the shared-filesystem setting.
-x kubectl apply -f local/raw/
+# k3s restores its own local-path-config on restart, so re-apply every run; the provisioner reads
+# it only at start, so restart it when the apply changed it.
+applied=$(x kubectl apply -f local/raw/)
+printf '%s\n' "$applied"
 wait_for 300 "local-path-provisioner" x kubectl -n kube-system get deploy/local-path-provisioner
-x kubectl -n kube-system rollout restart deploy/local-path-provisioner
+if grep -Eq '^configmap/local-path-config (configured|created)$' <<< "$applied"; then
+  x kubectl -n kube-system rollout restart deploy/local-path-provisioner
+fi
 x kubectl -n kube-system rollout status deploy/local-path-provisioner --timeout=180s
 
 x kubectl apply -f "$STATE/secrets.yaml" -o name
