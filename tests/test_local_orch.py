@@ -60,6 +60,9 @@ class Fake:
         self.counter = 0
         self.seen_hosts = set()
         self.fail_paths = {}
+        self.raw_paths = {}
+        self.ghost = None
+        self.list_calls = 0
 
 
 def make_server(state):
@@ -87,6 +90,13 @@ def make_server(state):
                     state.fail_paths[method, url.path],
                     {"error": {"code": "boom", "message": "SECRETBODY"}},
                 )
+            if (method, url.path) in state.raw_paths:
+                data = state.raw_paths[method, url.path]
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return None
             if parts == ["projects"] and method == "GET":
                 return self.send(200, state.projects)
             if parts == ["projects"] and method == "POST":
@@ -108,6 +118,9 @@ def make_server(state):
                 project = parse_qs(url.query).get("project", [None])[0]
                 out = [s for s in state.sessions if s["project"] == project]
                 state.sessions = [s for s in state.sessions if s["desired"] != "deleting"]
+                state.list_calls += 1
+                if state.ghost and state.list_calls == 2:
+                    out = [*out, state.ghost]
                 return self.send(200, out)
             if parts == ["sessions"] and method == "POST":
                 preset_id = self.body()["preset_id"]
@@ -128,6 +141,8 @@ def make_server(state):
                         return self.send(202, s)
                 return self.send(404)
             if len(parts) == 3 and parts[2] == "agents":
+                if state.ghost and parts[1] == state.ghost["id"]:
+                    return self.send(404)
                 return self.send(200, [{"ready": state.agents_ready, "gone": False}])
             return self.send(404)
 
@@ -225,4 +240,21 @@ def test_api_error_prints_no_body(fake, capsys):
     assert run(fake, "seed", "--docker", "true") == 1
     err = capsys.readouterr().err
     assert "GET" in err and "/api/v1/projects" in err and "500" in err and "boom" in err
+    assert "SECRETBODY" not in err
+
+
+def test_wait_tolerates_session_vanishing(fake):
+    run(fake, "seed", "--docker", "false")
+    preset_id = fake.presets[0]["id"]
+    fake.ghost = sess("ghost1", preset_id)
+    fake.ghost["project"] = "local"
+    assert run(fake, "hives", "1", "--wait", "--timeout", "10", "--poll", "0.1") == 0
+    assert len(active(fake, preset_id)) == 1
+
+
+def test_non_json_response_exits_1(fake, capsys):
+    fake.raw_paths["GET", "/api/v1/projects"] = b"<html>SECRETBODY</html>"
+    assert run(fake, "seed", "--docker", "true") == 1
+    err = capsys.readouterr().err
+    assert "GET" in err and "/api/v1/projects" in err and "200" in err and "invalid_response" in err
     assert "SECRETBODY" not in err

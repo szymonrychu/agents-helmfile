@@ -18,7 +18,9 @@ PRESET = "local-hive"
 
 
 class ApiError(Exception):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 class Client:
@@ -38,16 +40,20 @@ class Client:
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read()
+                status = resp.status
         except urllib.error.HTTPError as exc:
             code = "-"
             try:
                 code = json.loads(exc.read())["error"]["code"]
             except (ValueError, KeyError, TypeError):
                 pass
-            raise ApiError(f"{method} {shown} -> {exc.code} {code}") from None
+            raise ApiError(f"{method} {shown} -> {exc.code} {code}", exc.code) from None
         except (urllib.error.URLError, OSError) as exc:
             raise ApiError(f"{method} {shown} -> unreachable {type(exc).__name__}") from None
-        return json.loads(raw) if raw else None
+        try:
+            return json.loads(raw) if raw else None
+        except ValueError:
+            raise ApiError(f"{method} {shown} -> {status} invalid_response", status) from None
 
 
 def _natural(slug):
@@ -96,9 +102,16 @@ def not_ready(client, preset_id, n):
     """Slugs standing in the way of exactly n ready active hives with none deleting."""
     sessions = hive_sessions(client, preset_id)
     waiting = [s["slug"] for s in sessions if s["desired"] != "active"]
-    active = [s for s in sessions if s["desired"] == "active"]
-    for s in active:
-        agents = [a for a in client.call("GET", f"/sessions/{s['id']}/agents") if not a.get("gone")]
+    active = []
+    for s in (s for s in sessions if s["desired"] == "active"):
+        try:
+            rows = client.call("GET", f"/sessions/{s['id']}/agents")
+        except ApiError as exc:
+            if exc.status == 404:
+                continue
+            raise
+        active.append(s)
+        agents = [a for a in rows if not a.get("gone")]
         if not agents or not all(a["ready"] for a in agents):
             waiting.append(s["slug"])
     if len(active) != n and not waiting:
