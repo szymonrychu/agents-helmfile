@@ -65,12 +65,13 @@ jobs:
           k() { docker compose -f local/compose.yaml exec -T k3s kubectl "$@"; }
           image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
           node_ip=$(k get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-          # probe NAME LABELS URL...: one HTTP status per URL (000 when unreachable).
+          # probe NAME LABELS URL...: one HTTP status per URL (000 when unreachable). The probe
+          # sleeps first: kube-router programs a new pod's policy chains a moment after it starts.
           probe() {
             local name="$1" labels="$2"
             shift 2
             k -n agents run "$name" --restart=Never --image="$image" --labels="$labels" --command -- \
-              sh -c 'for u in "$@"; do curl -s -o /dev/null -w "%{http_code}\n" --max-time 10 \
+              sh -c 'sleep 15; for u in "$@"; do curl -s -o /dev/null -w "%{http_code}\n" --max-time 10 \
                 -H "Host: localhost" "$u"; done; true' sh "$@" > /dev/null
             k -n agents wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$name" --timeout=180s \
               > /dev/null || { k -n agents describe pod "$name" >&2; return 1; }
