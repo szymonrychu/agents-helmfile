@@ -102,6 +102,9 @@ annotation: its pods stop, its volumes and backups stay, and it is the rollback 
 and `mise run test` (the whole suite, including `tests/test_orchestrator_release.py`). Actions are pinned by full
 commit sha, checkout keeps no token in the git config and the token has `contents: read` only.
 
+`.github/workflows/local.yaml` (workflow `local`) brings the local docker compose stack up end to end with a fake claude
+token (`AGENTS_LOCAL_FAKE_CLAUDE=1`) on push, same-repo pull requests and by hand; see "Local (docker compose)".
+
 The release tests run `helmfile build` and `helmfile template`, which pull the charts from Harbor and decrypt the
 SOPS/PGP values files (`.sops.yaml`, key `D39E46932A270AA3BA490B9DB9FE928D3E8BCED8`); `tests/test_secrets.py`
 decrypts the token files in-process.
@@ -432,5 +435,42 @@ OpenAI-shaped `POST /v1/embeddings` returns 1024-dim vectors; reached in-cluster
 
 ## Local (docker compose)
 
-Single-machine stack: `mise run local:up`, `mise run local:down`, `mise run local:hives`
-and `mise run local:status`.
+A single-machine stack for development: k3s in a privileged container plus a one-shot `bootstrap`
+service (`local/bootstrap.sh`) that installs the CNPG operator, generates tokens and secrets and runs
+`helmfile -e local sync`. It starts the core set (orchestrator, its database, web, vault, taskboard,
+history, usage, mindmap and embeddings). Optional releases are opt-in through `AGENTS_LOCAL_PROFILES`
+(comma list of `webhook`, `schedule`, `app-connector`); the matrix connector never runs locally.
+
+Requirements: a Linux Docker Engine that allows privileged containers, 16 GB RAM, 4 CPU and about 20 GB
+disk. Docker Desktop on macOS and Windows is best-effort: give the VM 12 GB or more and set
+`AGENTS_LOCAL_DIND=false`. Rootless Docker and Podman are unsupported.
+
+Setup: copy `local/env.example` to `.env` at the repo root (`cp local/env.example .env`) and fill it. Never
+commit `.env`. Variables:
+
+- `HARBOR_USERNAME`, `HARBOR_PASSWORD`: Harbor pull credentials (required). Wrap a value holding a `$`
+  (a robot name such as `robot$...`) in single quotes, or compose and mise expand it.
+- `CLAUDE_CODE_OAUTH_TOKEN`: token handed to the agents (required unless `AGENTS_LOCAL_FAKE_CLAUDE=1`).
+- `AGENTS_LOCAL_PROFILES`: optional releases to enable (empty: none).
+- `AGENTS_LOCAL_DIND`: `true` or `false`, docker-in-docker option of the seeded preset (empty: `true`).
+- `AGENTS_LOCAL_HIVES`: hives started by bootstrap (empty: 1).
+- `AGENTS_LOCAL_HTTP_PORT`: host port of the ingress on 127.0.0.1 (empty: 8080).
+- `AGENTS_LOCAL_FAKE_CLAUDE`: `1` runs without a real claude token (empty: off); used by CI.
+
+Tasks:
+
+- `mise run local:up`: starts the stack and waits for bootstrap, exiting with its exit code. The UI is then at
+  http://localhost:8080 (or your `AGENTS_LOCAL_HTTP_PORT`).
+- `mise run local:hives -- N [--wait]`: scales to N hives. Local-hive sessions are alone (`max_replicas` 1);
+  scaling agents inside a session stays the existing scale command.
+- `mise run local:status`: the stack containers and all pods of the local k3s.
+- `mise run local:down`: stops the stack; the volumes (tokens, databases, sessions) are kept unless you pass
+  `-- --volumes`.
+
+kubectl: `docker compose -f local/compose.yaml exec k3s kubectl ...`.
+
+Security: single-user dev mode with a fixed identity. The privileged k3s container is host-equivalent. Every
+published port binds 127.0.0.1; never publish the port. Generated tokens live in the `local-state` volume
+(a deviation from invariant 9 of `plugins/workbench/rules/secrets-model.md`: generated, not SOPS).
+
+CI runs the same stack end to end in `.github/workflows/local.yaml` (see the CI section).
