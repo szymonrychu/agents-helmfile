@@ -17,11 +17,13 @@ log() { printf '[bootstrap] %s\n' "$*"; }
 
 # wait_for SECONDS DESCRIPTION CMD...: poll every 3 s until CMD succeeds, else fail.
 wait_for() {
-  local limit="$1" what="$2" waited=0
+  local limit="$1" what="$2" waited=0 err=""
   shift 2
-  until "$@" > /dev/null 2>&1; do
+  # Only kubectl/API waits are wrapped, so the last stderr line carries no secret.
+  until err=$("$@" 2>&1 > /dev/null); do
     if [ "$waited" -ge "$limit" ]; then
       log "timed out after ${limit}s waiting for $what"
+      [ -z "$err" ] || log "last error: $(printf '%s\n' "$err" | tail -n 1)"
       exit 1
     fi
     sleep 3
@@ -30,7 +32,7 @@ wait_for() {
 }
 
 log "installing tools"
-mise install --yes > /dev/null
+mise install --yes python helm helmfile kubectl > /dev/null
 x() { mise exec -- "$@"; }
 
 log "preparing kubeconfig"
@@ -38,7 +40,7 @@ mkdir -p "$STATE"
 sed 's#server: https://[^ ]*#server: https://k3s:6443#' /output/kubeconfig.yaml > "$STATE/kubeconfig.yaml.tmp"
 mv "$STATE/kubeconfig.yaml.tmp" "$KUBECONFIG"
 
-log "waiting for the cluster"
+log "waiting for k3s"
 wait_for 300 "k3s readyz" x kubectl get --raw /readyz
 wait_for 300 "traefik CRDs" x kubectl get crd middlewares.traefik.io
 
