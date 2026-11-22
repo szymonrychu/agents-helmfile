@@ -452,6 +452,11 @@ commit `.env`. Variables:
   (a robot name such as `robot$...`) in single quotes, or compose and mise expand it.
 - `CLAUDE_CODE_OAUTH_TOKEN`: token handed to the agents (required unless `AGENTS_LOCAL_FAKE_CLAUDE=1`).
 - `AGENTS_LOCAL_PROFILES`: optional releases to enable (empty: none).
+  Removing a profile does not uninstall its releases: helmfile skips a release whose `condition` is false
+  instead of deleting it (sync and destroy alike). Uninstall them with helm from the bootstrap container,
+  for example for `webhook` (its database goes with it):
+  `docker compose --env-file .env -f local/compose.yaml run --rm --no-deps --entrypoint mise bootstrap exec -- helm -n agents uninstall agents-webhook agents-webhook-db`,
+  or start over with `mise run local:down -- --volumes`.
 - `AGENTS_LOCAL_DIND`: `true` or `false`, docker-in-docker option of the seeded preset (empty: `true`).
 - `AGENTS_LOCAL_HIVES`: hives started by bootstrap (empty: 1).
 - `AGENTS_LOCAL_HTTP_PORT`: host port of the ingress on 127.0.0.1 (empty: 8080).
@@ -470,7 +475,10 @@ Tasks:
 kubectl: `docker compose -f local/compose.yaml exec k3s kubectl ...`.
 
 Security: single-user dev mode with a fixed identity. The privileged k3s container is host-equivalent. Every
-published port binds 127.0.0.1; never publish the port. Generated tokens live in the `local-state` volume
+published port binds 127.0.0.1; never publish the port. The identity is for the host only: session pods (agents, init, cache and check
+pods) have an egress NetworkPolicy (`local/raw/agent-egress.yaml`) that keeps them off traefik and off every
+private address except namespace agents, kube-dns and the API server port, so a LAN host is out of their
+reach in local mode. Generated tokens live in the `local-state` volume
 (a deviation from invariant 9 of `plugins/workbench/rules/secrets-model.md`: generated, not SOPS).
 
 CI runs the same stack end to end in `.github/workflows/local.yaml` (see the CI section).
