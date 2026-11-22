@@ -1,0 +1,56 @@
+# Local (docker-compose k3s). Identity comes from the traefik middleware agents-local-user
+# (X-Forwarded-User: local); no oauth2-proxy, no cert-manager, no S3 workspace cache, no
+# Kubernetes access for sessions. The api admits the k3s pod CIDR; local/raw/networkpolicies.yaml
+# narrows its UI port to traefik.
+env:
+  ORCH_ALLOWED_CIDRS: 10.42.0.0/16
+  ORCH_PVC_STORAGE_CLASS: agents-local-rwx
+  ORCH_PVC_SIZE: 2Gi
+  ORCH_AGENT_TERMINATION_GRACE_SECONDS: "60"
+
+components:
+  api:
+    podAnnotations: null
+
+ingress:
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: agents-agents-local-user@kubernetescrd
+  denySourceRanges: []
+  hosts:
+    - host: localhost
+      paths:
+        - path: /api
+          pathType: Prefix
+  tls: []
+
+# Empty strings, not null: a null map deletes the chart defaults too and the chart templates then
+# dereference nil (helm 4 fails the render). An empty bucket renders no ORCH_CACHE_* setting.
+cache:
+  s3:
+    endpoint: ""
+    bucket: ""
+    pathStyle: false
+    existingSecret: ""
+    api:
+      existingSecret: ""
+  sweep:
+    enabled: false
+
+kubeClusterAccess:
+  enabled: false
+kubeNamespaceAccess:
+  namespaces: []
+
+# No matrix connector locally (chat relay and connector admin off); the webhook and schedule admin
+# upstreams come back from the generated state file only when their profile is on.
+chat:
+  url: ""
+admin:
+  connector:
+    url: ""
+    existingSecret: ""
+  webhook:
+    url: ""
+  schedule:
+    url: ""

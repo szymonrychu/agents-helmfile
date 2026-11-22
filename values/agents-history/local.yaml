@@ -1,0 +1,21 @@
+# Local (docker-compose k3s): identity from the traefik middleware agents-local-user, no
+# oauth2-proxy sidecar; the api admits the k3s pod CIDR, narrowed to traefik by
+# local/raw/networkpolicies.yaml.
+env:
+  HISTORY_ALLOWED_CIDRS: 10.42.0.0/16
+
+components:
+  api:
+    podAnnotations: null
+
+ingress:
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: agents-agents-local-user@kubernetescrd
+  denySourceRanges: []
+  hosts:
+    - host: localhost
+      paths:
+        - path: /history
+          pathType: Prefix
+  tls: []

@@ -1,0 +1,297 @@
+# Local (docker-compose k3s) only. The services admit the whole k3s pod CIDR 10.42.0.0/16 on their
+# user port (the local allowlists), and traefik injects the fixed identity; these policies narrow
+# that port to the traefik pods so no other pod can send X-Forwarded-User itself. The other ports
+# (service, agent, ingest and admin listeners, bearer-gated) stay open to namespace agents.
+# Selectors are the pod template labels the local render produces
+# (tests/test_local_environment.py: test_networkpolicies_select_rendered_pods). A policy that
+# selects no pod (a release off by profile) is inert.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-orchestrator-api-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-orchestrator
+      app.kubernetes.io/instance: agents-orchestrator
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+      ports:
+        - protocol: TCP
+          port: 8001
+        - protocol: TCP
+          port: 8002
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-vault-web-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-vault
+      app.kubernetes.io/instance: agents-vault
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-taskboard-web-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-taskboard
+      app.kubernetes.io/instance: agents-taskboard
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-mindmap-web-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-mindmap
+      app.kubernetes.io/instance: agents-mindmap
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-history-api-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-history
+      app.kubernetes.io/instance: agents-history
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+      ports:
+        - protocol: TCP
+          port: 8001
+        - protocol: TCP
+          port: 8002
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-usage-api-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-usage
+      app.kubernetes.io/instance: agents-usage
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+      ports:
+        - protocol: TCP
+          port: 8001
+        - protocol: TCP
+          port: 8002
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-web-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-web
+      app.kubernetes.io/instance: agents-web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-webhook-api-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-webhook
+      app.kubernetes.io/instance: agents-webhook
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+      ports:
+        - protocol: TCP
+          port: 8001
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-schedule-api-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-schedule
+      app.kubernetes.io/instance: agents-schedule
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+      ports:
+        - protocol: TCP
+          port: 8001
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-app-connector-admin-local
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agents-app-connector
+      app.kubernetes.io/instance: agents-app-connector
+      app.kubernetes.io/component: admin
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000

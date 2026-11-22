@@ -174,17 +174,10 @@ components:
         path: /readyz
         port: 8000
 
-# This Ingress owns the agents-orchestrator-tls Certificate (the cert-manager annotations);
-# the agents-web and agents-webhook Ingresses share the Secret without them.
+# The cert-manager and ingress-nginx annotations are production-only: values/agents-orchestrator/default.yaml.
 ingress:
   enabled: true
   className: nginx
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    kubernetes.io/tls-acme: "true"
-    # SSE streams stay open.
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
   # Cluster node IPs (kubectl get nodes -o wide): agent pods egress SNATed to these.
   denySourceRanges:
     - 192.168.1.26/32
