@@ -332,6 +332,10 @@ def test_local_orchestrator_settings(local_render):
     assert settings["ORCH_PVC_SIZE"] == "2Gi"
     assert settings["ORCH_ALLOWED_CIDRS"] == POD_CIDR
     assert settings["ORCH_AGENT_TERMINATION_GRACE_SECONDS"] == "60"
+    # The orchestrator exits at start unless the shutdown phases plus a 30 s margin fit the grace.
+    phases = ("NOTICE", "HANDOFF", "STOP")
+    budget = sum(int(settings[f"ORCH_AGENT_SHUTDOWN_{p}_SECONDS"]) for p in phases) + 30
+    assert budget <= int(settings["ORCH_AGENT_TERMINATION_GRACE_SECONDS"])
     assert not [k for k in names if k.startswith(("ORCH_CACHE_", "ORCH_CHAT_"))]
     # No session Kubernetes access: every rendered RBAC object is namespaced to agents
     # (ClusterRoleBinding and its role kind carry no namespace).

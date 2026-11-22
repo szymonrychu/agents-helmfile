@@ -6,7 +6,12 @@ env:
   ORCH_ALLOWED_CIDRS: 10.42.0.0/16
   ORCH_PVC_STORAGE_CLASS: agents-local-rwx
   ORCH_PVC_SIZE: 2Gi
+  # A short scale-down. The orchestrator refuses to start unless notice + handoff + stop + 30 s
+  # fit in the grace (settings.py); the code defaults (120/180/90) need 420.
   ORCH_AGENT_TERMINATION_GRACE_SECONDS: "60"
+  ORCH_AGENT_SHUTDOWN_NOTICE_SECONDS: "5"
+  ORCH_AGENT_SHUTDOWN_HANDOFF_SECONDS: "5"
+  ORCH_AGENT_SHUTDOWN_STOP_SECONDS: "20"
 
 components:
   api:
