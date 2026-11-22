@@ -349,7 +349,7 @@ def test_local_volumes_use_hostpath_classes(repo_root, local_render):
     }
     docs = _all_docs(local_render)
     used = {d["spec"]["storageClassName"] for d in _kind(docs, "PersistentVolumeClaim")}
-    used |= {d["spec"]["storage"]["storageClass"] for d in _kind(docs, "Cluster")}
+    used |= {d["spec"]["storage"]["storageClass"] for d in docs if d.get("kind") == "Cluster"}
     used |= {
         t["spec"]["storageClassName"]
         for d in _kind(docs, "StatefulSet")
