@@ -1,0 +1,68 @@
+name: local
+
+# End to end run of the single-machine stack (local/compose.yaml): k3s plus bootstrap, two hives,
+# the web UI and API through the ingress, then back to one hive. Same trust model as ci.yaml:
+# secrets go only to push, workflow_dispatch and same-repo pull requests; the Harbor credentials
+# live only in a runner-private .env that is removed at the end; no xtrace, no compose config
+# dump, no Secret description. No claude credential: the agents run a fake claude.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      profiles:
+        description: Comma-separated profile names (empty for the defaults)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  local-e2e:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+
+      - name: Write .env
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          PROFILES: ${{ inputs.profiles }}
+        run: |
+          umask 077
+          printf 'HARBOR_USERNAME=%s\nHARBOR_PASSWORD=%s\nAGENTS_LOCAL_FAKE_CLAUDE=1\nAGENTS_LOCAL_DIND=true\nAGENTS_LOCAL_HIVES=1\nAGENTS_LOCAL_PROFILES=%s\n' \
+            "$HARBOR_USERNAME" "$HARBOR_PASSWORD" "$PROFILES" > .env
+
+      - run: mise install
+      - run: mise run local:up
+      - run: mise run local:hives -- 2 --wait --timeout 900
+      - name: Web UI and API through the ingress
+        run: |
+          curl -fsS http://localhost:8080/ > /dev/null
+          curl -fsS http://localhost:8080/api/v1/projects | jq -e 'map(.slug) | index("local")'
+      - run: mise run local:hives -- 1 --wait
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          mise run local:status || true
+          docker compose -f local/compose.yaml logs bootstrap --tail 300 || true
+          docker compose -f local/compose.yaml exec k3s kubectl get events -A || true
+
+      - name: Tear down
+        if: always()
+        run: |
+          mise run local:down -- --volumes || true
+          rm -f .env
