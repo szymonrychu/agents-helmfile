@@ -42,8 +42,11 @@ jobs:
           PROFILES: ${{ inputs.profiles }}
         run: |
           umask 077
-          printf 'HARBOR_USERNAME=%s\nHARBOR_PASSWORD=%s\nAGENTS_LOCAL_FAKE_CLAUDE=1\nAGENTS_LOCAL_DIND=true\nAGENTS_LOCAL_HIVES=1\nAGENTS_LOCAL_PROFILES=%s\n' \
-            "$HARBOR_USERNAME" "$HARBOR_PASSWORD" "$PROFILES" > .env
+          # Single quotes keep a literal value: a Harbor robot name carries a `$`, which docker
+          # compose and mise would otherwise expand as a variable.
+          printf "HARBOR_USERNAME='%s'\nHARBOR_PASSWORD='%s'\n" "$HARBOR_USERNAME" "$HARBOR_PASSWORD" > .env
+          printf 'AGENTS_LOCAL_FAKE_CLAUDE=1\nAGENTS_LOCAL_DIND=true\nAGENTS_LOCAL_HIVES=1\nAGENTS_LOCAL_PROFILES=%s\n' \
+            "$PROFILES" >> .env
 
       - run: mise install
       - run: mise run local:up

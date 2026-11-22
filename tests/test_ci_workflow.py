@@ -257,6 +257,8 @@ def test_local_workflow_keeps_secrets_off_the_log():
     write = _runs(_local_job())[_step_index(_local_job(), "> .env")]
     assert "umask 077" in write
     assert "AGENTS_LOCAL_FAKE_CLAUDE=1" in write
+    # Quoted literally: docker compose and mise expand a bare `$` (Harbor robot names carry one).
+    assert "HARBOR_USERNAME='%s'" in write and "HARBOR_PASSWORD='%s'" in write
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in text
 
 
