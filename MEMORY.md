@@ -2,6 +2,7 @@
 
 Lessons that outlive a session. Newest first.
 
+- 2026-11-22: **agents-orchestrator 11.0.1 to 11.0.2 pin (S-77 fix: volume root ownership, agents-orchestrator #178).** Image `11.0.2` / chart `0.1.0-main.f2faea1` (tag v11.0.2 = f2faea1; chart via `helm show chart`). Only the orchestrator pin moves. Not applied here.
 - 2026-11-17: **S-70 chat envelope pins (T-565): agents-orchestrator 8.1.0 to 8.2.0, claude-code-wrapper 0.20.0 to 0.21.0 (agentImage and ORCH_AGENT_IMAGES), agents-matrix-connector 0.18.0 to 0.19.0 (chart `0.1.0-main.96ecd70`, tag v0.19.0 = 96ecd70), plugins ref v0.55.0 to v0.56.0.** The four deploy together. Orchestrator 8.2.0 is released: chart `0.1.0-main.11583e1` (Harbor charts/agents-orchestrator). Rebased over the 8.1.1 pins. Not applied here.
 - 2026-11-15: **agents-web 1.23.0 to 1.24.0 pin (T-377, agents-web #87 mobile/iOS overhaul).** Image `1.24.0` and chart `0.1.0-main.e356b6d` (tag v1.24.0 = e356b6d, `git ls-remote --tags`; lightweight tag). regctl was not available, so image and chart existence in Harbor were not verified here; check-pins covers it. Not applied here.
 - 2026-11-15: **agents-orchestrator 7.23.0 to 7.25.0 and agents-web 1.22.0 to 1.23.0 pins.** Orchestrator image `7.25.0` and chart `0.1.0-main.5565983` (tag v7.25.0 = 5565983, `git rev-list -n1`): wrapper managed settings (agents-orchestrator #138) plus tatara-session-rotation's 7cd0af2. Web image `1.23.0` and chart `0.1.0-main.e20e443` (tag v1.23.0 = e20e443, `git ls-remote --tags`), tatara-session-rotation's. Not applied here.
