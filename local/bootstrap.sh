@@ -65,6 +65,9 @@ x kubectl -n kube-system rollout status deploy/local-path-provisioner --timeout=
 x kubectl apply -f "$STATE/secrets.yaml" -o name
 
 log "helmfile sync"
+# Every presync applies the global raw/ files; on a fresh cluster concurrent presyncs race to
+# create them (AlreadyExists). One release first creates them, then the rest sync in parallel.
+x helmfile -f helmfile.yaml.gotmpl -e local sync --suppress-secrets --selector name=agents-orchestrator-db
 x helmfile -f helmfile.yaml.gotmpl -e local sync --suppress-secrets
 
 log "seeding"
