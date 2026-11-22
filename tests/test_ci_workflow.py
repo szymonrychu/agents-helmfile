@@ -219,3 +219,53 @@ def test_ci_never_reaches_a_kubernetes_api():
     assert "exit 1" in _runs(job)[guard]
     assert guard < _step_index(job, "helm registry login")
     assert guard < _step_index(job, "mise run test")
+
+
+LOCAL = WORKFLOWS / "local.yaml"
+
+
+def _local_job() -> dict:
+    return yaml.safe_load(LOCAL.read_text())["jobs"]["local-e2e"]
+
+
+def test_local_workflow_same_repo_guard():
+    job = _local_job()
+    assert job["if"] == f"github.event_name != 'pull_request' || {SAME_REPO}"
+    assert set(re.findall(r"secrets\.([A-Z_]+)", LOCAL.read_text())) == {
+        "HARBOR_USERNAME",
+        "HARBOR_PASSWORD",
+    }
+
+
+def test_local_workflow_always_cleans_up():
+    job = _local_job()
+    cleanup = [s for s in job["steps"] if "mise run local:down -- --volumes" in s.get("run", "")]
+    assert len(cleanup) == 1
+    assert cleanup[0]["if"] == "always()"
+    assert "rm -f .env" in cleanup[0]["run"]
+    assert job["steps"][-1] is cleanup[0]
+
+
+def test_local_workflow_keeps_secrets_off_the_log():
+    text = LOCAL.read_text()
+    runs = "\n".join(_runs(_local_job()))
+    assert not re.search(r"compose[^\n]*\sconfig\b|describe\s+secret|cat\s+\S*\.env", runs)
+    assert not re.search(r"set\s+-\w*x|set\s+-o\s+xtrace|bash\s+-\w*x", text)
+    for step in _local_job()["steps"]:
+        assert "shell" not in step
+    # The .env file holding the Harbor credentials is private to the runner user.
+    write = _runs(_local_job())[_step_index(_local_job(), "> .env")]
+    assert "umask 077" in write
+    assert "AGENTS_LOCAL_FAKE_CLAUDE=1" in write
+    # Quoted literally: docker compose and mise expand a bare `$` (Harbor robot names carry one).
+    assert "HARBOR_USERNAME='%s'" in write and "HARBOR_PASSWORD='%s'" in write
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in text
+
+
+def test_local_workflow_scales_up_then_down():
+    job = _local_job()
+    up = _step_index(job, "mise run local:hives -- 2 --wait")
+    down = _step_index(job, "mise run local:hives -- 1 --wait")
+    # The first start; a later down/up cycle checks the restart path.
+    start = next(i for i, run in enumerate(_runs(job)) if "mise run local:up" in run)
+    assert start < up < down

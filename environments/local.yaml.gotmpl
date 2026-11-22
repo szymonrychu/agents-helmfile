@@ -1,0 +1,15 @@
+# docker-compose single-machine environment (k3s-in-compose).
+# Optional releases are opt-in through the comma list AGENTS_LOCAL_PROFILES
+# (webhook, schedule, app-connector); the legacy database and the matrix
+# connector never run locally.
+{{- $profiles := splitList "," (env "AGENTS_LOCAL_PROFILES") }}
+legacyOrchestratorDb:
+  enabled: false
+webhook:
+  enabled: {{ has "webhook" $profiles }}
+schedule:
+  enabled: {{ has "schedule" $profiles }}
+appConnector:
+  enabled: {{ has "app-connector" $profiles }}
+matrixConnector:
+  enabled: false

@@ -1,0 +1,9 @@
+environments:
+  default:
+    values:
+    - environments/default.yaml
+  # docker-compose single-machine deployment: never decrypts SOPS; per-release values
+  # come from the generated state dir $AGENTS_LOCAL_STATE_DIR.
+  local:
+    values:
+    - environments/local.yaml.gotmpl

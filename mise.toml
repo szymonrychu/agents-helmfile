@@ -81,3 +81,25 @@ run = "bash scripts/smoke.sh"
 [tasks.chat-smoke]
 description = "Live chat smoke S1-S4 in the owner DM: POSTS REAL MESSAGES from the owner's Facebook account (never part of smoke). Picks the caller from the DM's binding (bound: that session's leader pod, nothing created or changed; unbound: a throwaway alone session, deleted after, binding release awaited), lists rooms, S1 send with no inbound, S2 quoted reply, S3 thumbs-up, S4 a second reaction (env NAMESPACE, RELEASE, MATRIX_RELEASE, CHAT_SMOKE_ROOM, CHAT_SMOKE_PRESET, CHAT_SMOKE_TIMEOUT_S, SMOKE_LOCAL_PORT, SMOKE_MATRIX_API_LOCAL_PORT)"
 run = "bash scripts/chat-smoke.sh"
+
+[tasks."local:up"]
+description = "Start the single-machine local stack (k3s plus bootstrap) and wait for bootstrap to finish, exiting with its exit code. Needs a Linux Docker Engine with privileged containers and a 16 GB RAM machine; Docker Desktop is best-effort with AGENTS_LOCAL_DIND=false. Configure through .env (copy local/env.example)"
+run = """
+docker compose --env-file .env -f local/compose.yaml up -d
+docker compose --env-file .env -f local/compose.yaml wait bootstrap
+"""
+
+[tasks."local:down"]
+description = "Stop the local stack; volumes (tokens, databases, sessions) are kept unless you pass -- --volumes"
+run = 'docker compose --env-file .env -f local/compose.yaml down "$@"'
+
+[tasks."local:hives"]
+description = "Scale the local stack to N hives. Usage: mise run local:hives -- N [--wait]"
+run = 'uv run python local/orch.py --url "http://localhost:${AGENTS_LOCAL_HTTP_PORT:-8080}" hives "$@"'
+
+[tasks."local:status"]
+description = "Show the local stack containers and all pods of the local k3s"
+run = """
+docker compose --env-file .env -f local/compose.yaml ps
+docker compose --env-file .env -f local/compose.yaml exec k3s kubectl get pods -A
+"""

@@ -1,4 +1,6 @@
 # Workspace cache bucket (rook-ceph). Applied by .hook.sh at presync.
+# agents-local: skip
+# (skipped by the local environment: k3s has no ObjectBucketClaim CRD.)
 # Rook creates the Secret and ConfigMap `agents-workspace-cache` (AWS_ACCESS_KEY_ID,
 # AWS_SECRET_ACCESS_KEY) that the agents-orchestrator release reads via cache.s3.existingSecret.
 # WARNING: the StorageClass rook-ceph-bucket has reclaimPolicy Delete, so deleting this claim

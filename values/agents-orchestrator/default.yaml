@@ -1,0 +1,11 @@
+# Production-only ingress annotations (the local environment runs traefik). A null in a later layer
+# would render as an empty annotation, so they live in this layer instead of common.yaml.
+# This Ingress owns the agents-orchestrator-tls Certificate (the cert-manager annotations);
+# the agents-web and agents-webhook Ingresses share the Secret without them.
+ingress:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/tls-acme: "true"
+    # SSE streams stay open.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"

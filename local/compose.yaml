@@ -1,0 +1,68 @@
+# Single-machine deployment: k3s in a privileged container plus a one-shot bootstrap that installs
+# the platform with helmfile (environment local). Run from this directory with
+#   docker compose --env-file ../.env up --abort-on-container-exit --exit-code-from bootstrap
+# (the env file also supplies AGENTS_LOCAL_HTTP_PORT to the port mapping below). Every published
+# port binds 127.0.0.1.
+name: agents-local
+
+services:
+  k3s:
+    image: rancher/k3s:v1.36.6-k3s1@sha256:88d3fac10eb4a429d3c5275f4868fe4b13620f6bbca5bdb5dca0627ac76ae2a0
+    privileged: true
+    # A fixed node name, and its node password kept next to the data, so a recreated container
+    # (local:down then local:up) is the same node to the kept datastore, not a second one.
+    command: [server, --tls-san=k3s, --node-name=agents-local]
+    tmpfs: [/run, /var/run]
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    environment:
+      # Not a secret: single node, reachable only on the compose network and loopback.
+      K3S_TOKEN: agents-local
+      K3S_KUBECONFIG_OUTPUT: /output/kubeconfig.yaml
+      K3S_KUBECONFIG_MODE: "644"
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s
+      - k3s-node:/etc/rancher/node
+      - kubeconfig:/output
+      - ./k3s/traefik-config.yaml:/var/lib/rancher/k3s/server/manifests/agents-traefik-config.yaml:ro
+    ports:
+      - "127.0.0.1:${AGENTS_LOCAL_HTTP_PORT:-8080}:80"
+      - "127.0.0.1:6443:6443"
+    healthcheck:
+      test: [CMD, kubectl, get, --raw, /readyz]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  bootstrap:
+    image: jdxcode/mise:2026.10.25-debian@sha256:00a8a9d05a300e5a15a89d6d3a87ea88ec4e78c4702b78d49aa1d3250af61427
+    # The only service that reads the env file.
+    env_file:
+      - path: ../.env
+        required: true
+    environment:
+      MISE_DATA_DIR: /mise
+      MISE_TRUSTED_CONFIG_PATHS: /repo
+      AGENTS_LOCAL_STATE_DIR: /state
+      KUBECONFIG: /state/kubeconfig.yaml
+    volumes:
+      - ..:/repo:ro
+      - mise-data:/mise
+      - local-state:/state
+      - kubeconfig:/output:ro
+    working_dir: /repo
+    entrypoint: [bash, local/bootstrap.sh]
+    depends_on:
+      k3s:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  k3s-data:
+  k3s-node:
+  kubeconfig:
+  mise-data:
+  local-state:

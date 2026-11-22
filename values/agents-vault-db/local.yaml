@@ -1,0 +1,17 @@
+# Local (docker-compose k3s): a standalone single instance on the local hostPath class agents-local, no import,
+# no WAL volume, no barman plugin and no S3 backups. The image stays the prod pin.
+mode: standalone
+recovery: null
+cluster:
+  plugins: []
+  walStorage:
+    enabled: false
+  storage:
+    storageClass: agents-local
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+backups:
+  enabled: false

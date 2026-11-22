@@ -1,0 +1,55 @@
+# Local (docker-compose k3s) only. Session pods (agent, init, cache and check pods: every pod the
+# orchestrator labels agents.szymonrichert.pl/session) must not reach traefik, which adds the
+# fixed local identity (middleware-local-user.yaml) to every request it routes. Traefik is
+# reachable from a pod through its service IP, its pod IP and the node IP (servicelb hostPort);
+# after kube-proxy and hostPort DNAT, the filter sees a pod IP in 10.42.0.0/16 for all three, and
+# the node IP itself is a Docker network address. So egress goes to namespace agents, kube-dns,
+# the API server port (sessions granted Kubernetes access) and any address outside the private
+# ranges (RFC 1918: pod CIDR, service CIDR and every Docker network); a LAN host is out of reach
+# in local mode. MEMORY.md 2026-11-22 has the why; the local workflow asserts it end to end.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agents-session-egress-local
+  namespace: agents
+spec:
+  podSelector:
+    matchExpressions:
+      - key: agents.szymonrichert.pl/session
+        operator: Exists
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 6443
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16

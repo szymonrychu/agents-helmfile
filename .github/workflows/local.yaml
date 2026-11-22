@@ -1,0 +1,119 @@
+name: local
+
+# End to end run of the single-machine stack (local/compose.yaml): k3s plus bootstrap, two hives,
+# the web UI and API through the ingress, then back to one hive. Same trust model as ci.yaml:
+# secrets go only to push, workflow_dispatch and same-repo pull requests; the Harbor credentials
+# live only in a runner-private .env that is removed at the end; no xtrace, no compose config
+# dump, no Secret description. No claude credential: the agents run a fake claude.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      profiles:
+        description: Comma-separated profile names (empty for the defaults)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  local-e2e:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+
+      - name: Write .env
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          PROFILES: ${{ inputs.profiles }}
+        run: |
+          umask 077
+          # Single quotes keep a literal value: a Harbor robot name carries a `$`, which docker
+          # compose and mise would otherwise expand as a variable.
+          printf "HARBOR_USERNAME='%s'\nHARBOR_PASSWORD='%s'\n" "$HARBOR_USERNAME" "$HARBOR_PASSWORD" > .env
+          printf 'AGENTS_LOCAL_FAKE_CLAUDE=1\nAGENTS_LOCAL_DIND=true\nAGENTS_LOCAL_HIVES=1\nAGENTS_LOCAL_PROFILES=%s\n' \
+            "$PROFILES" >> .env
+
+      - run: mise install
+      - run: mise run local:up
+      - run: mise run local:hives -- 2 --wait --timeout 900
+      - name: Web UI and API through the ingress
+        run: |
+          curl -fsS http://localhost:8080/ > /dev/null
+          curl -fsS http://localhost:8080/api/v1/projects | jq -e 'map(.slug) | index("local")'
+      - name: Session pods get no local identity through traefik
+        run: |
+          # The local identity is for the host only (local/raw/agent-egress.yaml). A pod with the
+          # session label must not get a 200 from the API through traefik, neither by its
+          # service IP nor by the node IP (servicelb hostPort). Two controls keep the check honest:
+          # the same pod still reaches namespace agents, and a pod without the label does get the
+          # identity (the path the policy closes exists).
+          k() { docker compose -f local/compose.yaml exec -T k3s kubectl "$@"; }
+          image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+          node_ip=$(k get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+          # probe NAME LABELS URL...: one HTTP status per URL (000 when unreachable). The probe
+          # sleeps first: kube-router programs a new pod's policy chains a moment after it starts.
+          probe() {
+            local name="$1" labels="$2"
+            shift 2
+            k -n agents run "$name" --restart=Never --image="$image" --labels="$labels" --command -- \
+              sh -c 'sleep 15; for u in "$@"; do curl -s -o /dev/null -w "%{http_code}\n" --max-time 10 \
+                -H "Host: localhost" "$u"; done; true' sh "$@" > /dev/null
+            k -n agents wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$name" --timeout=180s \
+              > /dev/null || { k -n agents describe pod "$name" >&2; return 1; }
+            k -n agents logs "$name"
+            k -n agents delete pod "$name" --wait=false > /dev/null
+          }
+          api=/api/v1/projects
+          session=$(probe identity-probe-session agents.szymonrichert.pl/session=identity-probe \
+            "http://traefik.kube-system$api" "http://$node_ip$api" "http://agents-usage:8001/")
+          read -r via_service via_node to_agents <<< "$(printf '%s ' $session)"
+          control=$(probe identity-probe-plain app=identity-probe "http://traefik.kube-system$api")
+          echo "session pod: service=$via_service node=$via_node agents=$to_agents; plain pod: $control"
+          for code in "$via_service" "$via_node"; do
+            case "$code" in 000 | 401 | 403) ;; *) echo "session pod got $code through traefik"; exit 1 ;; esac
+          done
+          [ "$to_agents" != 000 ] || { echo "session pod cannot reach namespace agents"; exit 1; }
+          [ "$control" = 200 ] || { echo "control pod got $control, expected 200"; exit 1; }
+      - run: mise run local:hives -- 1 --wait
+      - name: Down and up again on the kept volumes is the same single node
+        run: |
+          mise run local:down
+          mise run local:up
+          nodes=$(docker compose -f local/compose.yaml exec -T k3s kubectl get nodes --no-headers)
+          echo "$nodes"
+          [ "$(printf '%s\n' "$nodes" | wc -l)" -eq 1 ] && grep -q ' Ready ' <<< "$nodes"
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          mise run local:status || true
+          docker compose -f local/compose.yaml logs bootstrap --tail 300 || true
+          docker compose -f local/compose.yaml exec k3s kubectl get events -A || true
+          # Last lines of every container (init ones included) of the pods that are not ready.
+          # Services never log secret values (secrets model); the local tokens die with the stack.
+          for pod in $(docker compose -f local/compose.yaml exec -T k3s kubectl -n agents get pods \
+              --no-headers | awk '{ split($2, r, "/"); if (r[1] != r[2] && $3 != "Completed") print $1 }'); do
+            docker compose -f local/compose.yaml exec -T k3s kubectl -n agents logs "$pod" \
+              --all-containers --prefix --tail 40 || true
+          done
+
+      - name: Tear down
+        if: always()
+        run: |
+          mise run local:down -- --volumes || true
+          rm -f .env

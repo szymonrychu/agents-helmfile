@@ -1,0 +1,7 @@
+# Local (docker-compose k3s): model cache on the local hostPath class agents-local; smaller request, the 6Gi limit stays.
+persistence:
+  storageClass: agents-local
+resources:
+  requests:
+    cpu: 250m
+    memory: 2Gi

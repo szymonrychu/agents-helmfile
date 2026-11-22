@@ -1,0 +1,11 @@
+# Production environment: every optional release is installed.
+legacyOrchestratorDb:
+  enabled: true
+webhook:
+  enabled: true
+schedule:
+  enabled: true
+appConnector:
+  enabled: true
+matrixConnector:
+  enabled: true

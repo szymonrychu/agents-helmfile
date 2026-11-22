@@ -1,0 +1,15 @@
+# Local (docker-compose k3s): identity from the traefik middleware agents-local-user, no
+# oauth2-proxy sidecar.
+podAnnotations: null
+
+ingress:
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: agents-agents-local-user@kubernetescrd
+  denySourceRanges: []
+  hosts:
+    - host: localhost
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

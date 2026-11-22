@@ -1,0 +1,13 @@
+# Local (docker-compose k3s) only. The fixed local identity: every user-facing Ingress references
+# this Middleware (router.middlewares agents-agents-local-user@kubernetescrd). customRequestHeaders
+# overwrite any client-sent X-Forwarded-User and X-Forwarded-Email.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: agents-local-user
+  namespace: agents
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-User: local
+      X-Forwarded-Email: local@localhost

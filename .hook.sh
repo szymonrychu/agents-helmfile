@@ -113,13 +113,24 @@ apply_dir() {
         printf "Namespace '%s' does not exist yet; nothing to diff\n" "${RELEASE_NAMESPACE}"
         return 0
     fi
-    while IFS= read -r -d '' f; do
+    # The local (docker-compose) environment never decrypts SOPS and skips raw files
+    # marked for production only.
+    if [[ "${HELMFILE_ENV}" == "local" ]] && [[ "${mode}" == "secrets" ]]; then
+        return 0
+    fi
+    # The list arrives on fd 3: a command in the loop that reads stdin (`kubectl apply -f -`,
+    # a hook script) must not swallow the remaining file names.
+    while IFS= read -r -d '' f <&3; do
+        if [[ "${HELMFILE_ENV}" == "local" ]] && grep -qx '# agents-local: skip' "${f}"; then
+            printf "Skipping '%s' in the local environment\n" "${f}"
+            continue
+        fi
         case "${mode}" in
             secrets) run_kubectl_secrets "${f}" ;;
             hook) run_hook_script "${f}" ;;
             *) run_kubectl "${f}" ;;
         esac
-    done < <(find "${dir}" -name "${pattern}" -print0)
+    done 3< <(find "${dir}" -name "${pattern}" -print0)
 }
 
 readonly HELMFILE_DIR="${1:-}"
@@ -140,6 +151,8 @@ if ! [[ "${TIMEOUT_S}" =~ ^[0-9]+$ ]]; then
   TIMEOUT_S="${DEFAULT_TIMEOUT_S}"
 fi
 readonly TIMEOUT_S
+# 7th arg is the helmfile environment name; `local` is the docker-compose deployment.
+readonly HELMFILE_ENV="${7:-default}"
 
 [[ -z "${HELMFILE_DIR}" ]] && fail "Missing 1st parameter HELMFILE_DIR"
 [[ -z "${EVENT_NAME}" ]] && fail "Missing 2nd parameter EVENT_NAME"

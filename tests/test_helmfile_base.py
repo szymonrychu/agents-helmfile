@@ -29,13 +29,14 @@ def test_default_template_layers_values(repo_root, helmfile_build, layered_value
     assert default["values"] == [
         "values/common.yaml",
         "values/{{`{{ .Release.Name }}`}}/common.yaml",
-        "values/{{`{{ .Release.Name }}`}}/default.yaml",
+        "values/{{`{{ .Release.Name }}`}}/{{`{{ .Environment.Name }}`}}.yaml",
+        '{{ requiredEnv "AGENTS_LOCAL_STATE_DIR" }}/values/{{`{{ .Release.Name }}`}}.yaml',
     ]
     assert default["secrets"] == ["values/{{`{{ .Release.Name }}`}}/default.secrets.yaml"]
     (hook,) = default["hooks"]
     assert hook["events"] == ["prepare", "presync", "postsync"]
     assert hook["command"] == "./.hook.sh"
-    assert len(hook["args"]) == 6
+    assert len(hook["args"]) == 7
     assert layered_values("nonexistent") == layered_values("nonexistent2")
     assert "namespace `agents`" in (repo_root / "helmfile.yaml.gotmpl").read_text()
 

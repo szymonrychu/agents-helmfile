@@ -1,0 +1,16 @@
+# Local (docker-compose k3s) only: the bundled traefik keeps SSE streams open like production's
+# 3600 s ingress-nginx timeouts (no read or write deadline, one hour idle).
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      web:
+        transport:
+          respondingTimeouts:
+            readTimeout: 0
+            writeTimeout: 0
+            idleTimeout: 3600s

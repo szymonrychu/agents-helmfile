@@ -1,0 +1,21 @@
+# Local (docker-compose k3s): identity from the traefik middleware agents-local-user on the api
+# Ingress only (the public ingest Ingress stays outside it, gated by the endpoint key); no
+# oauth2-proxy sidecar. The chart's ingress.tls is a map: an empty secretName renders no TLS.
+api:
+  allowedCidrs:
+    - 10.42.0.0/16
+trustedProxies:
+  - 10.42.0.0/16
+
+components:
+  api:
+    podAnnotations: null
+
+ingress:
+  className: traefik
+  host: localhost
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: agents-agents-local-user@kubernetescrd
+  tls:
+    secretName: ""
+  denySourceRanges: []

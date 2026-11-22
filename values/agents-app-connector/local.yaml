@@ -1,0 +1,24 @@
+# Local (docker-compose k3s): identity from the traefik middleware agents-local-user on the admin
+# Ingress only (the device Ingress is bearer-gated for paired devices); no oauth2-proxy sidecar.
+adminAllowedCidrs:
+  - 10.42.0.0/16
+trustedProxyCidrs:
+  - 10.42.0.0/16
+
+components:
+  admin:
+    podAnnotations: null
+
+persistence:
+  storageClass: agents-local
+
+ingress:
+  className: traefik
+  tls: []
+  denySourceRanges: []
+  device:
+    host: localhost
+  admin:
+    host: localhost
+    annotations:
+      traefik.ingress.kubernetes.io/router.middlewares: agents-agents-local-user@kubernetescrd
