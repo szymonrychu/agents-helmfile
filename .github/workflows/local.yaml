@@ -55,8 +55,40 @@ jobs:
         run: |
           curl -fsS http://localhost:8080/ > /dev/null
           curl -fsS http://localhost:8080/api/v1/projects | jq -e 'map(.slug) | index("local")'
+      - name: Session pods get no local identity through traefik
+        run: |
+          # The local identity is for the host only (local/raw/agent-egress.yaml). A pod with the
+          # session label must not get a 200 from the API through traefik, neither by its
+          # service IP nor by the node IP (servicelb hostPort). Two controls keep the check honest:
+          # the same pod still reaches namespace agents, and a pod without the label does get the
+          # identity (the path the policy closes exists).
+          k() { docker compose -f local/compose.yaml exec -T k3s kubectl "$@"; }
+          image=curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+          node_ip=$(k get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+          # probe NAME LABELS URL...: one HTTP status per URL (000 when unreachable).
+          probe() {
+            local name="$1" labels="$2"
+            shift 2
+            k -n agents run "$name" --restart=Never --image="$image" --labels="$labels" --command -- \
+              sh -c 'for u in "$@"; do curl -s -o /dev/null -w "%{http_code}\n" --max-time 10 \
+                -H "Host: localhost" "$u"; done; true' sh "$@" > /dev/null
+            k -n agents wait --for=jsonpath='{.status.phase}'=Succeeded "pod/$name" --timeout=180s \
+              > /dev/null || { k -n agents describe pod "$name" >&2; return 1; }
+            k -n agents logs "$name"
+            k -n agents delete pod "$name" --wait=false > /dev/null
+          }
+          api=/api/v1/projects
+          session=$(probe identity-probe-session agents.szymonrichert.pl/session=identity-probe \
+            "http://traefik.kube-system$api" "http://$node_ip$api" "http://agents-usage:8001/")
+          read -r via_service via_node to_agents <<< "$(printf '%s ' $session)"
+          control=$(probe identity-probe-plain app=identity-probe "http://traefik.kube-system$api")
+          echo "session pod: service=$via_service node=$via_node agents=$to_agents; plain pod: $control"
+          for code in "$via_service" "$via_node"; do
+            case "$code" in 000 | 401 | 403) ;; *) echo "session pod got $code through traefik"; exit 1 ;; esac
+          done
+          [ "$to_agents" != 000 ] || { echo "session pod cannot reach namespace agents"; exit 1; }
+          [ "$control" = 200 ] || { echo "control pod got $control, expected 200"; exit 1; }
       - run: mise run local:hives -- 1 --wait
-
       - name: Diagnostics
         if: failure()
         run: |
