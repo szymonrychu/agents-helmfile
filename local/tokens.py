@@ -18,10 +18,28 @@ from pathlib import Path
 
 NAMESPACE = "agents"
 REGISTRY = "harbor.szymonrichert.pl"
-PROFILE_RELEASES = {
-    "webhook": "agents-webhook",
-    "schedule": "agents-schedule",
-    "app-connector": "agents-app-connector",
+# Optional releases by profile: the release, the service token the orchestrator holds the hash
+# of, its admin relay upstream (key, url, token name) if any, and its values beyond
+# orchestrator.token.
+PROFILES = {
+    "webhook": (
+        "agents-webhook",
+        "svc_webhook",
+        ("webhook", "http://agents-webhook-api:8001", "up_webhook_admin"),
+        lambda t, public: {"endpointKey": t["webhook_endpoint_key"], "publicBaseUrl": public},
+    ),
+    "schedule": (
+        "agents-schedule",
+        "svc_schedule",
+        ("schedule", "http://agents-schedule-api:8001", "up_schedule_admin"),
+        lambda t, public: {},
+    ),
+    "app-connector": (
+        "agents-app-connector",
+        "svc_app_connector",
+        None,
+        lambda t, public: {"taskboard": {"token": t["taskboard_delegate"]}},
+    ),
 }
 HEX_NAMES = (
     "master_key",
@@ -75,19 +93,16 @@ def release_values(tokens: Mapping[str, str], profiles: frozenset[str], http_por
         "agents-usage": _sha256(t["svc_usage"]),
     }
     admin = {"history": {"token": t["up_history"]}}
-    if "webhook" in profiles:
-        hashes["agents-webhook"] = _sha256(t["svc_webhook"])
-        admin["webhook"] = {"url": "http://agents-webhook-api:8001", "token": t["up_webhook_admin"]}
-    if "schedule" in profiles:
-        hashes["agents-schedule"] = _sha256(t["svc_schedule"])
-        admin["schedule"] = {
-            "url": "http://agents-schedule-api:8001",
-            "token": t["up_schedule_admin"],
-        }
-    if "app-connector" in profiles:
-        hashes["agents-app-connector"] = _sha256(t["svc_app_connector"])
     public = f"http://localhost:{http_port}"
-    out: dict[str, dict] = {
+    optional: dict[str, dict] = {}
+    for profile in sorted(profiles):
+        release, service_token, relay, extra = PROFILES[profile]
+        hashes[release] = _sha256(t[service_token])
+        if relay:
+            key, url, token = relay
+            admin[key] = {"url": url, "token": t[token]}
+        optional[release] = {"orchestrator": {"token": t[service_token]}, **extra(t, public)}
+    return {
         "agents-orchestrator": {
             "claude": {"token": t["claude"], "credentialExpiresAt": None},
             "masterKey": {"value": t["master_key"]},
@@ -113,21 +128,8 @@ def release_values(tokens: Mapping[str, str], profiles: frozenset[str], http_por
         "agents-history": {},
         "agents-web": {},
         "agents-embeddings": {},
+        **optional,
     }
-    if "webhook" in profiles:
-        out["agents-webhook"] = {
-            "orchestrator": {"token": t["svc_webhook"]},
-            "endpointKey": t["webhook_endpoint_key"],
-            "publicBaseUrl": public,
-        }
-    if "schedule" in profiles:
-        out["agents-schedule"] = {"orchestrator": {"token": t["svc_schedule"]}}
-    if "app-connector" in profiles:
-        out["agents-app-connector"] = {
-            "orchestrator": {"token": t["svc_app_connector"]},
-            "taskboard": {"token": t["taskboard_delegate"]},
-        }
-    return out
 
 
 def _secret(name: str, key: str, value: str) -> dict:
@@ -207,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: required environment variable {missing} is empty or unset", file=sys.stderr)
         return 2
     profiles = frozenset(p for p in args.profiles.split(",") if p)
-    unknown = profiles - set(PROFILE_RELEASES)
+    unknown = profiles - set(PROFILES)
     if unknown:
         print(f"error: unknown profile(s): {', '.join(sorted(unknown))}", file=sys.stderr)
         return 2
