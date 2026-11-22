@@ -19,7 +19,7 @@ CANARY_CLAUDE = "CANARY-claude-token"
 ALL = "webhook,schedule,app-connector"
 
 
-def run(state, profiles=ALL, **env_over):
+def run(state, profiles=ALL, extra=(), **env_over):
     env = {
         "PATH": os.environ["PATH"],
         "HARBOR_USERNAME": CANARY_USER,
@@ -29,7 +29,7 @@ def run(state, profiles=ALL, **env_over):
     env.update(env_over)
     env = {k: v for k, v in env.items() if v is not None}
     return subprocess.run(
-        [sys.executable, str(SCRIPT), "--state", str(state), "--profiles", profiles],
+        [sys.executable, str(SCRIPT), "--state", str(state), "--profiles", profiles, *extra],
         env=env,
         capture_output=True,
         text=True,
@@ -177,21 +177,36 @@ def test_no_value_printed(tmp_path):
 
 
 def test_cors_origins_follow_port(tmp_path):
-    proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "--state", str(tmp_path), "--http-port", "9090"],
-        env={
-            "PATH": os.environ["PATH"],
-            "HARBOR_USERNAME": CANARY_USER,
-            "HARBOR_PASSWORD": CANARY_PASS,
-            "CLAUDE_CODE_OAUTH_TOKEN": CANARY_CLAUDE,
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0
+    assert run(tmp_path, extra=["--http-port", "9090"]).returncode == 0
     env = values(tmp_path, "agents-orchestrator")["env"]
     assert env["ORCH_ALLOWED_ORIGINS"] == "http://localhost:9090,http://127.0.0.1:9090"
+
+
+def test_claude_token_follows_env(tmp_path):
+    fake = {"CLAUDE_CODE_OAUTH_TOKEN": "", "AGENTS_LOCAL_FAKE_CLAUDE": "1"}
+    assert run(tmp_path, **fake).returncode == 0
+    first = tokens(tmp_path)
+    assert first["claude"].startswith("fake-")
+    assert run(tmp_path, **fake).returncode == 0
+    assert tokens(tmp_path) == first
+    assert run(tmp_path, CLAUDE_CODE_OAUTH_TOKEN="CANARY-claude-one").returncode == 0
+    assert tokens(tmp_path)["claude"] == "CANARY-claude-one"
+    assert run(tmp_path, CLAUDE_CODE_OAUTH_TOKEN="CANARY-claude-two").returncode == 0
+    after = tokens(tmp_path)
+    assert after["claude"] == "CANARY-claude-two"
+    assert {k: v for k, v in after.items() if k != "claude"} == {
+        k: v for k, v in first.items() if k != "claude"
+    }
+    assert values(tmp_path, "agents-orchestrator")["claude"]["token"] == "CANARY-claude-two"
+
+
+def test_corrupt_state_exits_2(tmp_path):
+    (tmp_path / "tokens.json").write_text("{CANARY-corrupt-content")
+    proc = run(tmp_path)
+    assert proc.returncode == 2
+    assert "tokens.json" in proc.stderr
+    assert "Traceback" not in proc.stderr
+    assert "CANARY-corrupt-content" not in proc.stdout + proc.stderr
 
 
 def test_newly_declared_names_added_existing_kept(tmp_path):

@@ -49,13 +49,16 @@ HEX_NAMES = (
 
 
 def ensure_tokens(existing: dict[str, str], env: Mapping[str, str]) -> dict[str, str]:
-    """Return existing plus every declared name still missing; existing values are kept."""
+    """Return existing plus every declared name still missing; only `claude` follows the env."""
     out = dict(existing)
     for name in HEX_NAMES:
         out.setdefault(name, secrets.token_hex(32))
     out.setdefault("webhook_endpoint_key", base64.b64encode(secrets.token_bytes(32)).decode())
-    if "claude" not in out:
-        out["claude"] = env.get("CLAUDE_CODE_OAUTH_TOKEN") or f"fake-{secrets.token_hex(16)}"
+    real = env.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if real:
+        out["claude"] = real
+    elif "claude" not in out:
+        out["claude"] = f"fake-{secrets.token_hex(16)}"
     return out
 
 
@@ -173,10 +176,12 @@ def secret_manifests(
 
 
 def _write_private(path: Path, text: str) -> None:
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    tmp = path.with_name(f".{path.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as fh:
         fh.write(text)
-    path.chmod(0o600)
+    tmp.chmod(0o600)
+    os.replace(tmp, path)
 
 
 def _missing_env(env: Mapping[str, str]) -> str | None:
@@ -210,7 +215,13 @@ def main(argv: list[str] | None = None) -> int:
     state.chmod(0o700)
     (state / "values").mkdir(mode=0o700, exist_ok=True)
     tokens_path = state / "tokens.json"
-    existing = json.loads(tokens_path.read_text()) if tokens_path.exists() else {}
+    try:
+        existing = json.loads(tokens_path.read_text()) if tokens_path.exists() else {}
+        if not isinstance(existing, dict):
+            raise TypeError("not an object")
+    except (ValueError, TypeError):
+        print(f"error: {tokens_path} is not valid JSON; fix or delete it", file=sys.stderr)
+        return 2
     tokens = ensure_tokens(existing, env)
     _write_private(tokens_path, json.dumps(tokens, indent=2) + "\n")
 
