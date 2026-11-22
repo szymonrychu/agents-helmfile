@@ -1,5 +1,10 @@
 # All releases live in namespace `agents`, which helm creates on first install
 # (the hook also pre-creates it so raw/regcred.pre.secrets.yaml can land first).
+# Environments (default = production, local = docker-compose k3s) live in a base so
+# this file stays one YAML document (helmfile refuses environments and releases in one part).
+bases:
+  - environments/environments.yaml
+
 repositories:
   - name: cnpg
     url: https://cloudnative-pg.github.io/charts
@@ -26,16 +31,24 @@ templates:
       - '{{`{{ .Release.Namespace }}`}}'
       - '{{`{{ .Release.Version }}`}}'
       - '{{`{{ .Release.Timeout | default 600 }}`}}'
+      - '{{`{{ .Environment.Name }}`}}'
     values:
     - values/common.yaml
     - values/{{`{{ .Release.Name }}`}}/common.yaml
-    - values/{{`{{ .Release.Name }}`}}/default.yaml
+    - values/{{`{{ .Release.Name }}`}}/{{`{{ .Environment.Name }}`}}.yaml
+    #{{ if eq .Environment.Name "local" }}
+    - '{{ requiredEnv "AGENTS_LOCAL_STATE_DIR" }}/values/{{`{{ .Release.Name }}`}}.yaml'
+    #{{ end }}
+    # The local environment never decrypts SOPS: its secrets come from the state dir.
+    #{{ if ne .Environment.Name "local" }}
     secrets:
     - values/{{`{{ .Release.Name }}`}}/default.secrets.yaml
+    #{{ end }}
 
 releases:
   - name: agent-orchestrator-db
     namespace: agents
+    condition: legacyOrchestratorDb.enabled
     chart: cnpg/cluster
     version: 0.9.0
     # helm --force would delete and recreate the Cluster CR and is incompatible
@@ -77,6 +90,7 @@ releases:
       application: agents-orchestrator
     <<: *default
     # Overrides the default anchor's list: the service, usage and chat token files come after default.
+    #{{ if ne .Environment.Name "local" }}
     secrets:
     - values/agents-orchestrator/default.secrets.yaml
     - values/agents-orchestrator/service-token-agents-webhook.secrets.yaml
@@ -93,9 +107,11 @@ releases:
     - values/agents-orchestrator/service-token-agents-mindmap.secrets.yaml
     - values/agents-orchestrator/service-token-agents-vault.secrets.yaml
     - values/agents-orchestrator/vault-token.secrets.yaml
+    #{{ end }}
 
   - name: agents-webhook-db
     namespace: agents
+    condition: webhook.enabled
     chart: cnpg/cluster
     version: 0.9.0
     force: false
@@ -107,6 +123,7 @@ releases:
 
   - name: agents-matrix-connector-db
     namespace: agents
+    condition: matrixConnector.enabled
     chart: cnpg/cluster
     version: 0.9.0
     force: false
@@ -118,6 +135,7 @@ releases:
 
   - name: agents-schedule-db
     namespace: agents
+    condition: schedule.enabled
     chart: cnpg/cluster
     version: 0.9.0
     force: false
@@ -162,6 +180,7 @@ releases:
 
   - name: agents-app-connector-db
     namespace: agents
+    condition: appConnector.enabled
     chart: cnpg/cluster
     version: 0.9.0
     force: false
@@ -195,6 +214,7 @@ releases:
 
   - name: agents-webhook
     namespace: agents
+    condition: webhook.enabled
     chart: oci://harbor.szymonrichert.pl/charts/agents-webhook
     version: 0.1.0-main.f665f11
     timeout: 600
@@ -208,6 +228,7 @@ releases:
 
   - name: agents-schedule
     namespace: agents
+    condition: schedule.enabled
     chart: oci://harbor.szymonrichert.pl/charts/agents-schedule
     version: 0.1.0-main.7a850a2
     timeout: 600
@@ -232,15 +253,18 @@ releases:
       application: agents-taskboard
     <<: *default
     # Overrides the default anchor's list: the relay, delegate, mindmap and usage token files come after default.
+    #{{ if ne .Environment.Name "local" }}
     secrets:
     - values/agents-taskboard/default.secrets.yaml
     - values/agents-taskboard/relay-token.secrets.yaml
     - values/agents-taskboard/delegate-token.secrets.yaml
     - values/agents-taskboard/mindmap-token.secrets.yaml
     - values/agents-taskboard/usage-token.secrets.yaml
+    #{{ end }}
 
   - name: agents-app-connector
     namespace: agents
+    condition: appConnector.enabled
     chart: oci://harbor.szymonrichert.pl/charts/agents-app-connector
     version: 0.1.0-main.3cc9fec
     timeout: 600
@@ -252,9 +276,11 @@ releases:
       application: agents-app-connector
     <<: *default
     # Overrides the default anchor's list: the taskboard delegate token file comes after default.
+    #{{ if ne .Environment.Name "local" }}
     secrets:
     - values/agents-app-connector/default.secrets.yaml
     - values/agents-app-connector/taskboard-token.secrets.yaml
+    #{{ end }}
 
   - name: agents-usage
     namespace: agents
@@ -309,6 +335,7 @@ releases:
 
   - name: agents-matrix-connector
     namespace: agents
+    condition: matrixConnector.enabled
     chart: oci://harbor.szymonrichert.pl/charts/agents-matrix-connector
     version: 0.1.0-main.8f824a0
     timeout: 600
@@ -320,10 +347,12 @@ releases:
       application: agents-matrix-connector
     <<: *default
     # Overrides the default anchor's list: the agent token hash file comes after default.
+    #{{ if ne .Environment.Name "local" }}
     secrets:
     - values/agents-matrix-connector/default.secrets.yaml
     - values/agents-matrix-connector/agent-token.secrets.yaml
     - values/agents-matrix-connector/taskboard-token.secrets.yaml
+    #{{ end }}
 
   - name: agents-web
     namespace: agents

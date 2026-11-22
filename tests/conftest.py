@@ -77,16 +77,16 @@ def repo_root() -> Path:
 def helmfile_build(repo_root):
     """Return a callable running `helmfile build`, yielding the parsed documents."""
 
-    def build() -> list[dict]:
+    def build(env: str = "default", extra_env: dict[str, str] | None = None) -> list[dict]:
         if shutil.which("helmfile") is None:
             pytest.fail("helmfile is not on PATH (run under `mise exec`/`mise run`)")
         proc = subprocess.run(  # noqa: PLW1510
-            ["helmfile", "-f", "helmfile.yaml.gotmpl", "build"],
+            ["helmfile", "-f", "helmfile.yaml.gotmpl", "-e", env, "build"],
             cwd=repo_root,
             capture_output=True,
             text=True,
             # Hermetic: no reachable cluster, so the prepare hook skips its kubectl diff.
-            env={**os.environ, "KUBECONFIG": "/dev/null"},
+            env={**os.environ, **(extra_env or {}), "KUBECONFIG": "/dev/null"},
         )
         # An empty `releases: []` skeleton exits 3 ("no releases found") but still renders.
         empty = proc.returncode == 3 and "no releases found" in proc.stderr
@@ -100,12 +100,12 @@ def helmfile_build(repo_root):
 def layered_values(repo_root):
     """Return a callable merging a release's plain values files in helmfile order."""
 
-    def layer(release: str) -> dict:
+    def layer(release: str, env: str = "default") -> dict:
         merged: dict = {}
         for rel in (
             "values/common.yaml",
             f"values/{release}/common.yaml",
-            f"values/{release}/default.yaml",
+            f"values/{release}/{env}.yaml",
         ):
             path = repo_root / rel
             if path.is_file():
