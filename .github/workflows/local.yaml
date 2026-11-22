@@ -63,6 +63,13 @@ jobs:
           mise run local:status || true
           docker compose -f local/compose.yaml logs bootstrap --tail 300 || true
           docker compose -f local/compose.yaml exec k3s kubectl get events -A || true
+          # Last lines of every container (init ones included) of the pods that are not ready.
+          # Services never log secret values (secrets model); the local tokens die with the stack.
+          for pod in $(docker compose -f local/compose.yaml exec -T k3s kubectl -n agents get pods \
+              --no-headers | awk '{ split($2, r, "/"); if (r[1] != r[2] && $3 != "Completed") print $1 }'); do
+            docker compose -f local/compose.yaml exec -T k3s kubectl -n agents logs "$pod" \
+              --all-containers --prefix --tail 40 || true
+          done
 
       - name: Tear down
         if: always()
