@@ -60,4 +60,4 @@ def test_env_example_lists_every_key_empty():
 
 def test_versions_conf_semver():
     text = (ROOT / "local" / "versions.conf").read_text()
-    assert re.search(r"^CNPG_OPERATOR_CHART_VERSION=\d+\.\d+\.\d+$", text, re.M)
+    assert re.search(r"^CNPG_OPERATOR_CHART_VERSION=\d+\.\d+\.\d+$", text, re.MULTILINE)
