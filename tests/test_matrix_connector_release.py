@@ -10,9 +10,9 @@ import yaml
 
 REL = "agents-matrix-connector"
 DB_REL = "agents-matrix-connector-db"
-# The v1.0.0 release commit: chart and image from one commit.
-SHA = "8af3db4"
-TAG = "1.0.0"
+# The v2.0.0 release commit: chart and image from one commit.
+SHA = "8f824a0"
+TAG = "2.0.0"
 BRIDGE_URL = "http://mautrix-meta.messaging.svc.cluster.local:29328/_matrix/provision"
 HOST = "lab.szymonrichert.pl"
 NODE_IPS = [
@@ -168,3 +168,31 @@ def test_approvals_room_and_approver(layered_values):
     matrix = layered_values(REL)["matrix"]
     bot_identities = {matrix["userId"], *matrix["selfIdentities"], *matrix["bridgeBots"]}
     assert not set(approvals["approverIds"]) & bot_identities
+
+
+@pytest.mark.needs_sops_key
+def test_connector_notes_caps(repo_root):
+    # S-79 decision 9: whole-room cap 20000, per-section cap 4000, checked on the rendered release.
+    if shutil.which("helmfile") is None:
+        pytest.fail("helmfile is not on PATH (run under `mise exec`/`mise run`)")
+    proc = subprocess.run(  # noqa: PLW1510
+        ["helmfile", "-f", "helmfile.yaml.gotmpl", "-l", f"name={REL}", "template"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "KUBECONFIG": "/dev/null"},
+    )
+    assert proc.returncode == 0, f"helmfile template failed:\n{proc.stderr}"
+    rendered: dict[str, str] = {}
+    for doc in yaml.safe_load_all(proc.stdout):
+        if not isinstance(doc, dict):
+            continue
+        if doc.get("kind") == "ConfigMap":
+            rendered.update({k: str(v) for k, v in (doc.get("data") or {}).items()})
+        spec = (doc.get("spec") or {}).get("template", {}).get("spec") or {}
+        for ctr in spec.get("containers", []):
+            rendered.update(
+                {e["name"]: str(e["value"]) for e in ctr.get("env", []) if "value" in e}
+            )
+    assert rendered["MATRIX_ROOM_NOTES_MAX_CHARS"] == "20000"
+    assert rendered["MATRIX_ROOM_NOTES_SECTION_MAX_CHARS"] == "4000"
