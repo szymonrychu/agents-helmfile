@@ -89,6 +89,14 @@ jobs:
           [ "$to_agents" != 000 ] || { echo "session pod cannot reach namespace agents"; exit 1; }
           [ "$control" = 200 ] || { echo "control pod got $control, expected 200"; exit 1; }
       - run: mise run local:hives -- 1 --wait
+      - name: Down and up again on the kept volumes is the same single node
+        run: |
+          mise run local:down
+          mise run local:up
+          nodes=$(docker compose -f local/compose.yaml exec -T k3s kubectl get nodes --no-headers)
+          echo "$nodes"
+          [ "$(printf '%s\n' "$nodes" | wc -l)" -eq 1 ] && grep -q ' Ready ' <<< "$nodes"
+
       - name: Diagnostics
         if: failure()
         run: |

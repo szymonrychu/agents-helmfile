@@ -266,4 +266,6 @@ def test_local_workflow_scales_up_then_down():
     job = _local_job()
     up = _step_index(job, "mise run local:hives -- 2 --wait")
     down = _step_index(job, "mise run local:hives -- 1 --wait")
-    assert _step_index(job, "mise run local:up") < up < down
+    # The first start; a later down/up cycle checks the restart path.
+    start = next(i for i, run in enumerate(_runs(job)) if "mise run local:up" in run)
+    assert start < up < down
