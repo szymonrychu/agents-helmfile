@@ -1,0 +1,26 @@
+name: debug-hook
+
+# Temporary: shows why tests/test_local_environment.py::test_hook_default_env_still_applies_secrets
+# fails on the runner. Fake data only, no secret. Removed in the next commit.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  hook:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KUBECONFIG: /dev/null
+      KUBERNETES_SERVICE_HOST: ""
+      KUBERNETES_SERVICE_PORT: ""
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise install
+      - run: mise run test -- tests/test_local_environment.py -k hook -vv --tb=long
