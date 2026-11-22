@@ -179,7 +179,20 @@ def test_no_value_printed(tmp_path):
 def test_cors_origins_follow_port(tmp_path):
     assert run(tmp_path, extra=["--http-port", "9090"]).returncode == 0
     env = values(tmp_path, "agents-orchestrator")["env"]
-    assert env["ORCH_ALLOWED_ORIGINS"] == "http://localhost:9090,http://127.0.0.1:9090"
+    assert env["ORCH_ALLOWED_ORIGINS"] == "http://localhost:9090"
+
+
+@pytest.mark.parametrize(
+    ("release", "key"),
+    [
+        ("agents-taskboard", "publicUrl"),
+        ("agents-mindmap", "publicBaseUrl"),
+        ("agents-webhook", "publicBaseUrl"),
+    ],
+)
+def test_public_urls_point_at_localhost(tmp_path, release, key):
+    assert run(tmp_path, extra=["--http-port", "9090"]).returncode == 0
+    assert values(tmp_path, release)[key] == "http://localhost:9090"
 
 
 def test_claude_token_follows_env(tmp_path):

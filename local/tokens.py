@@ -86,7 +86,7 @@ def release_values(tokens: Mapping[str, str], profiles: frozenset[str], http_por
         }
     if "app-connector" in profiles:
         hashes["agents-app-connector"] = _sha256(t["svc_app_connector"])
-    origins = f"http://localhost:{http_port},http://127.0.0.1:{http_port}"
+    public = f"http://localhost:{http_port}"
     out: dict[str, dict] = {
         "agents-orchestrator": {
             "claude": {"token": t["claude"], "credentialExpiresAt": None},
@@ -97,7 +97,7 @@ def release_values(tokens: Mapping[str, str], profiles: frozenset[str], http_por
             "mindmap": {"token": t["up_mindmap_relay"]},
             "vault": {"token": t["up_vault"]},
             "admin": admin,
-            "env": {"ORCH_ALLOWED_ORIGINS": origins},
+            "env": {"ORCH_ALLOWED_ORIGINS": public},
         },
         "agents-vault": {"orchestrator": {"token": t["svc_vault"]}},
         "agents-usage": {"orchestrator": {"token": t["svc_usage"]}},
@@ -107,8 +107,9 @@ def release_values(tokens: Mapping[str, str], profiles: frozenset[str], http_por
             "delegateTokens": t["taskboard_delegate"],
             "mindmapTokens": t["mindmap_taskboard"],
             "usage": {"token": t["up_usage_taskboard"]},
+            "publicUrl": public,
         },
-        "agents-mindmap": {},
+        "agents-mindmap": {"publicBaseUrl": public},
         "agents-history": {},
         "agents-web": {},
         "agents-embeddings": {},
@@ -117,6 +118,7 @@ def release_values(tokens: Mapping[str, str], profiles: frozenset[str], http_por
         out["agents-webhook"] = {
             "orchestrator": {"token": t["svc_webhook"]},
             "endpointKey": t["webhook_endpoint_key"],
+            "publicBaseUrl": public,
         }
     if "schedule" in profiles:
         out["agents-schedule"] = {"orchestrator": {"token": t["svc_schedule"]}}

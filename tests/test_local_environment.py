@@ -142,6 +142,7 @@ def test_hook_default_env_still_applies_secrets(repo_root, tmp_path):
 # `helmfile -e local template` with every profile on, reused by every test below.
 
 ALL_PROFILES = "webhook,schedule,app-connector"
+HTTP_PORT = 9090
 POD_CIDR = "10.42.0.0/16"
 MIDDLEWARE = "agents-agents-local-user@kubernetescrd"
 MIDDLEWARE_KEY = "traefik.ingress.kubernetes.io/router.middlewares"
@@ -205,7 +206,8 @@ def local_render(repo_root, tmp_path_factory) -> dict[str, list[dict]]:
     }
     script = repo_root / "local" / "tokens.py"
     tokens = subprocess.run(  # noqa: PLW1510
-        [sys.executable, str(script), "--state", str(state), "--profiles", ALL_PROFILES],
+        [sys.executable, str(script), "--state", str(state), "--profiles", ALL_PROFILES]
+        + ["--http-port", str(HTTP_PORT)],
         env=canary,
         capture_output=True,
         text=True,
@@ -230,6 +232,8 @@ def local_render(repo_root, tmp_path_factory) -> dict[str, list[dict]]:
     harbor_down = "harbor.szymonrichert.pl" in proc.stderr and any(
         marker in proc.stderr for marker in HARBOR_UNAVAILABLE
     )
+    if proc.returncode != 0 and harbor_down and os.environ.get("CI"):
+        pytest.fail(f"Harbor chart registry unavailable in CI:\n{proc.stderr}")
     if proc.returncode != 0 and harbor_down:
         pytest.skip("Harbor chart registry unreachable or unauthenticated (CI has the login)")
     assert proc.returncode == 0, f"helmfile -e local template failed:\n{proc.stderr}"
@@ -256,6 +260,13 @@ def _pod_templates(docs: list[dict]) -> list[dict]:
 
 def _all_docs(local_render: dict[str, list[dict]]) -> list[dict]:
     return [d for docs in local_render.values() for d in docs]
+
+
+@pytest.mark.parametrize("release", ["agents-taskboard", "agents-mindmap", "agents-webhook"])
+def test_local_public_urls_are_localhost(local_render, release):
+    text = yaml.safe_dump(local_render[release])
+    assert f"http://localhost:{HTTP_PORT}" in text
+    assert "lab.szymonrichert.pl" not in text
 
 
 @pytest.mark.parametrize("release", APP_RELEASES)
