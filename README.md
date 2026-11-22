@@ -429,3 +429,8 @@ OpenAI-shaped `POST /v1/embeddings` returns 1024-dim vectors; reached in-cluster
 - Apply alone: `mise run apply -- --selector name=agents-embeddings`. Check from a pod in `agents`:
   `curl -s -X POST http://agents-embeddings/v1/embeddings -H 'Content-Type: application/json' -d '{"input":"hello","model":"intfloat/multilingual-e5-large-instruct"}'`
   returns a 1024-element vector.
+
+## Local (docker compose)
+
+Single-machine stack: `mise run local:up`, `mise run local:down`, `mise run local:hives`
+and `mise run local:status`.

@@ -135,3 +135,27 @@ def test_chat_smoke_task(tasks):
     readme = (ROOT / "README.md").read_text()
     assert "mise run chat-smoke" in readme
     assert "owner DM" in readme
+
+
+@pytest.mark.parametrize(
+    ("task", "target", "forwards_args"),
+    [
+        ("local:up", "local/compose.yaml", False),
+        ("local:down", "local/compose.yaml", True),
+        ("local:hives", "local/orch.py", True),
+        ("local:status", "local/compose.yaml", False),
+    ],
+)
+def test_local_task_runs(tasks, task, target, forwards_args):
+    body = _run(tasks[task])
+    assert target in body
+    assert ('"$@"' in body) == forwards_args
+    if "docker compose" in body:
+        for line in body.splitlines():
+            if "docker compose" in line:
+                assert "--env-file .env" in line, line
+
+
+def test_local_down_keeps_volumes_by_default(tasks):
+    body = _run(tasks["local:down"])
+    assert not re.search(r"(^|\s)(-v|--volumes)\b", body)
