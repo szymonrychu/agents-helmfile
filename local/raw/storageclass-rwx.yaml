@@ -1,7 +1,10 @@
-# Local (docker-compose k3s) only. ReadWriteMany for the session workspace PVCs
-# (ORCH_PVC_STORAGE_CLASS agents-local-rwx): the k3s local-path provisioner in shared-filesystem
-# mode, the mechanism of agents-orchestrator scripts/e2e.sh (setup_local_path_shared). On one
-# node every volume, RWO ones included, then lives under the shared path.
+# Local (docker-compose k3s) only. The k3s local-path provisioner in shared-filesystem mode, the
+# mechanism of agents-orchestrator scripts/e2e.sh (setup_local_path_shared): on one node every
+# volume lives under the shared path.
+# - agents-local-rwx: ReadWriteMany for the session workspace PVCs (ORCH_PVC_STORAGE_CLASS).
+# - agents-local: every other volume (databases, model cache, uploads).
+# Both declare the hostPath volume type: in shared mode the provisioner writes PVs without node
+# affinity, which the API refuses for the `local` type that the k3s `local-path` class sets.
 #
 # Apply with client-side `kubectl apply`: it merges only data.config.json into the k3s-managed
 # local-path-config and keeps its setup, teardown and helperPod.yaml keys. The provisioner reads
@@ -10,9 +13,21 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: agents-local-rwx
+  annotations:
+    defaultVolumeType: hostPath
 provisioner: rancher.io/local-path
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: agents-local
+  annotations:
+    defaultVolumeType: hostPath
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
 ---
 apiVersion: v1
 kind: ConfigMap

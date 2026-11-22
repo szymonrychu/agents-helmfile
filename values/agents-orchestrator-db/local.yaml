@@ -1,5 +1,5 @@
 # Local (docker-compose k3s): a fresh standalone single instance (no import of the legacy
-# database) on k3s local-path storage, no WAL volume, no barman plugin and no S3 backups. The image
+# database) on the local hostPath class agents-local, no WAL volume, no barman plugin and no S3 backups. The image
 # stays the prod pin.
 mode: standalone
 recovery: null
@@ -8,7 +8,7 @@ cluster:
   walStorage:
     enabled: false
   storage:
-    storageClass: local-path
+    storageClass: agents-local
     size: 1Gi
   resources:
     requests:

@@ -303,7 +303,7 @@ def test_local_db_has_no_backup_or_wal(local_render, db):
     (cnpg,) = [d for d in docs if d.get("kind") == "Cluster"]
     spec = cnpg["spec"]
     assert list(spec["bootstrap"]) == ["initdb"]
-    assert spec["storage"] == {"size": "1Gi", "storageClass": "local-path"}
+    assert spec["storage"] == {"size": "1Gi", "storageClass": "agents-local"}
     assert "walStorage" not in spec
     assert not spec.get("plugins")
     assert "backup" not in spec
@@ -339,6 +339,31 @@ def test_local_orchestrator_settings(local_render):
     assert rbac and {d["metadata"].get("namespace") for d in rbac} == {"agents"}
 
 
+def test_local_volumes_use_hostpath_classes(repo_root, local_render):
+    """Shared-filesystem local-path writes PVs without node affinity: only hostPath volumes pass."""
+    hostpath = {
+        d["metadata"]["name"]
+        for d in _raw_docs(repo_root, "local/raw/storageclass-rwx.yaml")
+        if d["kind"] == "StorageClass"
+        and d["metadata"].get("annotations", {}).get("defaultVolumeType") == "hostPath"
+    }
+    docs = _all_docs(local_render)
+    used = {d["spec"]["storageClassName"] for d in _kind(docs, "PersistentVolumeClaim")}
+    used |= {d["spec"]["storage"]["storageClass"] for d in _kind(docs, "Cluster")}
+    used |= {
+        t["spec"]["storageClassName"]
+        for d in _kind(docs, "StatefulSet")
+        for t in d["spec"].get("volumeClaimTemplates", [])
+    }
+    settings = {
+        k: v
+        for cm in _kind(local_render["agents-orchestrator"], "ConfigMap")
+        for k, v in (cm.get("data") or {}).items()
+    }
+    used.add(settings["ORCH_PVC_STORAGE_CLASS"])
+    assert len(used) > 1 and used <= hostpath, used - hostpath
+
+
 @pytest.mark.parametrize("release", APP_RELEASES)
 def test_local_images_semver(local_render, release):
     refs = _image_refs(local_render[release])
@@ -360,6 +385,7 @@ def test_local_raw_manifests(repo_root):
 
     assert kinds("local/raw/storageclass-rwx.yaml") == {
         ("StorageClass", None, "agents-local-rwx"),
+        ("StorageClass", None, "agents-local"),
         ("ConfigMap", "kube-system", "local-path-config"),
     }
     assert kinds("local/raw/middleware-local-user.yaml") == {

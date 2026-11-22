@@ -10,7 +10,7 @@ components:
     podAnnotations: null
 
 persistence:
-  storageClass: local-path
+  storageClass: agents-local
 
 ingress:
   className: traefik
