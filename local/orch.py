@@ -79,8 +79,17 @@ def find_preset(client):
 
 
 def seed(client, docker):
-    if not any(p["slug"] == PROJECT for p in client.call("GET", "/projects")):
+    # By slug: the list omits archived projects; an archived `local` is restored, since its hives
+    # could not start otherwise.
+    try:
+        project = client.call("GET", f"/projects/{PROJECT}")
+    except ApiError as exc:
+        if exc.status != 404:
+            raise
         client.call("POST", "/projects", {"slug": PROJECT, "name": "Local", "description": ""})
+    else:
+        if project.get("archived"):
+            client.call("PATCH", f"/projects/{PROJECT}", {"archived": False})
     spec = {"replicas": 1, "max_replicas": 1, "docker": docker}
     preset = find_preset(client)
     if preset is None:

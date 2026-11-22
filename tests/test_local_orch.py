@@ -97,11 +97,22 @@ def make_server(state):
                 self.end_headers()
                 self.wfile.write(data)
                 return None
+            # Like the orchestrator: the list omits archived projects, a create of an existing
+            # slug conflicts, GET and PATCH by slug see archived ones too.
             if parts == ["projects"] and method == "GET":
-                return self.send(200, state.projects)
+                return self.send(200, [p for p in state.projects if not p["archived"]])
             if parts == ["projects"] and method == "POST":
-                state.projects.append(self.body())
+                body = self.body()
+                if any(p["slug"] == body["slug"] for p in state.projects):
+                    return self.send(409, {"error": {"code": "project_exists"}})
+                state.projects.append({**body, "archived": False})
                 return self.send(201, state.projects[-1])
+            if len(parts) == 2 and parts[0] == "projects" and method in ("GET", "PATCH"):
+                for p in state.projects:
+                    if p["slug"] == parts[1]:
+                        p.update(self.body() if method == "PATCH" else {})
+                        return self.send(200, p)
+                return self.send(404, {"error": {"code": "not_found"}})
             if parts == ["presets"] and method == "GET":
                 return self.send(200, state.presets)
             if parts == ["presets"] and method == "POST":
@@ -155,6 +166,9 @@ def make_server(state):
         def do_PUT(self):
             self.handle_any("PUT")
 
+        def do_PATCH(self):
+            self.handle_any("PATCH")
+
         def do_DELETE(self):
             self.handle_any("DELETE")
 
@@ -188,6 +202,12 @@ def test_seed_idempotent(fake):
     assert preset["project"] == "local"
     assert preset["spec"] == {"replicas": 1, "max_replicas": 1, "docker": True}
     assert "localhost" in fake.seen_hosts
+
+
+def test_seed_restores_an_archived_project(fake):
+    fake.projects.append({"slug": "local", "name": "Local", "description": "", "archived": True})
+    assert run(fake, "seed", "--docker", "true") == 0
+    assert [(p["slug"], p["archived"]) for p in fake.projects] == [("local", False)]
 
 
 def test_seed_updates_docker_flag(fake):
@@ -236,10 +256,10 @@ def test_wait_timeout_exits_3(fake, capsys):
 
 
 def test_api_error_prints_no_body(fake, capsys):
-    fake.fail_paths["GET", "/api/v1/projects"] = 500
+    fake.fail_paths["GET", "/api/v1/projects/local"] = 500
     assert run(fake, "seed", "--docker", "true") == 1
     err = capsys.readouterr().err
-    assert "GET" in err and "/api/v1/projects" in err and "500" in err and "boom" in err
+    assert "GET" in err and "/api/v1/projects/local" in err and "500" in err and "boom" in err
     assert "SECRETBODY" not in err
 
 
@@ -253,8 +273,13 @@ def test_wait_tolerates_session_vanishing(fake):
 
 
 def test_non_json_response_exits_1(fake, capsys):
-    fake.raw_paths["GET", "/api/v1/projects"] = b"<html>SECRETBODY</html>"
+    fake.raw_paths["GET", "/api/v1/projects/local"] = b"<html>SECRETBODY</html>"
     assert run(fake, "seed", "--docker", "true") == 1
     err = capsys.readouterr().err
-    assert "GET" in err and "/api/v1/projects" in err and "200" in err and "invalid_response" in err
+    assert (
+        "GET" in err
+        and "/api/v1/projects/local" in err
+        and "200" in err
+        and "invalid_response" in err
+    )
     assert "SECRETBODY" not in err
