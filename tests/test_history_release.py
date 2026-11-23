@@ -11,10 +11,10 @@ NODE_IPS = [
     "192.168.1.29/32",
     "192.168.1.65/32",
 ]
-# The chart version the agents-history main build published for the v0.1.2 release commit
-# (7bc91ab, chart-publish VERSION): 0.1.0-main.<sha7>.
-CHART = "0.1.0-main.7bc91ab"
-TAG = "0.1.2"
+# The chart version the agents-history main build published for the v0.2.0 release commit
+# (ec2ec02, chart-publish VERSION): 0.1.0-main.<sha7>.
+CHART = "0.1.0-main.ec2ec02"
+TAG = "0.2.0"
 
 
 def _block(repo_root, name: str) -> str:
