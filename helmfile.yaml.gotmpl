@@ -81,7 +81,7 @@ releases:
   - name: agents-orchestrator
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-orchestrator
-    version: 0.1.0-main.732c480
+    version: 0.1.0-main.385da55
     timeout: 600
     needs:
       - agents/agents-orchestrator-db
@@ -230,7 +230,7 @@ releases:
     namespace: agents
     condition: schedule.enabled
     chart: oci://harbor.szymonrichert.pl/charts/agents-schedule
-    version: 0.1.0-main.6a19168
+    version: 0.1.0-main.5a09136
     timeout: 600
     needs:
       - agents/agents-schedule-db
@@ -298,7 +298,7 @@ releases:
   - name: agents-history
     namespace: agents
     chart: oci://harbor.szymonrichert.pl/charts/agents-history
-    version: 0.1.0-main.ec2ec02
+    version: 0.1.0-main.bdeac74
     timeout: 600
     needs:
       - agents/agents-history-db
@@ -337,7 +337,7 @@ releases:
     namespace: agents
     condition: matrixConnector.enabled
     chart: oci://harbor.szymonrichert.pl/charts/agents-matrix-connector
-    version: 0.1.0-main.6ccf3b5
+    version: 0.1.0-main.39111db
     timeout: 600
     needs:
       - agents/agents-matrix-connector-db
