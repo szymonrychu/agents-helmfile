@@ -290,17 +290,17 @@ def test_every_pin_resolved(tree):
 
 
 def test_deployed_orchestrator_and_wrapper_pins_resolve(tree):
-    """The orchestrator 15.0.2 and wrapper 0.23.1 pins resolve through their v tags and pass."""
+    """The orchestrator 15.0.2 and wrapper 0.23.2 pins resolve through their v tags and pass."""
     expected = expected_pins(tree)
     assert expected["agents-orchestrator:image.tag"] == ("agents-orchestrator", "15.0.2")
     assert expected["agents-orchestrator"] == ("agents-orchestrator", "0.1.0-main.683f37a")
     wrapper = [label for label, (repo, _) in expected.items() if repo == "claude-code-wrapper"]
     assert len(wrapper) == 2
-    assert {expected[label] for label in wrapper} == {("claude-code-wrapper", "0.23.1")}
+    assert {expected[label] for label in wrapper} == {("claude-code-wrapper", "0.23.2")}
     proc, calls = check(tree, green_state())
     assert proc.returncode == 0, proc.stdout + proc.stderr
     paths = {next(a for a in call if a.startswith("repos/")).split("?")[0] for call in calls}
-    assert "repos/szymonrychu/claude-code-wrapper/commits/v0.23.1" in paths
+    assert "repos/szymonrychu/claude-code-wrapper/commits/v0.23.2" in paths
     assert "repos/szymonrychu/agents-orchestrator/commits/v15.0.2" in paths
     assert "repos/szymonrychu/agents-orchestrator/commits/683f37a" in paths
 
