@@ -12,10 +12,10 @@ import yaml
 
 REL = "agents-orchestrator"
 OLD_REL = "agent-orchestrator"
-PIN = "15.0.2"
-# The chart of the v15.0.2 release (main 683f37a): chart and image from one commit.
+PIN = "16.0.0"
+# TODO: CHART is still the v15.0.2 chart (main 683f37a); move it with the v16.0.0 tag.
 CHART = "0.1.0-main.683f37a"
-WRAPPER_PIN = "0.23.2"
+WRAPPER_PIN = "0.24.1"
 USAGE_INGEST_SECRET = "agents-usage-ingest"
 USAGE_URL = "http://agents-usage:8001"
 NODE_IPS = [

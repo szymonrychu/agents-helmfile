@@ -34,7 +34,7 @@ def test_web_pin_matches_image(repo_root, layered_values):
     assert re.fullmatch(r"\d+\.\d+\.\d+", tag)
     # The chart of the v2.2.0 release (main 2322e4c): chart and image from one commit.
     assert _chart_version(repo_root) == "0.1.0-main.2322e4c"
-    assert tag == "2.2.0"
+    assert tag == "2.3.0"
 
 
 def test_web_behind_oauth2_proxy_with_orchestrator_secret(layered_values):
