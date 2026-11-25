@@ -2,7 +2,7 @@
 
 Lessons that outlive a session. Newest first.
 
-- 2026-11-24: **delivery lanes pins (T-719): claude-code-wrapper 0.23.2 to 0.24.1, agents-orchestrator image 15.0.2 to 16.0.0, agents-web image 2.2.0 to 2.3.0.** Orchestrator #192 and web #99 are not released at PR time: the three chart versions (`0.1.0-main.<sha7>`) stay on the old releases with a TODO until v16.0.0 and v2.3.0 are tagged, then move with their tags (check-pins fails until then). Plugin ref `ORCH_ANY_MCP_PLUGINS_REF` untouched. Not applied here.
+- 2026-11-24: **delivery lanes pins (T-719): claude-code-wrapper 0.23.2 to 0.24.1, agents-orchestrator image 15.0.2 to 15.1.0, agents-web image 2.2.0 to 2.3.0.** Charts `0.1.0-main.<sha7>` of the tag commits: orchestrator 7e777e5 (v15.1.0), web 3854f4e (v2.3.0), `git ls-remote --tags`. Plugin ref `ORCH_ANY_MCP_PLUGINS_REF` untouched. Not applied here.
 
 - 2026-11-24: **claude-code-wrapper 0.23.1 to 0.23.2 (agentImage and ORCH_AGENT_IMAGES) and `ORCH_ANY_MCP_PLUGINS_REF` v0.64.0 to v0.65.0 pin (S-88, T-701).** Wrapper tag v0.23.2 = 20426b5 (also fixes the T-717 turn adoption race); plugins tag v0.65.0 = ffe2c62: TaskStop-killed subagents are cleared from leader_state and handoff refusals are actionable (pairs with the orchestrator 15.0.2 pin). Both move in one PR so live sessions roll once. Not applied here.
 - 2026-11-24: **agents-orchestrator 15.0.1 to 15.0.2 pin (S-88: actionable handoff refusal texts with per-subagent ids, agents-orchestrator #191).** Image `15.0.2` / chart `0.1.0-main.683f37a` (tag v15.0.2 = merge commit 683f37a, `git ls-remote --tags`). Only the orchestrator pin moves: `ORCH_ANY_MCP_PLUGINS_REF` and the wrapper agentImage/ORCH_AGENT_IMAGES stay, they go together in a later pin so live sessions roll once. Not applied here.

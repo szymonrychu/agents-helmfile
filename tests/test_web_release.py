@@ -32,8 +32,8 @@ def _chart_version(repo_root) -> str:
 def test_web_pin_matches_image(repo_root, layered_values):
     tag = layered_values(REL)["image"]["tag"]
     assert re.fullmatch(r"\d+\.\d+\.\d+", tag)
-    # The chart of the v2.2.0 release (main 2322e4c): chart and image from one commit.
-    assert _chart_version(repo_root) == "0.1.0-main.2322e4c"
+    # The chart of the v2.3.0 release (main 3854f4e): chart and image from one commit.
+    assert _chart_version(repo_root) == "0.1.0-main.3854f4e"
     assert tag == "2.3.0"
 
 
