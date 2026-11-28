@@ -105,6 +105,25 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
       - run: mise install
+      - name: Require repository secrets
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          missing=""
+          for name in HARBOR_USERNAME HARBOR_PASSWORD; do
+            if [ -z "${!name:-}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secret(s):$missing. Add them under Settings, Secrets and variables, Actions (see README, section CI)."
+            exit 1
+          fi
+      - name: Refuse a reachable Kubernetes API
+        run: |
+          if mise exec -- kubectl cluster-info --request-timeout=5s > /dev/null 2>&1; then
+            echo "::error::a Kubernetes API is reachable from this runner; CI never contacts one (README, section CI)."
+            exit 1
+          fi
       # The critical pin and secret tests run `helmfile build`, which pulls charts from Harbor.
       - name: Login to Harbor
         env:

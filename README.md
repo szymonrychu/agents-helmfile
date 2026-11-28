@@ -123,9 +123,9 @@ The job needs two repository secrets and fails first, naming whichever is missin
 
 ### Trust model
 
-The repository is public; each rule below is enforced by .github/workflows/ci.yaml.
+The repository is public; each rule below is implemented in .github/workflows/ci.yaml (no test pins it).
 
-- Which events get secrets. The job `ci`, the only one that references a secret, runs for `push`,
+- Which events get secrets. The jobs `ci` and `test-critical`, the only ones that reference a secret, run for `push`,
   `workflow_dispatch` and a `pull_request` whose head repo is this repository (job-level `if` on
   `github.event.pull_request.head.repo.full_name == github.repository`). A pull request from a fork runs `fork-lint`
   instead: `mise run lint` only, no secret, and a notice in its log that the full suite runs after a maintainer

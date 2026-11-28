@@ -232,3 +232,9 @@ Lessons that outlive a session. Newest first.
 - Markers unit/integration/e2e/live/critical registered, --strict-markers on; critical = test_semver_pins, test_check_pins, test_secrets, test_secret_write_scope; `mise run test:critical` and CI job test-critical (needs the Harbor login: those tests run helmfile build).
 - Deleted B3 tests: 20 *_release.py, ci_workflow, mise_tasks, nomenclature, repo_hygiene, helmfile_base, cnpg_backups, cache_bucket, workspace_cache, edit_cnpg_rbac (values/structure declarations). Kept script tests, semver_pins (deploy guard) and sops_skip.
 - ruff C90/PLR09xx/RET/ERA enabled; 8 complexity noqa baseline lines in test_smoke_script.py and friends; remove when touched.
+
+## 2026-11-28 - S-99 review fixes
+
+- Restored as tests/test_cluster_guards.py (marker critical): kube-context guard rejection and prepare-hook abort, because they are script behaviour, not declarations.
+- Older entries above that cite deleted tests (test_ci_workflow, test_cnpg_backups, *_release, test_mise_tasks, test_helmfile_base, test_repo_hygiene) describe guards that no longer exist as tests; the rules themselves still hold in the files they describe.
+- test-critical CI job now carries the same secret and no-Kubernetes-API guards as ci.
