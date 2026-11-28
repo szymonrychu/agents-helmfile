@@ -41,7 +41,6 @@ def _run_guard(tasks, tmp_path, context: str, env_extra: dict | None = None):
     )
 
 
-
 def test_kube_context_guard_rejects_unexpected_context(tasks, tmp_path):
     bad = _run_guard(tasks, tmp_path, "prod-cluster")
     assert bad.returncode != 0
@@ -86,13 +85,6 @@ def _run_prepare(repo_root, tmp_path, diff_stderr, diff_rc):
         env=env,
         cwd=tmp_path,
     )
-
-
-def test_prepare_aborts_on_other_kubectl_errors(repo_root, tmp_path):
-    proc = _run_prepare(repo_root, tmp_path, "error: connection refused", 2)
-    assert proc.returncode == 1
-    assert "kubectl diff failed (rc=2)" in proc.stderr
-
 
 
 def test_prepare_aborts_on_other_kubectl_errors(repo_root, tmp_path):
