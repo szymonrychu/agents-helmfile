@@ -10,6 +10,9 @@ import re
 
 import pytest
 
+pytestmark = pytest.mark.critical
+
+
 PREFIX = "harbor.szymonrichert.pl/containers/"
 IMAGE_REF = re.compile(r"harbor\.szymonrichert\.pl/containers/[^:\s]+:(\S+)")
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")

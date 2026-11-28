@@ -335,7 +335,7 @@ class _Fake:
             "sent_at": "2026-10-28T10:00:01.123456Z" if status == "sent" else None,
         }
 
-    def get(self, raw: str):
+    def get(self, raw: str):  # noqa: C901, PLR0911
         path, _, query = raw.partition("?")
         path = unquote(path)
         if path == "/healthz":

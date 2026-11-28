@@ -21,6 +21,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+pytestmark = pytest.mark.critical
+
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "check_pins.py"
 FIXTURE = ROOT / "tests" / "fixtures" / "check_runs_agents_orchestrator.json"
