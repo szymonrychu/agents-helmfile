@@ -2,7 +2,11 @@
 
 import re
 
+import pytest
 import yaml
+
+pytestmark = pytest.mark.critical
+
 
 POLICY = "raw/secret-write-scope.pre.yaml"
 NETPOL = "raw/vault-service-ingress.disabled.yaml"

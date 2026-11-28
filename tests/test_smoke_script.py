@@ -115,7 +115,7 @@ else:
 
 
 class _Api:
-    def __init__(self):
+    def __init__(self):  # noqa: C901, PLR0915
         self.requests: list[tuple[str, str, bytes]] = []
         self.leader: str | None = "agent-uuid-0"
         self.leader_reason: str = "start"
@@ -229,7 +229,7 @@ class _Api:
                 self.end_headers()
                 self.wfile.write(data)
 
-            def do_GET(self):
+            def do_GET(self):  # noqa: C901, PLR0912, PLR0915
                 self._record()
                 path = self.path.split("?")[0]
                 if path == "/healthz":
@@ -538,7 +538,7 @@ class _Api:
                     return
                 self._send(404, "{}")
 
-            def do_POST(self):
+            def do_POST(self):  # noqa: C901, PLR0911
                 self._record()
                 if self.path == "/api/v1/projects":
                     created = json.loads(api.requests[-1][2])
@@ -595,7 +595,7 @@ class _Api:
                     return
                 self._send(404, "{}")
 
-            def do_DELETE(self):
+            def do_DELETE(self):  # noqa: PLR0911
                 self._record()
                 if self.path == WH_ENDPOINT:
                     self.send_response(204)

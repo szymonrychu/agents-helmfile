@@ -65,7 +65,7 @@ class Fake:
         self.list_calls = 0
 
 
-def make_server(state):
+def make_server(state):  # noqa: C901
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -81,7 +81,7 @@ def make_server(state):
         def body(self):
             return json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
 
-        def handle_any(self, method):
+        def handle_any(self, method):  # noqa: C901, PLR0911, PLR0912
             state.seen_hosts.add(self.headers.get("Host"))
             url = urlparse(self.path)
             parts = url.path.removeprefix("/api/v1").strip("/").split("/")

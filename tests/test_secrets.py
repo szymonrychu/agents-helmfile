@@ -13,6 +13,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+pytestmark = pytest.mark.critical
+
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "bootstrap-secrets.sh"
 ADMIN_WH = "values/agents-webhook/raw/admin-tokens.agents-webhook.pre.secrets.yaml"

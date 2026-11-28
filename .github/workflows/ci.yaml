@@ -95,6 +95,28 @@ jobs:
         if: always()
         run: mise exec -- helm registry logout "$HARBOR_URL"
 
+  test-critical:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+      - run: mise install
+      # The critical pin and secret tests run `helmfile build`, which pulls charts from Harbor.
+      - name: Login to Harbor
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: echo "$HARBOR_PASSWORD" | mise exec -- helm registry login "$HARBOR_URL" --username "$HARBOR_USERNAME" --password-stdin
+      - name: Run the critical tests (failure details stay off the log)
+        run: mise run test:critical -- --tb=no --show-capture=no --disable-warnings -rs
+      - name: Remove the Harbor login
+        if: always()
+        run: mise exec -- helm registry logout "$HARBOR_URL"
+
   fork-lint:
     # GitHub gives a fork pull request no secrets, and this job asks for none.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository

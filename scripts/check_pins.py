@@ -136,7 +136,7 @@ def _tag_pin(label: str, repo: str, tag: object) -> Pin:
     return Pin(label, repo, tag)
 
 
-def _values_pins() -> list[Pin]:
+def _values_pins() -> list[Pin]:  # noqa: C901
     pins = []
     try:
         orch = _load(ORCH_VALUES)

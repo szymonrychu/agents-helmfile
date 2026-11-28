@@ -45,6 +45,10 @@ gitleaks detect --no-git --source . --redact
 description = "Run tests"
 run = "uv run pytest"
 
+[tasks."test:critical"]
+description = "Run the critical tests"
+run = "uv run pytest -m critical"
+
 [tasks.fmt]
 description = "Format code"
 run = "uv run ruff format ."

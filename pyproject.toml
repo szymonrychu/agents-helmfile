@@ -13,7 +13,20 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers"
+markers = [
+    "unit: fast isolated test",
+    "integration: test needing real services",
+    "e2e: end-to-end test",
+    "live: test against live systems",
+    "critical: guards a user-visible flow, data integrity or security (mise run test:critical)",
+]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["C90", "PLR0911", "PLR0912", "PLR0915", "RET", "ERA"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
