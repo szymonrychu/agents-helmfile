@@ -99,7 +99,7 @@ annotation: its pods stop, its volumes and backups stay, and it is the rollback 
 
 `.github/workflows/ci.yaml` runs on every pull request to main and every push to main (and by hand):
 `mise run lint`, `mise run check-pins` (with the workflow `GITHUB_TOKEN` as `GH_TOKEN`; the pinned repos are public)
-and `mise run test` (the whole suite, including `tests/test_orchestrator_release.py`). Actions are pinned by full
+and `mise run test` (the whole suite). Actions are pinned by full
 commit sha, checkout keeps no token in the git config and the token has `contents: read` only.
 
 `.github/workflows/local.yaml` (workflow `local`) brings the local docker compose stack up end to end with a fake claude
@@ -123,7 +123,7 @@ The job needs two repository secrets and fails first, naming whichever is missin
 
 ### Trust model
 
-The repository is public; `tests/test_ci_workflow.py` pins each rule below.
+The repository is public; each rule below is enforced by .github/workflows/ci.yaml.
 
 - Which events get secrets. The job `ci`, the only one that references a secret, runs for `push`,
   `workflow_dispatch` and a `pull_request` whose head repo is this repository (job-level `if` on
